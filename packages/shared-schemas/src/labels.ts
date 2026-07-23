@@ -1,0 +1,64 @@
+import type {
+  Gender,
+  IdentityDocType,
+  LandType,
+  OccupancyType,
+  PropertyType,
+  ReportStatus,
+  ResidentStatus,
+  UnitType,
+} from './enums';
+
+/** Arabic display labels. Keep UI copy here, not inside the schemas. */
+export const ar = {
+  gender: { MALE: 'ذكر', FEMALE: 'أنثى' } satisfies Record<Gender, string>,
+
+  residentStatus: {
+    REFUGEE: 'لاجئ',
+    DISPLACED: 'نازح',
+    VILLAGE_RESIDENT: 'من سكان الضيعة',
+  } satisfies Record<ResidentStatus, string>,
+
+  identityDocType: {
+    NATIONAL_ID: 'هوية',
+    FAMILY_RECORD: 'إخراج قيد',
+    DRIVER_LICENSE: 'دفتر سواقة',
+    PASSPORT: 'جواز سفر',
+  } satisfies Record<IdentityDocType, string>,
+
+  /** Label of the number field that appears once a document type is chosen. */
+  identityDocNumberLabel: {
+    NATIONAL_ID: 'رقم الهوية',
+    FAMILY_RECORD: 'رقم القيد',
+    DRIVER_LICENSE: 'رقم الرخصة',
+    PASSPORT: 'رقم الجواز',
+  } satisfies Record<IdentityDocType, string>,
+
+  occupancyType: { OWNER: 'مالك', TENANT: 'مستأجر' } satisfies Record<OccupancyType, string>,
+
+  propertyType: {
+    BUILDING: 'مبنى',
+    HOUSE: 'منزل',
+    LAND: 'أرض',
+    TENT: 'خيمة',
+  } satisfies Record<PropertyType, string>,
+
+  unitType: {
+    APARTMENT: 'شقة',
+    CLINIC: 'عيادة',
+    SHOP: 'محل تجاري',
+  } satisfies Record<UnitType, string>,
+
+  landType: {
+    AGRICULTURAL: 'زراعي',
+    INDUSTRIAL: 'صناعي',
+  } satisfies Record<LandType, string>,
+
+  reportStatus: {
+    PENDING: 'قيد الانتظار',
+    UNDER_REVIEW: 'قيد المراجعة',
+    VERIFIED: 'تم التحقق',
+    APPROVED: 'مقبول',
+    REJECTED: 'مرفوض',
+  } satisfies Record<ReportStatus, string>,
+} as const;

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+coverage/
+
+# env — never commit real credentials
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# prisma
+apps/backend/prisma/generated/
+
+.DS_Store
+*.log

@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Visual direction: Lebanese municipal paperwork — cool paper stock, official
+ * stamp ink, a cedar-green seal. Deliberately not a SaaS gradient: citizens
+ * should recognise this as a government form they can trust.
+ */
+:root {
+  --paper: #eceeea;        /* cool grey-green form paper */
+  --card: #f7f8f6;
+  --ink: #14201c;          /* stamp-ink near-black, green undertone */
+  --ink-muted: #55635d;
+  --cedar: #1f5c4b;        /* primary action, municipal seal green */
+  --cedar-soft: #dbe7e1;
+  --seal: #a6321f;         /* required markers, rejection — stamp red */
+  --gold: #c08a2e;         /* in-progress states */
+  --rule: #cdd3cd;
+
+  --font-display: 'Noto Kufi Arabic', system-ui;
+  --font-body: 'IBM Plex Sans Arabic', system-ui;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  /* Paper grain: a faint ruled texture, not a gradient. */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 39px,
+    rgba(20, 32, 28, 0.03) 39px,
+    rgba(20, 32, 28, 0.03) 40px
+  );
+}
+
+/* Accessibility floor: visible focus everywhere, no exceptions. */
+:focus-visible {
+  outline: 3px solid var(--cedar);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/**
+ * Signature element: the stamp. Steps completed in the wizard and the final
+ * reference number are presented as if struck with a municipal rubber stamp —
+ * a visual language citizens already associate with an accepted document.
+ */
+.stamp {
+  border: 2px solid var(--cedar);
+  color: var(--cedar);
+  border-radius: 2px;
+  transform: rotate(-1.5deg);
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 0 0 1px var(--cedar);
+}
+
+.stamp--pending {
+  border-color: var(--rule);
+  color: var(--ink-muted);
+  box-shadow: none;
+  transform: none;
+}
