@@ -1,11 +1,22 @@
 'use client';
 
+import { useState } from 'react';
 import { ar } from '@mechanization/shared-schemas';
 import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ChoiceCard, Field } from '@/components/ui/field';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import type { PropertyDraft } from './property-card';
 import type { WizardData } from './registration-wizard';
 
@@ -13,20 +24,6 @@ type Values = Record<string, unknown>;
 type Errors = Record<string, string>;
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
-
-/**
- * Step indices, named. The review step links back to each section, and after
- * the location step was removed those numbers all shifted — a bare `onJump(4)`
- * is exactly the kind of thing that silently starts pointing at the wrong page.
- */
-export const STEP_INDEX = {
-  personal: 0,
-  contact: 1,
-  properties: 2,
-  documents: 3,
-  review: 4,
-  declaration: 5,
-} as const;
 
 /** Step 1 — البيانات الشخصية ومعلومات الإثبات */
 export function PersonalStep({
@@ -117,16 +114,19 @@ export function PersonalStep({
         error={errors['personal.identityDocType']}
       >
         <Select
-          id="identityDocType"
           value={str(value.identityDocType)}
-          onChange={(e) => set({ identityDocType: e.target.value })}
+          onValueChange={(next) => set({ identityDocType: next })}
         >
-          <option value="">اختر…</option>
-          {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map((o) => (
-            <option key={o} value={o}>
-              {ar.identityDocType[o]}
-            </option>
-          ))}
+          <SelectTrigger id="identityDocType">
+            <SelectValue placeholder="اختر…" />
+          </SelectTrigger>
+          <SelectContent>
+            {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map((o) => (
+              <SelectItem key={o} value={o}>
+                {ar.identityDocType[o]}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </Field>
 
@@ -172,15 +172,14 @@ export function PersonalStep({
         />
       </Field>
 
-      <label className="flex min-h-touch items-center gap-3">
-        <input
-          type="checkbox"
-          className="h-5 w-5 accent-[hsl(var(--primary))]"
+      <div className="flex min-h-touch items-center gap-3">
+        <Checkbox
+          id="isLebanese"
           checked={isLebanese}
-          onChange={(e) => set({ isLebanese: e.target.checked })}
+          onCheckedChange={(checked) => set({ isLebanese: checked === true })}
         />
-        <span>لبناني الجنسية</span>
-      </label>
+        <Label htmlFor="isLebanese">لبناني الجنسية</Label>
+      </div>
 
       {!isLebanese ? (
         <Field
@@ -237,15 +236,14 @@ export function ContactStep({
         />
       </Field>
 
-      <label className="flex min-h-touch items-center gap-3">
-        <input
-          type="checkbox"
-          className="h-5 w-5 accent-[hsl(var(--primary))]"
+      <div className="flex min-h-touch items-center gap-3">
+        <Checkbox
+          id="whatsappSameAsPhone"
           checked={sameAsPhone}
-          onChange={(e) => set({ whatsappSameAsPhone: e.target.checked })}
+          onCheckedChange={(checked) => set({ whatsappSameAsPhone: checked === true })}
         />
-        <span>رقم الواتساب هو نفسه</span>
-      </label>
+        <Label htmlFor="whatsappSameAsPhone">رقم الواتساب هو نفسه</Label>
+      </div>
 
       {!sameAsPhone ? (
         <Field label="رقم الواتساب" htmlFor="whatsapp" required error={errors['contact.whatsapp']}>
@@ -382,26 +380,63 @@ function FileField({
   );
 }
 
-/** Step 5 — المراجعة */
+type ReviewSection = 'personal' | 'contact' | 'properties' | 'documents';
+
+/**
+ * Step 5 — المراجعة
+ *
+ * «تعديل» opens the section in place rather than sending the citizen back to
+ * the step it came from. Jumping backwards loses the reviewer's position and
+ * then strands them: having fixed a phone number on step 2 they have to walk
+ * forward through every step again to reach the submit button they were
+ * standing on. Editing here keeps the review as the one page that has to be
+ * got right.
+ */
 export function ReviewStep({
   data,
   files,
-  onJump,
+  errors,
+  requiredDocuments,
+  draftRestored,
+  onChangeData,
+  onChangeFiles,
+  propertyEditor,
 }: {
   data: WizardData;
   files: Record<string, File>;
-  onJump: (step: number) => void;
+  errors: Errors;
+  requiredDocuments: string[];
+  draftRestored: boolean;
+  onChangeData: (patch: Partial<WizardData>) => void;
+  onChangeFiles: (next: Record<string, File>) => void;
+  /** The step-3 property editor, handed in whole so the two cannot diverge. */
+  propertyEditor: React.ReactNode;
 }) {
+  const [editing, setEditing] = useState<ReviewSection | null>(null);
   const personal = data.personal;
   const contact = data.contact;
+
+  const toggle = (section: ReviewSection) =>
+    setEditing((current) => (current === section ? null : section));
 
   return (
     <div className="space-y-6">
       <p className="text-muted-foreground">
-        راجع بياناتك قبل الإرسال. اضغط «تعديل» لتصحيح أي قسم.
+        راجع بياناتك قبل الإرسال. اضغط «تعديل» لتصحيح أي قسم دون مغادرة هذه الصفحة.
       </p>
 
-      <ReviewBlock title="البيانات الشخصية" onEdit={() => onJump(STEP_INDEX.personal)}>
+      <ReviewBlock
+        title="البيانات الشخصية"
+        editing={editing === 'personal'}
+        onToggleEdit={() => toggle('personal')}
+        editor={
+          <PersonalStep
+            value={personal}
+            errors={errors}
+            onChange={(next) => onChangeData({ personal: next })}
+          />
+        }
+      >
         <Row
           label="الاسم"
           value={[personal.firstName, personal.middleName, personal.lastName]
@@ -415,14 +450,27 @@ export function ReviewStep({
         <Row label="رقم الوثيقة" value={str(personal.identityDocNumber)} />
       </ReviewBlock>
 
-      <ReviewBlock title="التواصل والأسرة" onEdit={() => onJump(STEP_INDEX.contact)}>
+      <ReviewBlock
+        title="التواصل والأسرة"
+        editing={editing === 'contact'}
+        onToggleEdit={() => toggle('contact')}
+        editor={
+          <ContactStep
+            value={contact}
+            errors={errors}
+            onChange={(next) => onChangeData({ contact: next })}
+          />
+        }
+      >
         <Row label="الهاتف" value={str(contact.phone)} />
         <Row label="عدد الأفراد" value={str(contact.familySize)} />
       </ReviewBlock>
 
       <ReviewBlock
         title={`العقارات (${data.properties.length})`}
-        onEdit={() => onJump(STEP_INDEX.properties)}
+        editing={editing === 'properties'}
+        onToggleEdit={() => toggle('properties')}
+        editor={propertyEditor}
       >
         {data.properties.map((property, index) => (
           <Row
@@ -431,6 +479,7 @@ export function ReviewStep({
             value={[
               property.propertyType ? ar.propertyType[property.propertyType] : '—',
               property.propertyNumber ? `رقم ${property.propertyNumber}` : null,
+              property.units?.length ? `${property.units.length} وحدة` : null,
             ]
               .filter(Boolean)
               .join(' — ')}
@@ -440,7 +489,17 @@ export function ReviewStep({
 
       <ReviewBlock
         title={`المستندات (${Object.keys(files).length})`}
-        onEdit={() => onJump(STEP_INDEX.documents)}
+        editing={editing === 'documents'}
+        onToggleEdit={() => toggle('documents')}
+        editor={
+          <DocumentsStep
+            properties={data.properties}
+            files={files}
+            requiredDocuments={requiredDocuments}
+            draftRestored={draftRestored}
+            onChange={onChangeFiles}
+          />
+        }
       >
         {Object.entries(files).map(([field, file]) => (
           <Row key={field} label={field} value={file.name} />
@@ -455,23 +514,27 @@ export function ReviewStep({
 
 function ReviewBlock({
   title,
-  onEdit,
+  editing,
+  onToggleEdit,
+  editor,
   children,
 }: {
   title: string;
-  onEdit: () => void;
+  editing: boolean;
+  onToggleEdit: () => void;
+  editor: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <Card>
+    <Card className={cn(editing && 'border-primary/40 ring-1 ring-primary/20')}>
       <CardContent className="p-5">
         <header className="mb-3 flex items-center justify-between border-b pb-2">
           <h3 className="font-semibold">{title}</h3>
-          <Button variant="link" size="sm" onClick={onEdit}>
-            تعديل
+          <Button variant="link" size="sm" onClick={onToggleEdit}>
+            {editing ? 'تم' : 'تعديل'}
           </Button>
         </header>
-        <dl className="space-y-1">{children}</dl>
+        {editing ? <div className="pt-1">{editor}</div> : <dl className="space-y-1">{children}</dl>}
       </CardContent>
     </Card>
   );

@@ -104,6 +104,17 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
               sharedRights: p.sharedRights ?? [],
               latitude: p.latitude ?? null,
               longitude: p.longitude ?? null,
+              // A building carries its units here rather than in the columns
+              // above — one parcel, one رقم العقار, many apartments.
+              units: {
+                create: (p.units ?? []).map((unit) => ({
+                  unitType: unit.unitType as never,
+                  floor: unit.floor,
+                  side: unit.side ?? null,
+                  unitArea: unit.unitArea,
+                  sharedRights: unit.sharedRights ?? [],
+                })),
+              },
             },
             select: { id: true },
           });
@@ -125,7 +136,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
   async findById(id: string): Promise<Registration | null> {
     const row = await this.db.registration.findUnique({
       where: { id },
-      include: { properties: true },
+      include: { properties: { include: { units: true } } },
     });
     return row ? this.toDomain(row) : null;
   }
@@ -133,7 +144,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
   async findByReferenceNumber(reference: string): Promise<Registration | null> {
     const row = await this.db.registration.findUnique({
       where: { referenceNumber: reference },
-      include: { properties: true },
+      include: { properties: { include: { units: true } } },
     });
     return row ? this.toDomain(row) : null;
   }
@@ -249,6 +260,13 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
           tentLocation: p.tentLocation as string | null,
           unitArea: p.unitArea == null ? null : Number(p.unitArea),
           sharedRights: (p.sharedRights as string[]) ?? [],
+          units: ((p.units as Array<Record<string, unknown>>) ?? []).map((unit) => ({
+            unitType: unit.unitType as never,
+            floor: unit.floor as string,
+            side: unit.side as string | null,
+            unitArea: Number(unit.unitArea),
+            sharedRights: (unit.sharedRights as string[]) ?? [],
+          })),
           latitude: p.latitude as number | null,
           longitude: p.longitude as number | null,
         }),

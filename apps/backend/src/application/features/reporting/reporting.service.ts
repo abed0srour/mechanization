@@ -141,6 +141,10 @@ export class ReportingService {
             propertyType: true,
             occupancyType: true,
             unitArea: true,
+            buildingName: true,
+            units: {
+              select: { unitType: true, floor: true, unitArea: true },
+            },
           },
         },
       },
@@ -158,6 +162,9 @@ export class ReportingService {
       'property_number',
       'property_type',
       'occupancy_type',
+      'building_name',
+      'unit_type',
+      'floor',
       'unit_area',
     ];
 
@@ -169,27 +176,42 @@ export class ReportingService {
         .join(' ');
 
       // One line per property, so a citizen with three properties produces three
-      // rows — municipality staff filter by property, not by person.
+      // rows — municipality staff filter by property, not by person. A building
+      // goes one further and emits a line per unit: the whole point of owning
+      // one is that it holds several, and a single row would report the parcel
+      // while hiding everything inside it.
       const properties = row.properties.length > 0 ? row.properties : [null];
 
       for (const property of properties) {
-        lines.push(
-          [
-            row.referenceNumber,
-            row.status,
-            row.submittedAt.toISOString(),
-            name,
-            row.citizen.phone ?? '',
-            row.citizen.residentStatus ?? '',
-            row.citizen.familySize ?? '',
-            property?.propertyNumber ?? '',
-            property?.propertyType ?? '',
-            property?.occupancyType ?? '',
-            property?.unitArea?.toString() ?? '',
-          ]
-            .map(csvCell)
-            .join(','),
-        );
+        const units =
+          property && property.units.length > 0
+            ? property.units
+            : [null];
+
+        for (const unit of units) {
+          lines.push(
+            [
+              row.referenceNumber,
+              row.status,
+              row.submittedAt.toISOString(),
+              name,
+              row.citizen.phone ?? '',
+              row.citizen.residentStatus ?? '',
+              row.citizen.familySize ?? '',
+              property?.propertyNumber ?? '',
+              property?.propertyType ?? '',
+              property?.occupancyType ?? '',
+              property?.buildingName ?? '',
+              unit?.unitType ?? '',
+              unit?.floor ?? '',
+              // The area lives on the unit for a building and on the property
+              // itself for everything else.
+              (unit?.unitArea ?? property?.unitArea)?.toString() ?? '',
+            ]
+              .map(csvCell)
+              .join(','),
+          );
+        }
       }
     }
 

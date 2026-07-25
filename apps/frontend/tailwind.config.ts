@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import animate from 'tailwindcss-animate';
 
 /**
  * Mirrors the Albazourieh platform's Tailwind theme so components copied
@@ -64,7 +65,10 @@ const config: Config = {
       spacing: { touch: '3rem' },
     },
   },
-  plugins: [],
+  // The reference platform's animation plugin. The Radix components carry
+  // `data-[state=open]:animate-in` / `fade-in-0` / `zoom-in-95` classes that are
+  // inert without it — the dialog and select would pop rather than transition.
+  plugins: [animate],
 };
 
 export default config;

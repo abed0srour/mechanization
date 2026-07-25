@@ -203,6 +203,9 @@ model PropertyEntry {
   /// Unique within this municipality, which is exactly what the schema boundary
   /// already gives us — no composite key with a tenant column required.
   propertyNumber String        @unique
+  /// unitType/floor/side/unitArea/sharedRights describe a single unit, which is
+  /// all a HOUSE or a LAND ever has. A BUILDING reads its units from
+  /// `units` instead — see BuildingUnit.
   unitType       UnitType?
   landType       LandType?
   buildingName   String?
@@ -219,10 +222,35 @@ model PropertyEntry {
   updatedAt DateTime @updatedAt
 
   documents Document[]
+  units     BuildingUnit[]
 
   @@index([propertyType])
   @@index([latitude, longitude])
   @@map("property_entries")
+}
+
+/// One unit inside a BUILDING — شقة, عيادة or محل.
+///
+/// Owning a whole building is one عقار with many units, not many عقارات: the
+/// parcel has a single رقم العقار, and `PropertyEntry.propertyNumber` is unique
+/// precisely so the cadastre lookup can trust it. Units therefore hang off the
+/// parcel rather than duplicating it.
+model BuildingUnit {
+  id              String        @id @default(uuid()) @db.Uuid
+  propertyEntryId String        @db.Uuid
+  propertyEntry   PropertyEntry @relation(fields: [propertyEntryId], references: [id], onDelete: Cascade)
+
+  unitType     UnitType
+  floor        String
+  side         String?
+  unitArea     Decimal  @db.Decimal(12, 2)
+  sharedRights String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([propertyEntryId])
+  @@map("building_units")
 }
 
 // ────────────────────────────  Cadastre  ────────────────────────────

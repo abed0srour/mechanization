@@ -20,7 +20,21 @@ import { clearSession, loadSession } from '@/lib/session';
 import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 /**
  * MapLibre and a megabyte of cadastre GeoJSON load only for staff who reach the
@@ -35,6 +49,12 @@ const PropertyMapPanel = dynamic(
 );
 
 const STATUSES = ['PENDING', 'UNDER_REVIEW', 'VERIFIED', 'APPROVED', 'REJECTED'] as const;
+
+/**
+ * "No filter" needs a value of its own: a Radix SelectItem cannot carry an empty
+ * string, which is what the list endpoint wants for "every status".
+ */
+const ALL_STATUSES = 'ALL';
 
 export default function StaffDashboard({
   params,
@@ -159,68 +179,69 @@ export default function StaffDashboard({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">الطلبات</h2>
           <Select
-            className="w-auto"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            aria-label="تصفية حسب الحالة"
+            value={filter || ALL_STATUSES}
+            onValueChange={(next) => setFilter(next === ALL_STATUSES ? '' : next)}
           >
-            <option value="">كل الحالات</option>
-            {STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {ar.reportStatus[status]}
-              </option>
-            ))}
+            <SelectTrigger className="w-[180px]" aria-label="تصفية حسب الحالة">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_STATUSES}>كل الحالات</SelectItem>
+              {STATUSES.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {ar.reportStatus[status]}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
 
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-start text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-start text-muted-foreground">
-                  <th className="p-3 text-start font-medium">الرقم المرجعي</th>
-                  <th className="p-3 text-start font-medium">مقدّم الطلب</th>
-                  <th className="p-3 text-start font-medium">العقارات</th>
-                  <th className="p-3 text-start font-medium">الحالة</th>
-                  <th className="p-3 text-start font-medium">إجراء</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="p-3 font-medium" dir="ltr">
-                      {item.referenceNumber}
-                    </td>
-                    <td className="p-3">{item.citizenName}</td>
-                    <td className="p-3">{item.propertyCount}</td>
-                    <td className="p-3">
-                      <Badge variant={STATUS_BADGE_VARIANT[item.status] ?? 'secondary'}>
-                        {ar.reportStatus[item.status as never] ?? item.status}
-                      </Badge>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap gap-2">
-                        {nextStatusesFor(item.status).map((next) => (
-                          <Button
-                            key={next}
-                            variant="outline"
-                            size="sm"
-                            onClick={() => transition(item.id, next)}
-                          >
-                            {ar.reportStatus[next as never] ?? next}
-                          </Button>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <Table>
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead scope="col">الرقم المرجعي</TableHead>
+                <TableHead scope="col">مقدّم الطلب</TableHead>
+                <TableHead scope="col">العقارات</TableHead>
+                <TableHead scope="col">الحالة</TableHead>
+                <TableHead scope="col">إجراء</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="font-medium" dir="ltr">
+                    {item.referenceNumber}
+                  </TableCell>
+                  <TableCell>{item.citizenName}</TableCell>
+                  <TableCell>{item.propertyCount}</TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_BADGE_VARIANT[item.status] ?? 'secondary'}>
+                      {ar.reportStatus[item.status as never] ?? item.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-2">
+                      {nextStatusesFor(item.status).map((next) => (
+                        <Button
+                          key={next}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => transition(item.id, next)}
+                        >
+                          {ar.reportStatus[next as never] ?? next}
+                        </Button>
+                      ))}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
 
-            {items.length === 0 ? (
-              <p className="p-6 text-center text-muted-foreground">لا توجد طلبات.</p>
-            ) : null}
-          </div>
+          {items.length === 0 ? (
+            <p className="p-6 text-center text-muted-foreground">لا توجد طلبات.</p>
+          ) : null}
         </Card>
       </section>
     </div>

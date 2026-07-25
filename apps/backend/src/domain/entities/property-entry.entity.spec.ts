@@ -1,4 +1,4 @@
-import { PropertyEntry, PropertyEntryProps } from './property-entry.entity';
+import { BuildingUnitProps, PropertyEntry, PropertyEntryProps } from './property-entry.entity';
 import { ValidationError } from '../errors/domain-error';
 
 /**
@@ -10,10 +10,8 @@ const building = (overrides: Partial<PropertyEntryProps> = {}): PropertyEntryPro
   occupancyType: 'OWNER',
   propertyType: 'BUILDING',
   propertyNumber: 'B-101',
-  unitType: 'APARTMENT',
   buildingName: 'مبنى الزهراء',
-  floor: '3',
-  unitArea: 120,
+  units: [{ unitType: 'APARTMENT', floor: '3', unitArea: 120 }],
   ...overrides,
 });
 
@@ -50,11 +48,63 @@ describe('PropertyEntry — occupancy rules', () => {
 });
 
 describe('PropertyEntry — taxonomy rules', () => {
-  it('requires unit type, building name, floor and area for a building', () => {
-    expect(() => PropertyEntry.create(building({ unitType: null }))).toThrow(/unit type/);
+  it('requires a building name and at least one unit for a building', () => {
     expect(() => PropertyEntry.create(building({ buildingName: '' }))).toThrow(/building name/);
-    expect(() => PropertyEntry.create(building({ floor: '' }))).toThrow(/floor/);
-    expect(() => PropertyEntry.create(building({ unitArea: 0 }))).toThrow(/area/);
+    expect(() => PropertyEntry.create(building({ units: [] }))).toThrow(/at least one unit/);
+  });
+
+  it('validates every unit in a building, not just the first', () => {
+    const withSecondUnit = (unit: Partial<BuildingUnitProps>) =>
+      building({
+        units: [
+          { unitType: 'APARTMENT', floor: '3', unitArea: 120 },
+          { unitType: 'SHOP', floor: '0', unitArea: 40, ...unit },
+        ],
+      });
+
+    // A landlord filling in six apartments gets one wrong on the fourth; the
+    // error has to name which, or they are left hunting.
+    expect(() => PropertyEntry.create(withSecondUnit({ floor: '' }))).toThrow(
+      /unit 2 requires a floor/,
+    );
+    expect(() => PropertyEntry.create(withSecondUnit({ unitArea: 0 }))).toThrow(
+      /unit 2 requires an area/,
+    );
+    expect(() => PropertyEntry.create(withSecondUnit({}))).not.toThrow();
+  });
+
+  it('keeps a building whole rather than one entry per apartment', () => {
+    // The parcel has a single رقم العقار and that column is unique, so the
+    // units have to hang off it — this is the constraint the model exists for.
+    const entry = PropertyEntry.create(
+      building({
+        units: [
+          { unitType: 'APARTMENT', floor: '1', unitArea: 110 },
+          { unitType: 'APARTMENT', floor: '2', unitArea: 110 },
+          { unitType: 'SHOP', floor: '0', unitArea: 45 },
+        ],
+      }),
+    );
+
+    expect(entry.propertyNumber).toBe('B-101');
+    expect(entry.props.units).toHaveLength(3);
+    // The single-unit columns stay empty: a building's detail lives in `units`.
+    expect(entry.props.unitType).toBeNull();
+    expect(entry.props.floor).toBeNull();
+    expect(entry.props.unitArea).toBeNull();
+  });
+
+  it('refuses to divide anything but a building into units', () => {
+    expect(() =>
+      PropertyEntry.create({
+        occupancyType: 'OWNER',
+        propertyType: 'LAND',
+        propertyNumber: 'L-405',
+        landType: 'AGRICULTURAL',
+        unitArea: 900,
+        units: [{ unitType: 'APARTMENT', floor: '1', unitArea: 90 }],
+      }),
+    ).toThrow(/cannot be divided into units/);
   });
 
   it('rejects a house that carries a floor or unit type', () => {

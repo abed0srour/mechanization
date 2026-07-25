@@ -168,12 +168,19 @@ async function seedTenant(
           occupancyType: 'OWNER' as const,
           propertyType: 'BUILDING' as const,
           propertyNumber: `${tenant.prefix}-B-101`,
-          unitType: 'APARTMENT' as const,
           buildingName: 'مبنى الزهراء',
-          floor: '3',
-          unitArea: 120.5,
           latitude: 33.2705,
           longitude: 35.2038,
+          // A whole building, which is the case the units table exists for —
+          // one رقم العقار, three units. Seeding a single-unit building would
+          // never exercise it.
+          units: {
+            create: [
+              { unitType: 'APARTMENT' as const, floor: '3', unitArea: 120.5 },
+              { unitType: 'APARTMENT' as const, floor: '4', unitArea: 118 },
+              { unitType: 'SHOP' as const, floor: '0', unitArea: 45 },
+            ],
+          },
         },
         status: 'PENDING' as const,
       },

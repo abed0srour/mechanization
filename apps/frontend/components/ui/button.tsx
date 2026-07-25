@@ -1,12 +1,11 @@
 import * as React from 'react';
+import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 /**
  * Ported from the Albazourieh platform so the two systems' buttons are the same
- * button. `asChild` is dropped — that variant needed Radix's Slot, and the one
- * place this codebase renders a link as a button uses `buttonVariants()` on an
- * anchor instead, which produces identical markup without the dependency.
+ * button — same variants, same sizes, same `asChild` escape hatch.
  *
  * `xl` is what the citizen wizard uses: 80px tall, because the primary action on
  * a government form should be unmissable to someone holding a phone at arm's
@@ -44,19 +43,26 @@ const buttonVariants = cva(
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+}
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, type = 'button', ...props }, ref) => (
-    <button
-      ref={ref}
-      // Defaulting to "button": these live inside a multi-step wizard, where a
-      // stray submit type turns "next" into "file the incomplete form".
-      type={type}
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
-  ),
+  ({ className, variant, size, asChild = false, type, ...props }, ref) => {
+    const Comp = asChild ? Slot : 'button';
+    return (
+      <Comp
+        ref={ref}
+        // Defaulting to "button": these live inside a multi-step wizard, where a
+        // stray submit type turns "next" into "file the incomplete form". Only
+        // applied to a real <button> — `asChild` may render an anchor, which has
+        // no `type`.
+        {...(asChild ? {} : { type: type ?? 'button' })}
+        className={cn(buttonVariants({ variant, size, className }))}
+        {...props}
+      />
+    );
+  },
 );
 Button.displayName = 'Button';
 

@@ -1,11 +1,16 @@
 'use client';
 
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 /**
  * One field, one job. Required and optional are both spelled out in words
  * rather than marked with an asterisk: the audience includes people filling in
  * their first web form, and a bare `*` is a convention you have to already know.
+ *
+ * The caption is the shared `Label`, so its typography is the reference
+ * platform's; only the row layout that carries the إلزامي/اختياري marker is
+ * added on top.
  */
 export function Field({
   label,
@@ -24,7 +29,7 @@ export function Field({
 }) {
   return (
     <div className="space-y-2">
-      <label htmlFor={htmlFor} className="flex items-baseline gap-2 text-base font-medium">
+      <Label htmlFor={htmlFor} className="flex items-baseline gap-2">
         <span>{label}</span>
         {required ? (
           <span className="text-sm font-semibold text-destructive" aria-label="حقل إلزامي">
@@ -33,7 +38,7 @@ export function Field({
         ) : (
           <span className="text-sm font-normal text-muted-foreground">اختياري</span>
         )}
-      </label>
+      </Label>
 
       {hint ? <p className="text-sm text-muted-foreground">{hint}</p> : null}
 

@@ -8,26 +8,46 @@ import { uuid } from './primitives';
  * The full citizen submission (Steps 1–6), sent as the JSON `payload` part of a
  * single multipart request alongside the raw files.
  */
-export const submitRegistrationSchema = z.object({
-  personal: personalDetailsSchema,
-  contact: contactDetailsSchema,
-  properties: propertyEntriesSchema,
+export const submitRegistrationSchema = z
+  .object({
+    personal: personalDetailsSchema,
+    contact: contactDetailsSchema,
+    properties: propertyEntriesSchema,
+    /**
+     * Client-side descriptors that let the server match each uploaded file part to
+     * the right property card. The file bytes themselves arrive as multipart parts.
+     */
+    documentSlots: z
+      .array(
+        z.object({
+          field: z.string().min(1),
+          type: documentTypeSchema,
+          propertyIndex: z.number().int().min(0).optional(),
+        }),
+      )
+      .default([]),
+    declarationAccepted: z
+      .literal(true, { errorMap: () => ({ message: 'يجب الإقرار بصحة المعلومات' }) }),
+  })
   /**
-   * Client-side descriptors that let the server match each uploaded file part to
-   * the right property card. The file bytes themselves arrive as multipart parts.
+   * خيمة is only available to a لاجئ. The wizard already hides the option, but
+   * the rule spans two steps — صفة الإقامة in step 1 and نوع العقار in step 3 —
+   * so it can only be checked here, where both are in hand. Hiding a control is
+   * not enforcement.
    */
-  documentSlots: z
-    .array(
-      z.object({
-        field: z.string().min(1),
-        type: documentTypeSchema,
-        propertyIndex: z.number().int().min(0).optional(),
-      }),
-    )
-    .default([]),
-  declarationAccepted: z
-    .literal(true, { errorMap: () => ({ message: 'يجب الإقرار بصحة المعلومات' }) }),
-});
+  .superRefine((data, ctx) => {
+    if (data.personal.residentStatus === 'REFUGEE') return;
+
+    data.properties.forEach((property, index) => {
+      if (property.propertyType === 'TENT') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['properties', index, 'propertyType'],
+          message: 'الخيمة متاحة لصفة الإقامة «لاجئ» فقط',
+        });
+      }
+    });
+  });
 
 export type SubmitRegistration = z.infer<typeof submitRegistrationSchema>;
 

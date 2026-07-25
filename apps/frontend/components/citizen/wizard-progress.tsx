@@ -3,16 +3,20 @@
 import { cn } from '@/lib/utils';
 
 /**
- * Progress as a segmented bar. Numbering is meaningful here — the steps are a
- * real sequence, and the citizen needs to know how much is left before deciding
- * whether they have time to finish.
+ * The Albazourieh platform's wizard header, carried over as-is: a step counter
+ * above a segmented bar, one segment per step, filled up to and including the
+ * current one.
+ *
+ * Digits are Arabic-Indic because the rest of this form is — the reference
+ * platform reads its counter out of an Arabic dictionary and arrives at the
+ * same place.
  */
 export function WizardProgress({ steps, current }: { steps: string[]; current: number }) {
   return (
     <nav aria-label="مراحل التسجيل" className="space-y-3">
-      <p className="text-lg font-semibold">
+      <p className="text-sm font-medium text-muted-foreground">
         الخطوة {toArabicDigits(current + 1)} من {toArabicDigits(steps.length)}
-        <span className="ms-2 text-base font-normal text-muted-foreground">{steps[current]}</span>
+        <span className="ms-2 text-foreground">{steps[current]}</span>
       </p>
 
       <ol className="flex gap-1.5">
@@ -21,12 +25,7 @@ export function WizardProgress({ steps, current }: { steps: string[]; current: n
             <div
               aria-current={index === current ? 'step' : undefined}
               title={step}
-              className={cn(
-                'h-2 rounded-full transition-colors',
-                index < current && 'bg-primary',
-                index === current && 'bg-warning',
-                index > current && 'bg-muted',
-              )}
+              className={cn('h-2 rounded-full', index <= current ? 'bg-primary' : 'bg-muted')}
             />
             <span className="sr-only">
               {step} {index < current ? '(مكتملة)' : index === current ? '(الحالية)' : ''}
@@ -34,11 +33,6 @@ export function WizardProgress({ steps, current }: { steps: string[]; current: n
           </li>
         ))}
       </ol>
-
-      <p className="text-sm text-muted-foreground">
-        الحقول المميزة بكلمة <span className="font-semibold text-destructive">إلزامي</span> يجب
-        تعبئتها.
-      </p>
     </nav>
   );
 }

@@ -5,6 +5,19 @@ export type PropertyType = 'BUILDING' | 'HOUSE' | 'LAND' | 'TENT';
 export type UnitType = 'APARTMENT' | 'CLINIC' | 'SHOP';
 export type LandType = 'AGRICULTURAL' | 'INDUSTRIAL';
 
+/**
+ * One unit inside a building. A citizen who owns the whole building files a
+ * single عقار carrying several of these — the parcel has one رقم العقار, and
+ * that number is unique, so the units cannot each be their own entry.
+ */
+export interface BuildingUnitProps {
+  unitType: UnitType;
+  floor: string;
+  side?: string | null;
+  unitArea: number;
+  sharedRights?: string[];
+}
+
 export interface PropertyEntryProps {
   occupancyType: OccupancyType;
   landlordName?: string | null;
@@ -19,6 +32,8 @@ export interface PropertyEntryProps {
   tentLocation?: string | null;
   unitArea?: number | null;
   sharedRights?: string[];
+  /** BUILDING only — every other type describes its single unit inline. */
+  units?: BuildingUnitProps[];
   latitude?: number | null;
   longitude?: number | null;
 }
@@ -57,13 +72,29 @@ export class PropertyEntry {
     const fail = (message: string) =>
       new ValidationError(message, { propertyNumber: props.propertyNumber });
 
+    // Only a building is divisible into units; anything else with a `units`
+    // array is a caller that has confused the two shapes.
+    if (props.propertyType !== 'BUILDING' && (props.units?.length ?? 0) > 0) {
+      throw fail(`A ${props.propertyType.toLowerCase()} cannot be divided into units`);
+    }
+
     switch (props.propertyType) {
-      case 'BUILDING':
-        if (!props.unitType) throw fail('A building requires a unit type');
+      case 'BUILDING': {
         if (!props.buildingName?.trim()) throw fail('A building requires a building name');
-        if (!props.floor?.trim()) throw fail('A building requires a floor');
-        if (!props.unitArea || props.unitArea <= 0) throw fail('A building requires an area');
+
+        // The units carry نوع الوحدة / الطابق / المساحة now, so a building with
+        // none of them describes nothing at all.
+        const units = props.units ?? [];
+        if (units.length === 0) throw fail('A building requires at least one unit');
+
+        units.forEach((unit, index) => {
+          const where = `unit ${index + 1}`;
+          if (!unit.unitType) throw fail(`${where} requires a unit type`);
+          if (!unit.floor?.trim()) throw fail(`${where} requires a floor`);
+          if (!unit.unitArea || unit.unitArea <= 0) throw fail(`${where} requires an area`);
+        });
         break;
+      }
       case 'HOUSE':
         if (!props.buildingName?.trim()) throw fail('A house requires a name or description');
         if (!props.unitArea || props.unitArea <= 0) throw fail('A house requires an area');
@@ -116,14 +147,25 @@ export class PropertyEntry {
       ...props,
       landlordName: isTenant ? props.landlordName?.trim() : null,
       landlordPhone: isTenant ? props.landlordPhone?.trim() : null,
-      unitType: isBuilding ? (props.unitType ?? null) : null,
+      // A building's unit detail lives in `units`; the inline columns describe
+      // the single unit that a HOUSE or a LAND is, and stay empty for a building.
+      unitType: null,
       landType: props.propertyType === 'LAND' ? (props.landType ?? null) : null,
       buildingName: hasStructure ? (props.buildingName?.trim() ?? null) : null,
-      floor: isBuilding ? (props.floor?.trim() ?? null) : null,
-      side: hasStructure ? (props.side?.trim() ?? null) : null,
+      floor: null,
+      side: props.propertyType === 'HOUSE' ? (props.side?.trim() ?? null) : null,
       tentLocation: props.propertyType === 'TENT' ? (props.tentLocation?.trim() ?? null) : null,
-      unitArea: props.propertyType === 'TENT' ? null : (props.unitArea ?? null),
-      sharedRights: hasStructure ? (props.sharedRights ?? []) : [],
+      unitArea:
+        props.propertyType === 'TENT' || isBuilding ? null : (props.unitArea ?? null),
+      sharedRights: props.propertyType === 'HOUSE' ? (props.sharedRights ?? []) : [],
+      units: isBuilding
+        ? (props.units ?? []).map((unit) => ({
+            ...unit,
+            floor: unit.floor.trim(),
+            side: unit.side?.trim() || null,
+            sharedRights: unit.sharedRights ?? [],
+          }))
+        : [],
       propertyNumber: props.propertyNumber.trim(),
     };
   }
