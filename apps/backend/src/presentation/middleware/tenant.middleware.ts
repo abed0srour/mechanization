@@ -1,0 +1,69 @@
+import { Injectable, NestMiddleware } from '@nestjs/common';
+import { NextFunction, Request, Response } from 'express';
+import { TenantService } from '../../application/features/tenant/tenant.service';
+import { TenantContextService } from '../../infrastructure/context/tenant-context.service';
+import { TenantPrismaFactory } from '../../infrastructure/prisma/tenant-prisma.factory';
+import { NotFoundError } from '../../application/common/exceptions';
+
+/**
+ * Resolves `/api/v1/t/:tenantSlug/...` into a municipality, opens the
+ * AsyncLocalStorage scope, and puts that municipality's Prisma client inside it.
+ *
+ * This is where tenant isolation is actually established. Everything downstream
+ * — guards, services, repositories — reads the client from the scope, so no
+ * handler can act on a tenant supplied in a request body, and no repository has
+ * a tenant parameter to get wrong.
+ */
+@Injectable()
+export class TenantMiddleware implements NestMiddleware {
+  constructor(
+    private readonly tenants: TenantService,
+    private readonly tenantContext: TenantContextService,
+    private readonly clients: TenantPrismaFactory,
+  ) {}
+
+  async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
+    const slug = this.extractSlug(req);
+    if (!slug) {
+      next(new NotFoundError('Municipality'));
+      return;
+    }
+
+    try {
+      // Throws if the tenant is unknown, inactive, or registered but never
+      // provisioned — so a half-onboarded municipality fails clearly instead of
+      // producing "relation does not exist" from deep inside Prisma.
+      const tenant = await this.tenants.resolve(slug);
+      const prisma = this.clients.forSchema(tenant.schemaName);
+
+      req.tenant = {
+        id: tenant.id,
+        slug: tenant.slug,
+        schemaName: tenant.schemaName,
+        adminPathSegment: tenant.adminPathSegment,
+      };
+
+      this.tenantContext.run(
+        {
+          tenantId: tenant.id,
+          tenantSlug: tenant.slug,
+          schemaName: tenant.schemaName,
+          prisma,
+        },
+        () => next(),
+      );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  private extractSlug(req: Request): string | undefined {
+    const fromParams = (req.params as Record<string, string | undefined>)?.tenantSlug;
+    if (fromParams) return fromParams;
+
+    // Route params are not populated for middleware mounted by path pattern, so
+    // fall back to reading the segment straight out of the URL.
+    const match = `${req.baseUrl}${req.path}`.match(/\/t\/([a-z0-9][a-z0-9-]*)/i);
+    return match?.[1]?.toLowerCase();
+  }
+}

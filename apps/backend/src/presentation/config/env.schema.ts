@@ -1,0 +1,80 @@
+import { z } from 'zod';
+
+/**
+ * Boot fails on a missing or malformed secret rather than surfacing it as a 500
+ * on the first request that needs it — a JWT secret that is silently `undefined`
+ * produces tokens anyone can forge.
+ */
+export const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().positive().default(4000),
+
+    /** Pooled connection (pgbouncer) for application queries. */
+    DATABASE_URL: z.string().url(),
+    /** Session-mode connection — migrations and DDL only. */
+    DIRECT_URL: z.string().url(),
+
+    SUPABASE_URL: z.string().url(),
+    /** Server-side only. Never sent to a browser; storage access, not auth. */
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
+    SUPABASE_STORAGE_BUCKET: z.string().min(1).default('documents'),
+
+    /**
+     * One secret for both citizen and staff tokens — v2 unified the two auth
+     * systems precisely so there is one verification path to get right.
+     */
+    JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
+    JWT_STAFF_TTL: z.string().default('12h'),
+    JWT_CITIZEN_TTL: z.string().default('7d'),
+
+    SMS_PROVIDER_API_KEY: z.string().optional(),
+    /** Second delivery route. See the OTP fallback requirement below. */
+    SMS_PROVIDER_FALLBACK_API_KEY: z.string().optional(),
+
+    CORS_ORIGINS: z
+      .string()
+      .default('http://localhost:3000')
+      .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean)),
+  })
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV !== 'production') return;
+
+    /**
+     * Lebanese SMS delivery fails often enough that a single provider is a
+     * single point of failure on the login path — and the people locked out are
+     * exactly the ones this system exists to serve. Production refuses to start
+     * without a second route configured.
+     */
+    if (!env.SMS_PROVIDER_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SMS_PROVIDER_API_KEY'],
+        message: 'An SMS provider is required in production — citizen login depends on it',
+      });
+    }
+    if (!env.SMS_PROVIDER_FALLBACK_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SMS_PROVIDER_FALLBACK_API_KEY'],
+        message:
+          'A fallback SMS route is required in production (see docs/open-decisions.md). ' +
+          'Set it, or deliberately set it equal to the primary key to accept the risk.',
+      });
+    }
+  });
+
+export type Env = z.infer<typeof envSchema>;
+
+export function validateEnv(raw: Record<string, unknown>): Env {
+  const result = envSchema.safeParse(raw);
+
+  if (!result.success) {
+    const details = result.error.issues
+      .map((issue) => `  ${issue.path.join('.')}: ${issue.message}`)
+      .join('\n');
+    throw new Error(`Invalid environment configuration:\n${details}`);
+  }
+
+  return result.data;
+}

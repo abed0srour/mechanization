@@ -1,0 +1,54 @@
+// ─────────────────────────  Tenant registry (public schema)  ─────────────────────────
+//
+// This schema holds NO citizen data. It is the directory that maps a URL slug to
+// the Postgres schema where that municipality's data actually lives.
+//
+// It is deliberately a separate Prisma schema from `../tenant/schema.prisma`:
+// a PrismaClient is bound to one schema via its connection string, so the
+// registry client (always `public`) and a tenant client (always `tenant_<x>`)
+// cannot be confused for one another at the type level.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../generated/registry-client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Tenant {
+  id     String @id @default(uuid()) @db.Uuid
+  slug   String @unique
+  name   String
+  nameAr String
+
+  /// The Postgres schema holding this municipality's data, e.g. "tenant_ashrafieh".
+  /// Derived from the slug at provisioning time and never changed afterwards —
+  /// renaming it would orphan every row.
+  schemaName String @unique
+
+  /// Obscure admin path segment, e.g. "admin-portal-x7b2". Scan-deterrence only;
+  /// the real protection is JwtAuthGuard + RolesGuard on every admin route.
+  adminPathSegment String @unique
+
+  /// Prefix for this municipality's رقم مرجعي, e.g. "BZR" -> "BZR-2607-4K9QX2".
+  referencePrefix String
+
+  /// Branding (logo, colours) + enabled property types + required documents.
+  /// Shape is validated by `tenantConfigSchema` in @mechanization/shared-schemas.
+  config Json?
+
+  isActive Boolean @default(true)
+
+  /// Set once the provisioning script has created the schema AND applied every
+  /// tenant migration. A tenant row without this is not yet servable.
+  provisionedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenants")
+}

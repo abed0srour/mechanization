@@ -1,0 +1,38 @@
+# Local development stack.
+#
+# Two services, because that is all this needs: Postgres and object storage are
+# hosted (Supabase), and v2 removed Redis entirely — the throttler runs
+# in-memory and OTP state lives in Postgres. Nothing here is a data store, so
+# `docker compose down -v` cannot lose anything.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    env_file: ./apps/backend/.env
+    ports: ['4000:4000']
+    healthcheck:
+      # Readiness, not liveness: the frontend should wait until the registry is
+      # actually reachable, otherwise its first page render 500s.
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:4000/api/v1/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        # Baked in at build time — NEXT_PUBLIC_* is inlined into the bundle, so
+        # setting it only at runtime would have no effect.
+        NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+    env_file: ./apps/frontend/.env.local
+    ports: ['3000:3000']
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

@@ -1,0 +1,131 @@
+import { AggregateRoot } from './aggregate-root.base';
+import { ForbiddenError, ValidationError } from '../errors/domain-error';
+
+export type UserKind = 'STAFF' | 'CITIZEN';
+export type StaffRole = 'SUPER_ADMIN' | 'AUDITOR' | 'FIELD_INSPECTOR';
+
+export interface StaffProps {
+  id: string;
+  tenantSlug: string;
+  email: string;
+  passwordHash: string;
+  role: StaffRole;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+  totpSecret?: string | null;
+  totpConfirmedAt?: Date | null;
+}
+
+export interface CitizenProps {
+  id: string;
+  tenantSlug: string;
+  phone: string;
+  whatsapp?: string | null;
+  firstName: string;
+  middleName?: string | null;
+  lastName: string;
+  referenceNumber: string;
+  identityDocType: string;
+  identityDocNumber: string;
+  isActive: boolean;
+}
+
+/**
+ * One user concept for both staff and citizens.
+ *
+ * v1 kept two tables, two token formats and two guards, which meant every
+ * "does this token's tenant match the URL's tenant" check existed twice — and a
+ * check that exists twice is a check that eventually exists once.
+ */
+export class User extends AggregateRoot {
+  private constructor(
+    readonly id: string,
+    readonly kind: UserKind,
+    readonly tenantSlug: string,
+    private readonly attrs: Record<string, unknown>,
+  ) {
+    super();
+  }
+
+  static staff(props: StaffProps): User {
+    if (!props.email.includes('@')) {
+      throw new ValidationError('A staff account requires a valid email');
+    }
+    return new User(props.id, 'STAFF', props.tenantSlug, { ...props });
+  }
+
+  static citizen(props: CitizenProps): User {
+    return new User(props.id, 'CITIZEN', props.tenantSlug, { ...props });
+  }
+
+  get isActive(): boolean {
+    return this.attrs.isActive === true;
+  }
+
+  get role(): StaffRole | undefined {
+    return this.attrs.role as StaffRole | undefined;
+  }
+
+  get email(): string | undefined {
+    return this.attrs.email as string | undefined;
+  }
+
+  get phone(): string | undefined {
+    return this.attrs.phone as string | undefined;
+  }
+
+  get passwordHash(): string | undefined {
+    return this.attrs.passwordHash as string | undefined;
+  }
+
+  get totpSecret(): string | undefined {
+    return (this.attrs.totpSecret as string | null | undefined) ?? undefined;
+  }
+
+  get fullName(): string {
+    return [this.attrs.firstName, this.attrs.middleName, this.attrs.lastName]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  /**
+   * SUPER_ADMIN holds the keys to every citizen's national ID number, residency
+   * status and documents in this municipality. The v1 spec called 2FA
+   * "optional to consider"; at that blast radius it is a requirement, enforced
+   * here so no login path can skip it.
+   */
+  get requiresTotp(): boolean {
+    return this.kind === 'STAFF' && this.role === 'SUPER_ADMIN';
+  }
+
+  get hasConfirmedTotp(): boolean {
+    return Boolean(this.attrs.totpSecret && this.attrs.totpConfirmedAt);
+  }
+
+  /**
+   * Called before a session is issued. A SUPER_ADMIN who has not finished TOTP
+   * enrolment is refused rather than waved through — otherwise "set it up later"
+   * becomes "never set it up".
+   */
+  assertMayStartSession(): void {
+    if (!this.isActive) {
+      throw new ForbiddenError('This account has been deactivated');
+    }
+    if (this.requiresTotp && !this.hasConfirmedTotp) {
+      throw new ForbiddenError('TOTP enrolment must be completed before signing in');
+    }
+  }
+
+  recordLogin(context: { ip?: string; userAgent?: string }): void {
+    this.record('user.logged-in', {
+      userId: this.id,
+      kind: this.kind,
+      role: this.role,
+      email: this.email,
+      tenantSlug: this.tenantSlug,
+      ip: context.ip,
+      userAgent: context.userAgent,
+    });
+  }
+}

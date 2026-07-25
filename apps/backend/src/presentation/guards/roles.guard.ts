@@ -1,0 +1,41 @@
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Request } from 'express';
+import { StaffRole } from '../../domain/entities/user.entity';
+import { ForbiddenError } from '../../application/common/exceptions';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+
+/**
+ * Staff-only route protection. Runs after JwtAuthGuard, so the token is already
+ * verified and its tenant already matched — this only decides authorisation.
+ *
+ * A citizen token reaching an admin route is rejected here on `kind` alone,
+ * before roles are even considered: citizens have no role, and treating a
+ * missing role as "no restrictions" is how these bugs happen.
+ */
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const required = this.reflector.getAllAndOverride<StaffRole[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (!required || required.length === 0) return true;
+
+    const request = context.switchToHttp().getRequest<Request>();
+    const user = request.user;
+
+    if (!user || user.kind !== 'STAFF') {
+      throw new ForbiddenError('This action is restricted to municipality staff');
+    }
+
+    if (!user.role || !required.includes(user.role)) {
+      throw new ForbiddenError('You do not have permission to perform this action');
+    }
+
+    return true;
+  }
+}

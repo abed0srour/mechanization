@@ -10,5 +10,6 @@
     "noUncheckedIndexedAccess": false,
     "paths": { "@shared/*": ["../../../packages/shared-schemas/src/*"] }
   },
-  "include": ["src/**/*", "prisma/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/generated/**/*", "dist", "node_modules"]
 }

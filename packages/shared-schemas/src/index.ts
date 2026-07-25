@@ -4,5 +4,5 @@ export * from './primitives';
 export * from './citizen.schema';
 export * from './property.schema';
 export * from './registration.schema';
-export * from './staff.schema';
-export * from './citizen-auth.schema';
+export * from './auth.schema';
+export * from './tenant.schema';

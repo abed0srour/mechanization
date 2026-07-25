@@ -1,40 +1,50 @@
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
-import { SharedKernelModule } from './shared-kernel/shared-kernel.module';
-import { TenantModule } from './tenant/tenant.module';
-import { TenantMiddleware } from './tenant/presentation/tenant.middleware';
-import { StaffIdentityModule } from './staff-identity/staff-identity.module';
-import { CitizenIdentityModule } from './citizen-identity/citizen-identity.module';
-import { RegistrationModule } from './registration/registration.module';
-import { AuditModule } from './audit/audit.module';
-import { HealthController } from './health.controller';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { ApplicationModule } from './application/application.module';
+import { DomainModule } from './domain/domain.module';
+import { InfrastructureModule } from './infrastructure/infrastructure.module';
+import { PresentationModule } from './presentation/presentation.module';
+import { validateEnv } from './presentation/config/env.schema';
 
+/**
+ * Root composition. The four imports are the four layers, in dependency order —
+ * if this list ever needs a fifth, something has escaped its layer.
+ */
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    EventEmitterModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // Boot fails on a missing secret rather than surfacing it as a 500 on the
+      // first request that happens to need it.
+      validate: validateEnv,
+    }),
+
+    /**
+     * Synchronous emit, deliberately: listeners run inside the emitting
+     * request's AsyncLocalStorage scope, which is how the audit subscriber
+     * reaches the right municipality's Prisma client without being handed one.
+     * Switching this to a queue would silently break that and start writing
+     * audit rows to whichever tenant happened to be current.
+     */
+    EventEmitterModule.forRoot({ global: true }),
+
+    ScheduleModule.forRoot(),
+
+    /**
+     * In-memory storage — correct for a single instance, which matches the
+     * expected deployment. This is the one component that needs Redis back the
+     * moment a second replica exists: per-instance counters make the effective
+     * limit N times what is configured.
+     */
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
-    SharedKernelModule,
-    TenantModule,
-    StaffIdentityModule,
-    CitizenIdentityModule,
-    RegistrationModule,
-    AuditModule,
+
+    DomainModule,
+    InfrastructureModule,
+    ApplicationModule,
+    PresentationModule,
   ],
-  controllers: [HealthController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
-export class AppModule implements NestModule {
-  /**
-   * Every route under /t/:tenantSlug runs inside a resolved tenant scope.
-   * Routes outside that prefix (health) deliberately have no tenant.
-   */
-  configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(TenantMiddleware)
-      .forRoutes({ path: 't/:tenantSlug*', method: RequestMethod.ALL });
-  }
-}
+export class AppModule {}

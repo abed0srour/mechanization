@@ -3,9 +3,9 @@
 import { cn } from '@/lib/utils';
 
 /**
- * One field, one job. The required marker is a stamp glyph rather than a bare
- * asterisk so it reads as "this must be filled" even to someone who has never
- * used a web form.
+ * One field, one job. Required and optional are both spelled out in words
+ * rather than marked with an asterisk: the audience includes people filling in
+ * their first web form, and a bare `*` is a convention you have to already know.
  */
 export function Field({
   label,
@@ -24,23 +24,26 @@ export function Field({
 }) {
   return (
     <div className="space-y-2">
-      <label htmlFor={htmlFor} className="flex items-baseline gap-2 font-medium">
+      <label htmlFor={htmlFor} className="flex items-baseline gap-2 text-base font-medium">
         <span>{label}</span>
         {required ? (
-          <span className="text-sm font-bold text-seal" aria-label="حقل إلزامي">
+          <span className="text-sm font-semibold text-destructive" aria-label="حقل إلزامي">
             إلزامي
           </span>
         ) : (
-          <span className="text-sm text-muted">اختياري</span>
+          <span className="text-sm font-normal text-muted-foreground">اختياري</span>
         )}
       </label>
 
-      {hint ? <p className="text-sm text-muted">{hint}</p> : null}
+      {hint ? <p className="text-sm text-muted-foreground">{hint}</p> : null}
 
       {children}
 
       {error ? (
-        <p role="alert" className="border-e-4 border-seal bg-seal/5 px-3 py-2 text-sm text-seal">
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
           {error}
         </p>
       ) : null}
@@ -48,17 +51,10 @@ export function Field({
   );
 }
 
-export const inputClass = (hasError?: boolean) =>
-  cn(
-    'w-full rounded-card border-2 bg-card px-4 text-lg',
-    'min-h-touch', // 48px minimum target
-    hasError ? 'border-seal' : 'border-rule focus:border-cedar',
-  );
-
 /**
- * Large card-style choice. Used instead of a dropdown wherever there are four
- * or fewer options, because a native select is a poor target on a phone held by
- * someone with limited dexterity.
+ * Large card-style choice, used instead of a dropdown wherever there are four
+ * or fewer options: a native select is a poor target on a phone held by someone
+ * with limited dexterity.
  */
 export function ChoiceCard({
   name,
@@ -78,8 +74,10 @@ export function ChoiceCard({
   return (
     <label
       className={cn(
-        'flex min-h-touch cursor-pointer items-center gap-3 rounded-card border-2 p-4 transition',
-        checked ? 'border-cedar bg-cedar-soft' : 'border-rule bg-card hover:border-cedar/50',
+        'flex min-h-touch cursor-pointer items-center gap-3 rounded-lg border p-4 transition-colors',
+        checked
+          ? 'border-primary bg-primary/5 ring-1 ring-primary'
+          : 'border-input bg-background hover:bg-accent',
       )}
     >
       <input
@@ -88,11 +86,13 @@ export function ChoiceCard({
         value={value}
         checked={checked}
         onChange={() => onChange(value)}
-        className="h-6 w-6 accent-[var(--cedar)]"
+        className="h-5 w-5 accent-[hsl(var(--primary))]"
       />
       <span>
         <span className="block font-medium">{title}</span>
-        {description ? <span className="block text-sm text-muted">{description}</span> : null}
+        {description ? (
+          <span className="block text-sm text-muted-foreground">{description}</span>
+        ) : null}
       </span>
     </label>
   );

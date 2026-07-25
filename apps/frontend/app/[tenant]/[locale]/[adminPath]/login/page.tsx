@@ -1,86 +1,134 @@
 'use client';
 
 import { use, useState } from 'react';
-import { apiFetch, ApiRequestError } from '@/lib/api-client';
-import { Field, inputClass } from '@/components/ui/field';
+import { useRouter } from 'next/navigation';
+import { ApiRequestError, loginStaff } from '@/lib/api-client';
+import { saveSession } from '@/lib/session';
+import { Button } from '@/components/ui/button';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 
 /**
- * Staff sign-in. Lives on a per-municipality unguessable path segment, and the
- * page deliberately gives no municipal branding or hints before authentication:
- * anyone who reaches it without credentials should learn nothing from it.
+ * Staff sign-in.
  *
- * Staff get a password (unlike citizens) because they are trained repeat users
- * and the data they can read warrants the extra factor.
+ * The obscure path segment is scan-deterrence, not security — the guards on
+ * every admin endpoint are what actually protect this, and they hold once the
+ * URL becomes known, which it eventually will. The page shows no municipal
+ * branding and no hints: anyone who reaches it without credentials should learn
+ * nothing from it, including whether the municipality exists.
  */
 export default function StaffLogin({
   params,
 }: {
   params: Promise<{ tenant: string; locale: string; adminPath: string }>;
 }) {
-  const { tenant } = use(params);
+  const { tenant, locale, adminPath } = use(params);
+  const router = useRouter();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string>();
+  const [totpToken, setTotpToken] = useState('');
+  const [needsTotp, setNeedsTotp] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const signIn = async () => {
+  async function submit() {
     setBusy(true);
-    setError(undefined);
+    setError(null);
+
     try {
-      const session = await apiFetch<{ accessToken: string }>(tenant, '/staff/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
+      const result = await loginStaff(tenant, {
+        email,
+        password,
+        ...(needsTotp ? { totpToken } : {}),
       });
-      sessionStorage.setItem('staff_token', session.accessToken);
-      window.location.href = './dashboard';
-    } catch (err) {
-      // One message for every failure mode, so the form cannot be used to
-      // discover which staff emails exist.
+
+      // A SUPER_ADMIN's password is correct but insufficient — 2FA is mandatory
+      // for that role, so the server asks for the second factor rather than
+      // issuing a session. `status` is the discriminant: a real session never
+      // carries one.
+      if ('status' in result) {
+        setNeedsTotp(true);
+        return;
+      }
+
+      saveSession(tenant, result);
+      router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
+    } catch (caught) {
       setError(
-        err instanceof ApiRequestError && err.status === 429
-          ? 'Too many attempts. Wait a minute and try again.'
-          : 'Email or password is incorrect.',
+        caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدخول.',
       );
     } finally {
       setBusy(false);
     }
-  };
+  }
 
   return (
-    <div className="mx-auto max-w-sm space-y-6" dir="ltr">
-      <h1 className="font-display text-2xl font-bold">Staff sign in</h1>
+    <div className="mx-auto max-w-sm space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight">دخول الموظفين</h1>
 
-      <Field label="Email" htmlFor="email" required>
-        <input
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <Field label="البريد الإلكتروني" htmlFor="email" required>
+        <Input
           id="email"
           type="email"
+          dir="ltr"
           autoComplete="username"
-          className={inputClass(Boolean(error))}
+          className="text-start"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          disabled={needsTotp}
         />
       </Field>
 
-      <Field label="Password" htmlFor="password" required error={error}>
-        <input
+      <Field label="كلمة المرور" htmlFor="password" required>
+        <Input
           id="password"
           type="password"
           autoComplete="current-password"
-          className={inputClass(Boolean(error))}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && signIn()}
+          disabled={needsTotp}
         />
       </Field>
 
-      <button
-        type="button"
-        onClick={signIn}
-        disabled={busy || !email || !password}
-        className="min-h-touch w-full rounded-card border-2 border-cedar bg-cedar font-medium text-card disabled:opacity-40"
+      {needsTotp ? (
+        <Field
+          label="رمز التحقق الثنائي"
+          htmlFor="totp"
+          required
+          hint="ستة أرقام من تطبيق المصادقة"
+        >
+          <Input
+            id="totp"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            dir="ltr"
+            maxLength={6}
+            autoFocus
+            className="text-center text-2xl tracking-[0.5em]"
+            value={totpToken}
+            onChange={(e) => setTotpToken(e.target.value.replace(/\D/g, ''))}
+          />
+        </Field>
+      ) : null}
+
+      <Button
+        size="lg"
+        className="w-full"
+        disabled={busy || !email || !password || (needsTotp && totpToken.length !== 6)}
+        onClick={submit}
       >
-        {busy ? 'Signing in…' : 'Sign in'}
-      </button>
+        {busy ? 'جارٍ الدخول…' : needsTotp ? 'تحقّق وادخل' : 'دخول'}
+      </Button>
     </div>
   );
 }

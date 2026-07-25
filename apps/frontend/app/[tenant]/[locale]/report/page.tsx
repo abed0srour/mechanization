@@ -1,66 +1,34 @@
-'use client';
+import { notFound } from 'next/navigation';
+import { RegistrationWizard } from '@/components/citizen/registration-wizard';
+import type { PublicTenantConfig } from '@/lib/api-client';
 
-import { use, useState } from 'react';
-import { PropertyStep } from '@/components/citizen/property-step';
-import type { PropertyDraft } from '@/components/citizen/property-card';
-import { WizardProgress } from '@/components/citizen/wizard-progress';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
-const STEPS = [
-  'البيانات الشخصية',
-  'التواصل والأسرة',
-  'العقارات',
-  'المرفقات',
-  'المراجعة',
-  'التأكيد',
-];
+async function getConfig(slug: string): Promise<PublicTenantConfig | null> {
+  try {
+    const response = await fetch(`${API_URL}/t/${slug}/tenant/config`, {
+      next: { revalidate: 300 },
+    });
+    return response.ok ? ((await response.json()) as PublicTenantConfig) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Wizard shell. Draft state lives here and is mirrored to sessionStorage on each
- * step change, so a dropped connection near the end does not cost the citizen
- * every step they already filled.
+ * The wizard needs the municipality's enabled property types and required
+ * documents before the first step renders, so the config is fetched
+ * server-side and handed down rather than fetched again on the client.
  */
-export default function ReportWizard({
+export default async function ReportPage({
   params,
 }: {
   params: Promise<{ tenant: string; locale: string }>;
 }) {
-  const { tenant } = use(params);
-  const [step, setStep] = useState(0);
-  const [properties, setProperties] = useState<PropertyDraft[]>([{}]);
+  const { tenant, locale } = await params;
+  const config = await getConfig(tenant);
 
-  return (
-    <div className="space-y-8">
-      <WizardProgress steps={STEPS} current={step} />
+  if (!config) notFound();
 
-      {step === 2 ? (
-        <PropertyStep tenant={tenant} properties={properties} onChange={setProperties} />
-      ) : (
-        <div className="rounded-card border-2 border-dashed border-rule bg-card p-8 text-center text-muted">
-          <p className="font-display text-lg">{STEPS[step]}</p>
-          <p className="mt-2 text-sm">
-            هذه الخطوة قيد الإنشاء — خطوة العقارات جاهزة للتجربة.
-          </p>
-        </div>
-      )}
-
-      <div className="flex gap-3">
-        <button
-          type="button"
-          disabled={step === 0}
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
-          className="min-h-touch flex-1 rounded-card border-2 border-rule bg-card px-5 font-medium disabled:opacity-40"
-        >
-          السابق
-        </button>
-        <button
-          type="button"
-          disabled={step === STEPS.length - 1}
-          onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}
-          className="min-h-touch flex-[2] rounded-card border-2 border-cedar bg-cedar px-5 font-medium text-card disabled:opacity-40"
-        >
-          التالي
-        </button>
-      </div>
-    </div>
-  );
+  return <RegistrationWizard tenant={tenant} locale={locale} config={config} />;
 }

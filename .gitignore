@@ -4,6 +4,7 @@ build/
 .next/
 .turbo/
 coverage/
+*.tsbuildinfo
 
 # env — never commit real credentials
 .env
@@ -11,8 +12,9 @@ coverage/
 .env.*.local
 !.env.example
 
-# prisma
-apps/backend/prisma/generated/
+# Generated Prisma clients — two of them, one per schema kind. Regenerate with
+# `pnpm db:generate`; they are build output, not source.
+apps/backend/src/generated/
 
 .DS_Store
 *.log

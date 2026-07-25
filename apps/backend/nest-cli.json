@@ -2,5 +2,20 @@
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
-  "compilerOptions": { "deleteOutDir": true }
+  "entryFile": "presentation/main",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "assets": [
+      {
+        "include": "infrastructure/prisma/tenant/migrations/**/*.sql",
+        "outDir": "dist"
+      },
+      {
+        "//": "The Prisma clients are generated JS + .d.ts, so tsc never emits them — without this copy, dist/ compiles fine and then dies at require() time.",
+        "include": "generated/**/*",
+        "outDir": "dist"
+      }
+    ],
+    "watchAssets": true
+  }
 }

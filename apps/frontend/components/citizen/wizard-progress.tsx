@@ -3,24 +3,16 @@
 import { cn } from '@/lib/utils';
 
 /**
- * Progress as a row of stamps: each completed step is "struck" like an official
- * form moving through an office. Numbering is meaningful here — the steps are a
- * real sequence and the citizen needs to know how much is left.
+ * Progress as a segmented bar. Numbering is meaningful here — the steps are a
+ * real sequence, and the citizen needs to know how much is left before deciding
+ * whether they have time to finish.
  */
-export function WizardProgress({
-  steps,
-  current,
-}: {
-  steps: string[];
-  current: number;
-}) {
+export function WizardProgress({ steps, current }: { steps: string[]; current: number }) {
   return (
     <nav aria-label="مراحل التسجيل" className="space-y-3">
-      <p className="font-display text-lg font-bold">
+      <p className="text-lg font-semibold">
         الخطوة {toArabicDigits(current + 1)} من {toArabicDigits(steps.length)}
-        <span className="ms-2 font-body text-base font-normal text-muted">
-          {steps[current]}
-        </span>
+        <span className="ms-2 text-base font-normal text-muted-foreground">{steps[current]}</span>
       </p>
 
       <ol className="flex gap-1.5">
@@ -30,10 +22,10 @@ export function WizardProgress({
               aria-current={index === current ? 'step' : undefined}
               title={step}
               className={cn(
-                'h-2.5 rounded-sm',
-                index < current && 'bg-cedar',
-                index === current && 'bg-gold',
-                index > current && 'bg-rule',
+                'h-2 rounded-full transition-colors',
+                index < current && 'bg-primary',
+                index === current && 'bg-warning',
+                index > current && 'bg-muted',
               )}
             />
             <span className="sr-only">
@@ -43,8 +35,9 @@ export function WizardProgress({
         ))}
       </ol>
 
-      <p className="text-sm text-muted">
-        الحقول المميزة بكلمة <span className="font-bold text-seal">إلزامي</span> يجب تعبئتها.
+      <p className="text-sm text-muted-foreground">
+        الحقول المميزة بكلمة <span className="font-semibold text-destructive">إلزامي</span> يجب
+        تعبئتها.
       </p>
     </nav>
   );

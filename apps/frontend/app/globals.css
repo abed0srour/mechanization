@@ -3,71 +3,85 @@
 @tailwind utilities;
 
 /**
- * Visual direction: Lebanese municipal paperwork — cool paper stock, official
- * stamp ink, a cedar-green seal. Deliberately not a SaaS gradient: citizens
- * should recognise this as a government form they can trust.
+ * Design tokens are the Albazourieh platform's, carried over verbatim so the two
+ * systems a municipality's staff move between look like one product: the same
+ * deep municipal blue, the same slate neutrals, the same 0.5rem radius.
+ *
+ * Kept as HSL channel triples rather than finished colours because that is what
+ * lets `bg-primary/90` and `border-input` work — Tailwind composes the alpha
+ * into `hsl(var(--primary) / <alpha>)`.
  */
-:root {
-  --paper: #eceeea;        /* cool grey-green form paper */
-  --card: #f7f8f6;
-  --ink: #14201c;          /* stamp-ink near-black, green undertone */
-  --ink-muted: #55635d;
-  --cedar: #1f5c4b;        /* primary action, municipal seal green */
-  --cedar-soft: #dbe7e1;
-  --seal: #a6321f;         /* required markers, rejection — stamp red */
-  --gold: #c08a2e;         /* in-progress states */
-  --rule: #cdd3cd;
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --primary: 199 89% 30%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 199 89% 30%;
+    --radius: 0.5rem;
 
-  --font-display: 'Noto Kufi Arabic', system-ui;
-  --font-body: 'IBM Plex Sans Arabic', system-ui;
+    /**
+     * Two additions the reference platform does not need. Review workflows here
+     * have an in-progress state between "submitted" and "decided", and a
+     * decided-good state — neither reads correctly as primary or destructive.
+     */
+    --warning: 32 95% 44%;
+    --success: 142 71% 29%;
+
+    /**
+     * Arabic-first, so these are the `sans` stack rather than a separate family —
+     * every `font-sans` component inherits them. Loaded in the tenant layout's
+     * <head>; the system-ui fallback in tailwind.config keeps the page readable
+     * if the webfont request never lands.
+     */
+    --font-display: 'Noto Kufi Arabic', system-ui;
+    --font-body: 'IBM Plex Sans Arabic', system-ui;
+  }
 }
 
-* { box-sizing: border-box; }
-
-body {
-  background-color: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-body);
-  /* Paper grain: a faint ruled texture, not a gradient. */
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 39px,
-    rgba(20, 32, 28, 0.03) 39px,
-    rgba(20, 32, 28, 0.03) 40px
-  );
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
 
-/* Accessibility floor: visible focus everywhere, no exceptions. */
+/**
+ * Accessibility floor, kept from this codebase rather than the reference: the
+ * audience is elderly citizens on older phones, so a visible focus ring is not
+ * negotiable and motion is opt-in.
+ */
 :focus-visible {
-  outline: 3px solid var(--cedar);
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
 }
 
-/**
- * Signature element: the stamp. Steps completed in the wizard and the final
- * reference number are presented as if struck with a municipal rubber stamp —
- * a visual language citizens already associate with an accepted document.
- */
-.stamp {
-  border: 2px solid var(--cedar);
-  color: var(--cedar);
-  border-radius: 2px;
-  transform: rotate(-1.5deg);
-  letter-spacing: 0.08em;
-  box-shadow: inset 0 0 0 1px var(--cedar);
-}
-
-.stamp--pending {
-  border-color: var(--rule);
-  color: var(--ink-muted);
-  box-shadow: none;
-  transform: none;
+/* MapLibre's popup chrome is white-on-white against this palette otherwise. */
+.maplibregl-popup-content {
+  border-radius: var(--radius);
+  padding: 0.625rem 0.875rem;
+  box-shadow: 0 4px 12px hsl(222.2 84% 4.9% / 0.15);
 }

@@ -1,39 +1,67 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Palette and scale are driven by CSS variables declared in app/globals.css so
- * a municipality can override its own colours at runtime from TenantConfig
- * without a rebuild.
+ * Mirrors the Albazourieh platform's Tailwind theme so components copied
+ * between the two render identically. Everything resolves through the CSS
+ * variables in app/globals.css, which is also what lets a municipality override
+ * its own primary colour at runtime from TenantConfig without a rebuild.
  */
 const config: Config = {
+  darkMode: ['class'],
   content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}'],
   theme: {
+    container: {
+      center: true,
+      padding: '1rem',
+      screens: { '2xl': '1280px' },
+    },
     extend: {
       colors: {
-        paper: 'var(--paper)',
-        card: 'var(--card)',
-        ink: 'var(--ink)',
-        muted: 'var(--ink-muted)',
-        cedar: 'var(--cedar)',
-        'cedar-soft': 'var(--cedar-soft)',
-        seal: 'var(--seal)',
-        gold: 'var(--gold)',
-        rule: 'var(--rule)',
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+        warning: 'hsl(var(--warning))',
+        success: 'hsl(var(--success))',
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
+        // Arabic-first: the webfonts are the sans stack rather than a separate
+        // family, so every `font-sans` component inherits them.
+        sans: ['var(--font-body)', 'system-ui', 'sans-serif'],
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
-        body: ['var(--font-body)', 'system-ui', 'sans-serif'],
       },
-      fontSize: {
-        // Floor is 1.125rem: this interface is used by elderly citizens on phones.
-        base: ['1.125rem', { lineHeight: '1.75rem' }],
-        lg: ['1.25rem', { lineHeight: '1.9rem' }],
-        xl: ['1.5rem', { lineHeight: '2.1rem' }],
-        '2xl': ['1.875rem', { lineHeight: '2.4rem' }],
-        '3xl': ['2.35rem', { lineHeight: '2.8rem' }],
-      },
+      // 48px: the minimum comfortable target for the audience this serves.
       spacing: { touch: '3rem' },
-      borderRadius: { card: '0.25rem' },
     },
   },
   plugins: [],

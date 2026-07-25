@@ -1,0 +1,323 @@
+// ─────────────────────────  Per-tenant schema  ─────────────────────────
+//
+// Every model here is created once per municipality, inside that municipality's
+// own Postgres schema (tenant_ashrafieh, tenant_zahle, ...). There is no
+// `tenantId` column anywhere: the schema IS the tenant boundary. A query cannot
+// read another municipality's rows because the connection is not pointed at
+// that schema — not because a WHERE clause remembered to filter.
+//
+// Migrations here are applied to EVERY tenant schema by `migrate-all-tenants.ts`.
+// Adding a model is therefore an O(tenants) operation, which is a loop at this
+// scale and a reason to revisit only in the hundreds.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../generated/tenant-client"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ──────────────────────────────  Identity  ──────────────────────────────
+
+/// Staff and citizens are one table with one JWT format and one guard.
+/// Splitting them was how v1 ended up writing every tenant check twice.
+enum UserKind {
+  STAFF
+  CITIZEN
+}
+
+enum StaffRole {
+  SUPER_ADMIN
+  AUDITOR
+  FIELD_INSPECTOR
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+/// صفة الإقامة — classifies the person, never the property.
+enum ResidentStatus {
+  REFUGEE
+  DISPLACED
+  VILLAGE_RESIDENT
+}
+
+enum IdentityDocType {
+  NATIONAL_ID
+  FAMILY_RECORD
+  DRIVER_LICENSE
+  PASSPORT
+}
+
+model User {
+  id   String   @id @default(uuid()) @db.Uuid
+  kind UserKind
+
+  /// Denormalised copy of the owning municipality's slug. Redundant with the
+  /// schema itself, but it means a JWT's `tenantSlug` can be checked against the
+  /// row it claims to authenticate — defence in depth against a factory bug
+  /// handing out the wrong client.
+  tenantSlug String
+
+  // ── Staff-only ──
+  email        String?
+  passwordHash String?
+  role         StaffRole?
+  /// Base32 TOTP secret. Mandatory for SUPER_ADMIN before any session is issued.
+  totpSecret     String?
+  totpConfirmedAt DateTime?
+
+  // ── Citizen-only ──
+  phone    String?
+  whatsapp String?
+
+  firstName  String
+  middleName String?
+  lastName   String
+  gender     Gender?
+
+  nationality       String?
+  isLebanese        Boolean?
+  residencyNumber   String?
+  residentStatus    ResidentStatus?
+  identityDocType   IdentityDocType?
+  identityDocNumber String?
+  civilRecordNumber String?
+  familySize        Int?
+
+  /// رقم مرجعي — usable when a phone is lost or shared.
+  referenceNumber String? @unique
+
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  registrations         Registration[]
+  reviewedRegistrations Registration[] @relation("ReviewedBy")
+
+  /// Staff email is unique within the municipality (i.e. within this schema).
+  @@unique([email])
+  /// A household commonly shares one phone, so phone alone is not unique; the
+  /// identity document is what distinguishes people. See the open question in
+  /// docs/open-decisions.md about tolerating near-duplicate name spellings.
+  @@unique([identityDocType, identityDocNumber])
+  @@index([kind, phone])
+  @@index([kind, role])
+  @@map("users")
+}
+
+/// Short-lived phone-OTP challenges. Rows are disposable; a cleanup job prunes
+/// expired ones so a stale code can never be replayed.
+model OtpChallenge {
+  id           String   @id @default(uuid()) @db.Uuid
+  phone        String
+  /// bcrypt hash — a leaked table must not hand out live login codes.
+  codeHash     String
+  /// Which delivery route issued it, so a failing provider is visible in data
+  /// rather than only in logs. See the OTP fallback requirement in Section 10.
+  channel      String   @default("PRIMARY")
+  attempts     Int      @default(0)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([phone, createdAt])
+  @@map("otp_challenges")
+}
+
+// ────────────────────────────  Registration  ────────────────────────────
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  APPROVED
+  REJECTED
+}
+
+model Registration {
+  id        String       @id @default(uuid()) @db.Uuid
+  citizenId String       @db.Uuid
+  citizen   User         @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  status    ReportStatus @default(PENDING)
+
+  referenceNumber String  @unique
+  rejectionReason String?
+
+  reviewedById String?   @db.Uuid
+  reviewedBy   User?     @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  properties PropertyEntry[]
+  documents  Document[]
+
+  @@index([status, submittedAt])
+  @@index([citizenId])
+  @@map("registrations")
+}
+
+enum OccupancyType {
+  OWNER
+  TENANT
+}
+
+enum PropertyType {
+  BUILDING
+  HOUSE
+  LAND
+  TENT
+}
+
+enum UnitType {
+  APARTMENT
+  CLINIC
+  SHOP
+}
+
+enum LandType {
+  AGRICULTURAL
+  INDUSTRIAL
+}
+
+/// One row per property card. A citizen may register many.
+model PropertyEntry {
+  id             String       @id @default(uuid()) @db.Uuid
+  registrationId String       @db.Uuid
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  occupancyType OccupancyType
+  landlordName  String?
+  landlordPhone String?
+
+  propertyType   PropertyType
+  /// Unique within this municipality, which is exactly what the schema boundary
+  /// already gives us — no composite key with a tenant column required.
+  propertyNumber String        @unique
+  unitType       UnitType?
+  landType       LandType?
+  buildingName   String?
+  floor          String?
+  side           String?
+  tentLocation   String?
+  unitArea       Decimal?      @db.Decimal(12, 2)
+  sharedRights   String[]      @default([])
+
+  latitude  Float?
+  longitude Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documents Document[]
+
+  @@index([propertyType])
+  @@index([latitude, longitude])
+  @@map("property_entries")
+}
+
+// ────────────────────────────  Cadastre  ────────────────────────────
+
+/// The municipality's official parcel registry (رقم العقار), imported from the
+/// survey office's KMZ by `cadastre:import`.
+///
+/// This is what makes رقم العقار checkable instead of merely well-formed: a
+/// number either exists in the municipality's cadastre or it does not, and the
+/// citizen finds out while typing rather than three weeks later when a clerk
+/// cannot locate the property.
+///
+/// It also replaces the citizen-facing location picker. The parcel already has
+/// authoritative coordinates from the survey, so asking someone to drop a pin on
+/// a satellite image only invites a worse answer to a question already answered.
+///
+/// A municipality with no rows here keeps the old behaviour — any well-formed
+/// number is accepted — so tenants can onboard before their cadastre is ready.
+model Parcel {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// As printed on the deed. Unique within this municipality, which the schema
+  /// boundary already guarantees.
+  parcelNumber String @unique
+
+  /// Representative point for the parcel. Where the source drew a parcel with
+  /// several label points, this is their centroid.
+  latitude  Float
+  longitude Float
+
+  /// How many source points were merged into the centroid above. > 1 means the
+  /// survey split this parcel, so the point is an approximation of a shape that
+  /// is not contiguous.
+  pointCount Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([latitude, longitude])
+  @@map("parcels")
+}
+
+enum DocumentType {
+  IDENTITY
+  OWNERSHIP_PROOF
+  RENTAL_CONTRACT
+  RESIDENCY_PROOF
+  EXTRA_PHOTO
+}
+
+model Document {
+  id             String       @id @default(uuid()) @db.Uuid
+  registrationId String       @db.Uuid
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  /// Null for person-level documents (identity); set for per-property proofs.
+  propertyEntryId String?        @db.Uuid
+  propertyEntry   PropertyEntry? @relation(fields: [propertyEntryId], references: [id], onDelete: Cascade)
+
+  type        DocumentType
+  storagePath String
+  mimeType    String
+  sizeBytes   Int
+  createdAt   DateTime     @default(now())
+
+  @@index([registrationId])
+  @@map("documents")
+}
+
+// ──────────────────────────────  Audit  ──────────────────────────────
+
+/// Append-only. Nothing in the application layer updates or deletes these rows;
+/// a per-schema trigger (see the tenant migration) enforces that at the DB level
+/// so a future bug cannot quietly rewrite history.
+model AuditLogEntry {
+  id String @id @default(uuid()) @db.Uuid
+
+  actorId    String?    @db.Uuid
+  actorType  String     @default("STAFF")
+  actorRole  StaffRole?
+  actorEmail String?
+
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@map("audit_log_entries")
+}

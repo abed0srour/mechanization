@@ -45,10 +45,30 @@ export const propertyNumberCheckSchema = z.object({
   propertyNumber: z.string().trim().min(1).max(40),
 });
 
+/**
+ * Answers two separate questions about a رقم العقار, which the form reports
+ * differently: `available` is "nobody has registered it yet", `inCadastre` is
+ * "it is a real parcel in this municipality". A number can be free and still
+ * wrong, and that is the common case — a typo.
+ *
+ * `inCadastre` is null for a municipality that has not imported its cadastre, so
+ * the form knows to stay quiet rather than claim the number is invalid.
+ */
 export const propertyNumberCheckResponseSchema = z.object({
   propertyNumber: z.string(),
   available: z.boolean(),
+  inCadastre: z.boolean().nullable(),
+  location: z
+    .object({
+      latitude: z.number(),
+      longitude: z.number(),
+      approximate: z.boolean(),
+    })
+    .nullable(),
+  suggestions: z.array(z.string()).default([]),
 });
+
+export type PropertyNumberCheckResponse = z.infer<typeof propertyNumberCheckResponseSchema>;
 
 /** Staff status transition. Rejection must carry a reason. */
 export const changeStatusSchema = z
