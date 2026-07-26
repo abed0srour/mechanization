@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   Map as MapIcon,
   RefreshCw,
+  ShieldCheck,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -229,16 +230,24 @@ export default function StaffDashboard({
               الخريطة
             </Link>
           </Button>
-          {/* Export is SUPER_ADMIN/AUDITOR only server-side; hidden here too so
-              the button is not offered to someone it will refuse. */}
+          {/* Both are SUPER_ADMIN/AUDITOR only server-side; hidden here too so
+              neither is offered to a role that will only get refused. */}
           {role === 'SUPER_ADMIN' || role === 'AUDITOR' ? (
-            <a
-              href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/t/${tenant}/dashboard/export.csv${filter ? `?status=${filter}` : ''}`}
-              className={buttonVariants({ variant: 'outline' })}
-            >
-              <Download className="size-4" aria-hidden />
-              تصدير CSV
-            </a>
+            <>
+              <Button asChild variant="outline">
+                <Link href={`${base}/audit`}>
+                  <ShieldCheck className="size-4" aria-hidden />
+                  سجل النشاطات
+                </Link>
+              </Button>
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/t/${tenant}/dashboard/export.csv${filter ? `?status=${filter}` : ''}`}
+                className={buttonVariants({ variant: 'outline' })}
+              >
+                <Download className="size-4" aria-hidden />
+                تصدير CSV
+              </a>
+            </>
           ) : null}
           <Button variant="outline" onClick={() => void load()} disabled={refreshing} title="تحديث البيانات">
             <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} aria-hidden />

@@ -307,6 +307,39 @@ export function getDocumentViewUrl(tenant: string, token: string, documentId: st
   );
 }
 
+export interface AuditEntry {
+  id: string;
+  actorId: string | null;
+  actorType: string;
+  actorRole: string | null;
+  actorEmail: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  before: unknown;
+  after: unknown;
+  ipAddress: string | null;
+  createdAt: string;
+}
+
+/** SUPER_ADMIN/AUDITOR only, server-enforced. Omitting `actorId` returns
+ * every administrative action; passing it (e.g. the signed-in user's own id)
+ * narrows the trail down to one admin's activity. */
+export function getAuditLog(
+  tenant: string,
+  token: string,
+  filter: { actorId?: string; entityType?: string; from?: string; to?: string; limit?: number } = {},
+) {
+  const query = new URLSearchParams();
+  if (filter.actorId) query.set('actorId', filter.actorId);
+  if (filter.entityType) query.set('entityType', filter.entityType);
+  if (filter.from) query.set('from', filter.from);
+  if (filter.to) query.set('to', filter.to);
+  query.set('limit', String(filter.limit ?? 100));
+
+  return apiFetch<{ items: AuditEntry[]; total: number }>(tenant, `/audit?${query}`, { token });
+}
+
 export interface CadastreImportResult {
   parcelsImported: number;
   parcelsSkipped: number;

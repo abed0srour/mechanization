@@ -1,0 +1,264 @@
+'use client';
+
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import { ArrowRight, History, ShieldCheck } from 'lucide-react';
+import { ApiRequestError, getAuditLog } from '@/lib/api-client';
+import type { AuditEntry, Session } from '@/lib/api-client';
+import { clearSession, loadSession } from '@/lib/session';
+import { Badge } from '@/components/ui/badge';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+const ENTITY_TYPES = ['Registration', 'Document', 'User'] as const;
+const ALL_ENTITY_TYPES = 'ALL';
+
+const ACTION_LABELS: Record<string, string> = {
+  REGISTRATION_SUBMITTED: 'تقديم طلب',
+  STATUS_CHANGE: 'تغيير حالة',
+  LOGIN: 'تسجيل دخول',
+  DOCUMENT_VIEW: 'فتح مرفق',
+  CSV_EXPORT: 'تصدير CSV',
+  CADASTRE_IMPORT: 'استيراد خريطة',
+};
+
+const TABLE_LABELS: DataTableLabels = {
+  searchAriaLabel: 'بحث في سجل النشاطات',
+  searchPlaceholder: 'ابحث بالإجراء أو البريد الإلكتروني…',
+  clearSearch: 'مسح البحث',
+  empty: 'لا توجد نشاطات.',
+  emptySearch: 'لا نتائج مطابقة لبحثك.',
+  loadError: 'تعذّر تحميل سجل النشاطات.',
+  retry: 'إعادة المحاولة',
+  previous: 'السابق',
+  next: 'التالي',
+  pageOf: 'صفحة {current} من {total}',
+  rowsPerPage: 'عدد الصفوف',
+  totalRows: '{count} نشاط',
+  sortAscending: 'ترتيب تصاعدي',
+  sortDescending: 'ترتيب تنازلي',
+  sortNone: 'إلغاء الترتيب',
+};
+
+/**
+ * Every administrative action, who performed it, and when — SUPER_ADMIN and
+ * AUDITOR only, matching the backend guard exactly (a FIELD_INSPECTOR who
+ * could read this would see how closely their own work is being reviewed).
+ *
+ * "My activity" is the same endpoint with `actorId` narrowed to the signed-in
+ * user rather than a separate one: the audit log already knows who did what,
+ * so a personal history view is a filter, not a new data source.
+ */
+export default function AuditTrailPage({
+  params,
+}: {
+  params: Promise<{ tenant: string; locale: string; adminPath: string }>;
+}) {
+  const { tenant, locale, adminPath } = use(params);
+  const router = useRouter();
+  const base = `/${tenant}/${locale}/${adminPath}`;
+
+  const [session, setSession] = useState<Session | null>(null);
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
+  const [entityType, setEntityType] = useState('');
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const existing = loadSession(tenant);
+    if (!existing || existing.user.kind !== 'STAFF') {
+      router.replace(`${base}/login`);
+      return;
+    }
+    if (existing.user.role !== 'SUPER_ADMIN' && existing.user.role !== 'AUDITOR') {
+      // Enforced server-side regardless; redirecting avoids offering a page
+      // that can only ever answer "لا يوجد صلاحية" for this role.
+      router.replace(`${base}/dashboard`);
+      return;
+    }
+    setSession(existing);
+  }, [tenant, base, router]);
+
+  const load = useCallback(async () => {
+    if (!session) return;
+    setLoading(true);
+    try {
+      const result = await getAuditLog(tenant, session.accessToken, {
+        actorId: scope === 'mine' ? session.user.id : undefined,
+        entityType: entityType || undefined,
+      });
+      setEntries(result.items);
+      setError(null);
+    } catch (caught) {
+      if (caught instanceof ApiRequestError && caught.status === 401) {
+        clearSession(tenant);
+        router.replace(`${base}/login`);
+        return;
+      }
+      setError('تعذّر تحميل سجل النشاطات.');
+    } finally {
+      setLoading(false);
+    }
+  }, [tenant, session, scope, entityType, base, router]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const columns = useMemo<ColumnDef<AuditEntry>[]>(
+    () => [
+      {
+        accessorKey: 'action',
+        header: 'الإجراء',
+        cell: ({ row }) => (
+          <div className="space-y-1">
+            <Badge variant="secondary">
+              {ACTION_LABELS[row.original.action] ?? row.original.action}
+            </Badge>
+            <p className="text-xs text-muted-foreground">{row.original.entityType}</p>
+          </div>
+        ),
+      },
+      {
+        id: 'actor',
+        header: 'القائم بالإجراء',
+        accessorFn: (row) => row.actorEmail ?? row.actorId ?? '',
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <p className="font-medium">{row.original.actorEmail ?? 'غير معروف'}</p>
+            <p className="text-xs text-muted-foreground">
+              {row.original.actorRole ?? row.original.actorType}
+            </p>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'createdAt',
+        header: 'الوقت',
+        cell: ({ row }) => (
+          <span dir="ltr" className="text-sm">
+            {new Date(row.original.createdAt).toLocaleString('ar-LB')}
+          </span>
+        ),
+      },
+      {
+        id: 'entity',
+        header: 'العنصر',
+        cell: ({ row }) =>
+          row.original.entityId ? (
+            <span dir="ltr" className="font-mono text-xs text-muted-foreground">
+              {row.original.entityId.slice(0, 8)}…
+            </span>
+          ) : (
+            '—'
+          ),
+      },
+    ],
+    [],
+  );
+
+  if (!session) return null;
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
+        <div className="space-y-1">
+          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
+            <ShieldCheck className="size-7 text-primary" aria-hidden />
+            سجل النشاطات
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            كل إجراء إداري في النظام: الفعل، القائم به، وتوقيته
+          </p>
+        </div>
+        <Link href={`${base}/dashboard`} className={buttonVariants({ variant: 'outline' })}>
+          <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+          رجوع إلى اللوحة
+        </Link>
+      </div>
+
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <Card className="overflow-hidden">
+        <CardHeader className="flex-col gap-4 border-b md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <History className="size-5" aria-hidden />
+              {scope === 'mine' ? 'نشاطي' : 'كل النشاطات'}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {scope === 'mine'
+                ? 'العناصر التي أنشأتها أو عدّلتها بنفسك'
+                : 'كل الإجراءات التي قام بها موظفو البلدية'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <div className="flex overflow-hidden rounded-lg border">
+              <Button
+                variant={scope === 'all' ? 'default' : 'ghost'}
+                className="rounded-none"
+                onClick={() => setScope('all')}
+              >
+                الكل
+              </Button>
+              <Button
+                variant={scope === 'mine' ? 'default' : 'ghost'}
+                className="rounded-none"
+                onClick={() => setScope('mine')}
+              >
+                نشاطي
+              </Button>
+            </div>
+
+            <Select
+              value={entityType || ALL_ENTITY_TYPES}
+              onValueChange={(next) => setEntityType(next === ALL_ENTITY_TYPES ? '' : next)}
+            >
+              <SelectTrigger className="h-10 w-full md:w-[180px]" aria-label="تصفية حسب نوع العنصر">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_ENTITY_TYPES}>كل الأنواع</SelectItem>
+                {ENTITY_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-6">
+          <DataTable
+            columns={columns}
+            data={entries}
+            labels={TABLE_LABELS}
+            getRowId={(row) => row.id}
+            loading={loading}
+            onRetry={() => void load()}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
