@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 
 export interface DashboardCounters {
@@ -105,12 +107,12 @@ export interface CitizenProfile {
 /**
  * Read side of the dashboard.
  *
- * v1 planned Redis-cached projections here. These are `groupBy` aggregates over
- * a table with thousands of rows per municipality — Postgres answers them in
- * single-digit milliseconds, and a cache would have added invalidation logic to
- * maintain in exchange for nothing measurable. If a query here ever does show up
- * slow, the first move is a materialized view (one statement, no new service),
- * not a cache layer.
+ * These are `groupBy` aggregates over a table with thousands of rows per
+ * municipality, which Postgres alone answers in single-digit milliseconds —
+ * but admins hit `counters` and `map/parcels` on every dashboard load, often
+ * several times a minute, so a short-lived cache still cuts real load even
+ * though no single query is slow. `RedisCacheService` degrades to a no-op
+ * when `REDIS_URL` is unset, so this is additive rather than a hard dependency.
  *
  * This service reads the tenant client directly rather than going through a
  * repository port: these are reporting projections with no domain invariants to
@@ -122,13 +124,35 @@ export class ReportingService {
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly events: EventEmitter2,
+    private readonly cache: RedisCacheService,
+    private readonly config: ConfigService,
   ) {}
 
   private get db() {
     return this.tenantContext.prisma;
   }
 
+  private get cacheTtlSeconds(): number {
+    return this.config.get<number>('DASHBOARD_CACHE_TTL_SECONDS') ?? 60;
+  }
+
+  /** Namespaced per tenant so one municipality's cache entries can be
+   * invalidated, or simply expire, without touching any other's. */
+  private cacheKey(name: string): string {
+    return `dashboard:${this.tenantContext.tenantSlug}:${name}`;
+  }
+
   async getDashboardCounters(): Promise<DashboardCounters> {
+    const key = this.cacheKey('counters');
+    const cached = await this.cache.get<DashboardCounters>(key);
+    if (cached) return cached;
+
+    const counters = await this.computeDashboardCounters();
+    await this.cache.set(key, counters, this.cacheTtlSeconds);
+    return counters;
+  }
+
+  private async computeDashboardCounters(): Promise<DashboardCounters> {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3_600_000);
 
     const [total, byStatus, byPropertyType, byResidentStatus, recent] = await Promise.all([
@@ -325,6 +349,16 @@ export class ReportingService {
    * cadastre import and simply cannot be placed on a map.
    */
   async getRegisteredParcels(): Promise<RegisteredParcel[]> {
+    const key = this.cacheKey('parcels');
+    const cached = await this.cache.get<RegisteredParcel[]>(key);
+    if (cached) return cached;
+
+    const parcels = await this.computeRegisteredParcels();
+    await this.cache.set(key, parcels, this.cacheTtlSeconds);
+    return parcels;
+  }
+
+  private async computeRegisteredParcels(): Promise<RegisteredParcel[]> {
     const rows = await this.db.propertyEntry.findMany({
       where: { latitude: { not: null }, longitude: { not: null } },
       select: {
@@ -506,6 +540,23 @@ export class ReportingService {
     });
 
     return lines.join('\n');
+  }
+
+  /**
+   * Cache invalidation, event-driven like the audit trail: this service does
+   * not know which feature just wrote data, only that the counters and map
+   * are now stale. Listeners run inside the emitting request's tenant scope
+   * (see app.module.ts), so `cacheKey` still namespaces to the right
+   * municipality without the event needing to carry a tenant slug.
+   */
+  @OnEvent('registration.submitted')
+  @OnEvent('registration.status-changed')
+  @OnEvent('cadastre.imported')
+  async onDashboardDataChanged(): Promise<void> {
+    await Promise.all([
+      this.cache.invalidatePrefix(this.cacheKey('counters')),
+      this.cache.invalidatePrefix(this.cacheKey('parcels')),
+    ]);
   }
 }
 

@@ -12,6 +12,7 @@ import {
   TOTP_SERVICE,
   USER_REPOSITORY,
 } from '../domain/interfaces/base-repository.interface';
+import { RedisCacheService } from './cache/redis-cache.service';
 import { TenantContextService } from './context/tenant-context.service';
 import { RegistryPrismaService } from './prisma/registry-prisma.service';
 import { TenantPrismaFactory } from './prisma/tenant-prisma.factory';
@@ -40,6 +41,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     TenantContextService,
     RegistryPrismaService,
     TenantPrismaFactory,
+    RedisCacheService,
 
     { provide: TENANT_REPOSITORY, useClass: PrismaTenantRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
@@ -58,6 +60,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     TenantContextService,
     RegistryPrismaService,
     TenantPrismaFactory,
+    RedisCacheService,
     TENANT_REPOSITORY,
     USER_REPOSITORY,
     REGISTRATION_REPOSITORY,

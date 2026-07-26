@@ -32,6 +32,14 @@ export const envSchema = z
     /** Second delivery route. See the OTP fallback requirement below. */
     SMS_PROVIDER_FALLBACK_API_KEY: z.string().optional(),
 
+    /**
+     * Optional: the dashboard cache runs in read-through mode when unset (every
+     * read falls straight to Postgres), so a dev environment without Redis
+     * still works — it just does not get the cached fast path.
+     */
+    REDIS_URL: z.string().url().optional(),
+    DASHBOARD_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')
