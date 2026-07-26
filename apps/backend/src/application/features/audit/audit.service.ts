@@ -108,6 +108,31 @@ export class AuditService {
     });
   }
 
+  @OnEvent('cadastre.imported')
+  async onCadastreImported(payload: {
+    actorId: string;
+    actorRole: string;
+    parcelsImported: number;
+    parcelsSkipped: number;
+    linesImported: number;
+  }): Promise<void> {
+    // Rebuilding the parcel registry a citizen's submission validates against
+    // is exactly the kind of system-wide change an audit trail exists to
+    // record, not just per-registration edits.
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: 'CADASTRE_IMPORT',
+      entityType: 'Parcel',
+      after: {
+        parcelsImported: payload.parcelsImported,
+        parcelsSkipped: payload.parcelsSkipped,
+        linesImported: payload.linesImported,
+      },
+    });
+  }
+
   @OnEvent('report.exported')
   async onExport(payload: {
     actorId: string;
