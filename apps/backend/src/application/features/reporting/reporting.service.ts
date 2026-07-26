@@ -28,6 +28,9 @@ export interface ParcelRegistrant {
   /** مالك / مستأجر — the closest thing to a "role" this domain has. */
   occupancyType: string;
   propertyType: string;
+  /** Which building this registrant's unit sits in — a parcel can carry more
+   * than one, so this is what actually distinguishes them in the drawer. */
+  buildingName: string | null;
   status: string;
   registeredAt: string;
   /** Units inside this citizen's slice of the building, if any. */
@@ -328,6 +331,7 @@ export class ReportingService {
         propertyNumber: true,
         propertyType: true,
         occupancyType: true,
+        buildingName: true,
         latitude: true,
         longitude: true,
         createdAt: true,
@@ -376,6 +380,7 @@ export class ReportingService {
         phone: row.registration.citizen.phone,
         occupancyType: row.occupancyType,
         propertyType: row.propertyType,
+        buildingName: row.buildingName,
         status: row.registration.status,
         registeredAt: row.registration.submittedAt.toISOString(),
         unitCount: row._count.units,

@@ -64,6 +64,7 @@ export function CitizenDetailDrawer({
                           {' · '}
                           {ar.propertyType[registrant.propertyType as never] ??
                             registrant.propertyType}
+                          {registrant.buildingName ? ` · ${registrant.buildingName}` : ''}
                           {registrant.unitCount > 0 ? ` · ${registrant.unitCount} وحدة` : ''}
                         </p>
                       </div>

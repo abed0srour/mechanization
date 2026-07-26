@@ -222,6 +222,7 @@ export interface ParcelRegistrant {
   phone: string | null;
   occupancyType: string;
   propertyType: string;
+  buildingName: string | null;
   status: string;
   registeredAt: string;
   unitCount: number;

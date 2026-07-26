@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { RegisteredParcel } from '@/lib/api-client';
+import { Loader2, Search } from 'lucide-react';
+import { checkPropertyNumber, type RegisteredParcel } from '@/lib/api-client';
 import { MapLayerControl } from './map-layer-control';
 import { CitizenDetailDrawer } from './citizen-detail-drawer';
 import { basemapById, styleFor, type BasemapId, DEFAULT_BASEMAP } from './map-styles';
@@ -60,10 +61,14 @@ export function FullscreenMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   const [basemap, setBasemap] = useState<BasemapId>(DEFAULT_BASEMAP);
   const [selected, setSelected] = useState<RegisteredParcel | null>(null);
   const [cadastreReady, setCadastreReady] = useState(false);
+
+  const [query, setQuery] = useState('');
+  const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'not-found'>('idle');
 
   const dark = basemapById(basemap).dark;
 
@@ -214,9 +219,91 @@ export function FullscreenMap({
     map.fitBounds(bounds, { padding: 96, maxZoom: 16, duration: 0 });
   }, [parcels]);
 
+  // ── Search by رقم العقار ────────────────────────────────────────────
+  const runSearch = useCallback(async () => {
+    const map = mapRef.current;
+    const propertyNumber = query.trim();
+    if (!map || !propertyNumber) return;
+
+    setSearchStatus('searching');
+
+    searchMarkerRef.current?.remove();
+    searchMarkerRef.current = null;
+
+    // An exact match among the registered parcels already on the map takes
+    // the citizen-facing lookup path: same fly-to-and-open behaviour as
+    // clicking its dot directly, so a search and a click land on the same
+    // outcome for the same parcel.
+    const registered = parcels.find((parcel) => parcel.propertyNumber === propertyNumber);
+    if (registered) {
+      setSelected(registered);
+      map.flyTo({ center: [registered.longitude, registered.latitude], zoom: 17, duration: 900 });
+      setSearchStatus('idle');
+      return;
+    }
+
+    try {
+      const result = await checkPropertyNumber(tenant, propertyNumber);
+      if (!result.location) {
+        setSearchStatus('not-found');
+        return;
+      }
+
+      const element = document.createElement('div');
+      element.className = 'map-search-pin';
+      searchMarkerRef.current = new maplibregl.Marker({ element })
+        .setLngLat([result.location.longitude, result.location.latitude])
+        .addTo(map);
+
+      map.flyTo({
+        center: [result.location.longitude, result.location.latitude],
+        zoom: 17,
+        duration: 900,
+      });
+      setSearchStatus('idle');
+    } catch {
+      setSearchStatus('not-found');
+    }
+  }, [query, parcels, tenant]);
+
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-label="خريطة العقارات" />
+
+      {/* Search by رقم العقار — top-centre, clear of the nav controls
+          (top-right), legend (top-left) and basemap switcher (bottom-centre). */}
+      <div className="absolute left-1/2 top-3 z-10 w-[min(22rem,calc(100%-1.5rem))] -translate-x-1/2">
+        <div className="flex items-center gap-2 rounded-lg border bg-card/95 p-1.5 shadow-sm backdrop-blur">
+          <Search className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (searchStatus === 'not-found') setSearchStatus('idle');
+            }}
+            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+            placeholder="ابحث برقم العقار"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            type="button"
+            onClick={runSearch}
+            disabled={searchStatus === 'searching' || !query.trim()}
+            className="flex h-8 shrink-0 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {searchStatus === 'searching' ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              'بحث'
+            )}
+          </button>
+        </div>
+        {searchStatus === 'not-found' ? (
+          <p className="mt-1.5 rounded-md border bg-card/95 px-3 py-1.5 text-xs text-destructive shadow-sm backdrop-blur">
+            لا يوجد عقار بهذا الرقم في هذه البلدية
+          </p>
+        ) : null}
+      </div>
 
       {/* Marker styling lives here rather than in globals.css: these classes
           exist only for DOM markers this component creates. */}
@@ -240,6 +327,22 @@ export function FullscreenMap({
           outline-offset: 2px;
         }
         .map-parcel-dot--many { width: 24px; height: 24px; }
+
+        /* Search result on a parcel with no citizen registrations yet — a
+           ring rather than a filled dot, so it never reads as "clickable to
+           open a sidebar" the way a registered marker does. */
+        .map-search-pin {
+          width: 22px; height: 22px;
+          border-radius: 9999px;
+          border: 3px solid hsl(var(--destructive));
+          box-shadow: 0 0 0 4px rgba(0,0,0,0.08);
+          animation: map-search-pulse 1.4s ease-out 2;
+        }
+        @keyframes map-search-pulse {
+          0% { transform: scale(0.6); opacity: 0.9; }
+          70% { transform: scale(1.6); opacity: 0; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
       `}</style>
 
       {/* What the dots mean, stated plainly — the conditional-rendering rule
