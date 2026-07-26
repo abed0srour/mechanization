@@ -65,6 +65,15 @@ export class PrismaParcelRepository implements ParcelRepository {
 
     return rows.map((row) => row.parcelNumber);
   }
+
+  async replaceAll(
+    parcels: readonly { parcelNumber: string; latitude: number; longitude: number; pointCount: number }[],
+  ): Promise<void> {
+    await this.db.$transaction([
+      this.db.parcel.deleteMany({}),
+      this.db.parcel.createMany({ data: parcels as never }),
+    ]);
+  }
 }
 
 function toLocation(row: {

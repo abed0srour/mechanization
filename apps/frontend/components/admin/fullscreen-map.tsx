@@ -53,10 +53,15 @@ export function FullscreenMap({
   tenant,
   parcels,
   citizenHref,
+  refreshToken,
 }: {
   tenant: string;
   parcels: RegisteredParcel[];
   citizenHref: (citizenId: string) => string;
+  /** Bumped by the page after a cadastre upload to force the static
+   * GeoJSON layers to reload — otherwise they are fetched once and never
+   * revisited for the lifetime of the map instance. */
+  refreshToken?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -80,15 +85,26 @@ export function FullscreenMap({
    * so the overlay has to be reattached rather than merely restyled.
    */
   const attachCadastre = useCallback(
-    async (map: maplibregl.Map) => {
+    async (map: maplibregl.Map, force = false) => {
       const base = `/tenants/${encodeURIComponent(tenant)}`;
+      // A plain cache-buster: these are static files served with long-lived
+      // cache headers, so a freshly-uploaded cadastre would otherwise keep
+      // serving the browser's cached copy of the old one.
+      const bust = refreshToken ? `?v=${refreshToken}` : '';
       const [cadastre, parcelPoints] = await Promise.all([
-        fetchGeoJson(`${base}/cadastre.geojson`),
-        fetchGeoJson(`${base}/parcels.geojson`),
+        fetchGeoJson(`${base}/cadastre.geojson${bust}`),
+        fetchGeoJson(`${base}/parcels.geojson${bust}`),
       ]);
 
       // The style can be swapped again while these are in flight.
       if (!mapRef.current || mapRef.current !== map) return;
+
+      if (force) {
+        if (map.getLayer(LAYER.cadastreLines)) map.removeLayer(LAYER.cadastreLines);
+        if (map.getSource(SOURCE.cadastre)) map.removeSource(SOURCE.cadastre);
+        if (map.getLayer(LAYER.parcelLabels)) map.removeLayer(LAYER.parcelLabels);
+        if (map.getSource(SOURCE.parcels)) map.removeSource(SOURCE.parcels);
+      }
 
       if (cadastre && !map.getSource(SOURCE.cadastre)) {
         map.addSource(SOURCE.cadastre, { type: 'geojson', data: cadastre });
@@ -130,7 +146,7 @@ export function FullscreenMap({
 
       setCadastreReady(Boolean(cadastre || parcelPoints));
     },
-    [tenant, dark],
+    [tenant, dark, refreshToken],
   );
 
   // ── Map lifecycle ──────────────────────────────────────────────────
@@ -173,6 +189,22 @@ export function FullscreenMap({
     // the event that fires once the *replacement* style is in place.
     map.once('styledata', () => void attachCadastre(map));
   }, [basemap, attachCadastre]);
+
+  // ── Cadastre refresh (after an admin upload) ───────────────────────
+  const isFirstRefresh = useRef(true);
+  useEffect(() => {
+    if (isFirstRefresh.current) {
+      isFirstRefresh.current = false;
+      return;
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    setCadastreReady(false);
+    void attachCadastre(map, true);
+    // Only the token's *change* should force a reload — attachCadastre itself
+    // is intentionally excluded to avoid re-running this on every basemap swap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   // ── Registration markers ───────────────────────────────────────────
   useEffect(() => {

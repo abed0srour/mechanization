@@ -307,6 +307,24 @@ export function getDocumentViewUrl(tenant: string, token: string, documentId: st
   );
 }
 
+export interface CadastreImportResult {
+  parcelsImported: number;
+  parcelsSkipped: number;
+  linesImported: number;
+}
+
+/** SUPER_ADMIN only — rebuilds the parcel registry and the map's static
+ * cartography layer from an uploaded GeoJSON file. */
+export function importCadastre(tenant: string, token: string, file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<CadastreImportResult>(tenant, '/cadastre/import', {
+    method: 'POST',
+    token,
+    body: form,
+  });
+}
+
 export function changeRegistrationStatus(
   tenant: string,
   token: string,

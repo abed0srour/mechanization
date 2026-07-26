@@ -1,12 +1,17 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2, Map as MapIcon } from 'lucide-react';
-import { ApiRequestError, getRegisteredParcels } from '@/lib/api-client';
-import type { RegisteredParcel } from '@/lib/api-client';
+import { ArrowRight, Loader2, Map as MapIcon, Upload } from 'lucide-react';
+import {
+  ApiRequestError,
+  getRegisteredParcels,
+  importCadastre,
+  type CadastreImportResult,
+} from '@/lib/api-client';
+import type { RegisteredParcel, Session } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 
@@ -47,18 +52,48 @@ export default function FullscreenMapPage({
   const router = useRouter();
   const base = `/${tenant}/${locale}/${adminPath}`;
 
-  const [token, setToken] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [parcels, setParcels] = useState<RegisteredParcel[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<CadastreImportResult | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const token = session?.accessToken ?? null;
+
   useEffect(() => {
-    const session = loadSession(tenant);
-    if (!session || session.user.kind !== 'STAFF') {
+    const existing = loadSession(tenant);
+    if (!existing || existing.user.kind !== 'STAFF') {
       router.replace(`${base}/login`);
       return;
     }
-    setToken(session.accessToken);
+    setSession(existing);
   }, [tenant, base, router]);
+
+  const handleCadastreUpload = async (file: File) => {
+    if (!token) return;
+    setUploading(true);
+    setUploadError(null);
+    setUploadResult(null);
+    try {
+      const result = await importCadastre(tenant, token, file);
+      setUploadResult(result);
+      // Reloads the map's static GeoJSON layers with the freshly written file —
+      // otherwise the upload would silently require a full page reload to show.
+      setRefreshToken((n) => n + 1);
+      getRegisteredParcels(tenant, token).then((response) => setParcels(response.parcels));
+    } catch (caught) {
+      setUploadError(
+        caught instanceof ApiRequestError ? caught.payload.message : 'تعذّر رفع الملف.',
+      );
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -95,13 +130,53 @@ export default function FullscreenMapPage({
             نقاط تفاعلية فقط على العقارات التي لديها تسجيلات
           </p>
         </div>
-        <Button asChild variant="outline">
-          <Link href={`${base}/dashboard`}>
-            <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-            رجوع إلى اللوحة
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {session?.user.role === 'SUPER_ADMIN' ? (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".geojson,application/geo+json,application/json"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleCadastreUpload(file);
+                }}
+              />
+              <Button
+                variant="outline"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Upload className="size-4" aria-hidden />
+                )}
+                رفع ملف GeoJSON
+              </Button>
+            </>
+          ) : null}
+          <Button asChild variant="outline">
+            <Link href={`${base}/dashboard`}>
+              <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+              رجوع إلى اللوحة
+            </Link>
+          </Button>
+        </div>
       </header>
+
+      {uploadResult ? (
+        <p className="border-b bg-primary/5 px-4 py-2 text-sm">
+          تم استيراد {uploadResult.parcelsImported} عقار و {uploadResult.linesImported} خط حدودي
+          {uploadResult.parcelsSkipped > 0 ? ` (تم تجاوز ${uploadResult.parcelsSkipped} عنصر غير صالح)` : ''}
+        </p>
+      ) : null}
+      {uploadError ? (
+        <p role="alert" className="border-b bg-destructive/5 px-4 py-2 text-sm text-destructive">
+          {uploadError}
+        </p>
+      ) : null}
 
       <div className="relative flex-1">
         {!token ? null : error ? (
@@ -118,6 +193,7 @@ export default function FullscreenMapPage({
             tenant={tenant}
             parcels={parcels}
             citizenHref={(citizenId) => `${base}/citizens/${citizenId}`}
+            refreshToken={refreshToken}
           />
         )}
       </div>
