@@ -256,12 +256,22 @@ export interface CitizenProfileProperty {
   unitCount: number;
 }
 
+export interface CitizenProfileDocument {
+  id: string;
+  type: string;
+  mimeType: string;
+  sizeBytes: number;
+  propertyEntryId: string | null;
+  createdAt: string;
+}
+
 export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   status: string;
   submittedAt: string;
   properties: CitizenProfileProperty[];
+  documents: CitizenProfileDocument[];
 }
 
 export interface CitizenProfile {
@@ -285,6 +295,15 @@ export interface CitizenProfile {
 
 export function getCitizenProfile(tenant: string, token: string, citizenId: string) {
   return apiFetch<CitizenProfile>(tenant, `/citizens/${encodeURIComponent(citizenId)}`, { token });
+}
+
+/** Opens the signed URL in a new tab; the backend records who viewed what. */
+export function getDocumentViewUrl(tenant: string, token: string, documentId: string) {
+  return apiFetch<{ url: string; expiresInSeconds: number }>(
+    tenant,
+    `/documents/${encodeURIComponent(documentId)}/url`,
+    { token },
+  );
 }
 
 export function changeRegistrationStatus(

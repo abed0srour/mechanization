@@ -61,12 +61,22 @@ export interface CitizenProfileProperty {
   unitCount: number;
 }
 
+export interface CitizenProfileDocument {
+  id: string;
+  type: string;
+  mimeType: string;
+  sizeBytes: number;
+  propertyEntryId: string | null;
+  createdAt: string;
+}
+
 export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   status: string;
   submittedAt: string;
   properties: CitizenProfileProperty[];
+  documents: CitizenProfileDocument[];
 }
 
 /** The staff-facing view of one citizen and everything they have filed. */
@@ -231,6 +241,20 @@ export class ReportingService {
                 _count: { select: { units: true } },
               },
             },
+            // Staff previously had no way to see a citizen's uploaded proofs
+            // from this page at all — the documents existed (uploaded and
+            // stored correctly) but were never queried here.
+            documents: {
+              select: {
+                id: true,
+                type: true,
+                mimeType: true,
+                sizeBytes: true,
+                propertyEntryId: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            },
           },
         },
       },
@@ -271,6 +295,14 @@ export class ReportingService {
           latitude: property.latitude,
           longitude: property.longitude,
           unitCount: property._count.units,
+        })),
+        documents: registration.documents.map((document) => ({
+          id: document.id,
+          type: document.type,
+          mimeType: document.mimeType,
+          sizeBytes: document.sizeBytes,
+          propertyEntryId: document.propertyEntryId,
+          createdAt: document.createdAt.toISOString(),
         })),
       })),
     };
