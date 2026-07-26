@@ -22,6 +22,20 @@ export class DashboardController {
   }
 
   /**
+   * Parcels that actually have citizen registrations, each with everyone
+   * attached to it.
+   *
+   * The fullscreen map draws the whole cadastre from a static GeoJSON and
+   * places an interactive marker only on what this returns — so a dot always
+   * means there is a citizen record behind it.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Get('map/parcels')
+  async registeredParcels() {
+    return { parcels: await this.reporting.getRegisteredParcels() };
+  }
+
+  /**
    * Bulk export, restricted to SUPER_ADMIN and AUDITOR: this is the one action
    * that moves every citizen's details out of the audited system and onto
    * someone's laptop. The export itself is recorded with its row count.

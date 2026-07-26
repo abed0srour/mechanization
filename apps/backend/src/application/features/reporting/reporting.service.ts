@@ -19,6 +19,76 @@ export interface SpatialFeature {
   longitude: number;
 }
 
+/** One citizen registered against a parcel, as the staff map drawer shows them. */
+export interface ParcelRegistrant {
+  citizenId: string;
+  registrationId: string;
+  fullName: string;
+  phone: string | null;
+  /** مالك / مستأجر — the closest thing to a "role" this domain has. */
+  occupancyType: string;
+  propertyType: string;
+  status: string;
+  registeredAt: string;
+  /** Units inside this citizen's slice of the building, if any. */
+  unitCount: number;
+}
+
+/**
+ * A parcel that has at least one registration, with everyone attached to it.
+ *
+ * Only registered parcels appear. The map draws all ~1,800 cadastral parcels
+ * from a static GeoJSON underneath; an interactive marker is reserved for the
+ * handful that actually have citizen data, so a dot on the map always means
+ * "there is something to open here".
+ */
+export interface RegisteredParcel {
+  propertyNumber: string;
+  latitude: number;
+  longitude: number;
+  registrants: ParcelRegistrant[];
+}
+
+export interface CitizenProfileProperty {
+  id: string;
+  propertyNumber: string;
+  propertyType: string;
+  occupancyType: string;
+  buildingName: string | null;
+  unitArea: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  unitCount: number;
+}
+
+export interface CitizenProfileRegistration {
+  id: string;
+  referenceNumber: string;
+  status: string;
+  submittedAt: string;
+  properties: CitizenProfileProperty[];
+}
+
+/** The staff-facing view of one citizen and everything they have filed. */
+export interface CitizenProfile {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  whatsapp: string | null;
+  gender: string | null;
+  nationality: string | null;
+  isLebanese: boolean | null;
+  residencyNumber: string | null;
+  residentStatus: string | null;
+  identityDocType: string | null;
+  identityDocNumber: string | null;
+  civilRecordNumber: string | null;
+  familySize: number | null;
+  referenceNumber: string | null;
+  registeredAt: string;
+  registrations: CitizenProfileRegistration[];
+}
+
 /**
  * Read side of the dashboard.
  *
@@ -109,6 +179,180 @@ export class ReportingService {
       latitude: row.latitude!,
       longitude: row.longitude!,
     }));
+  }
+
+  /**
+   * Everything staff see on one citizen's page: who they are, and every
+   * property they have filed.
+   *
+   * Returns null rather than throwing so the controller decides the HTTP shape
+   * — this layer has no opinion about 404s.
+   */
+  async getCitizenProfile(citizenId: string): Promise<CitizenProfile | null> {
+    const citizen = await this.db.user.findFirst({
+      // `kind` is part of the filter, not an afterthought: without it a staff
+      // id in the URL would render a staff member through the citizen view.
+      where: { id: citizenId, kind: 'CITIZEN' },
+      select: {
+        id: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        phone: true,
+        whatsapp: true,
+        gender: true,
+        nationality: true,
+        isLebanese: true,
+        residencyNumber: true,
+        residentStatus: true,
+        identityDocType: true,
+        identityDocNumber: true,
+        civilRecordNumber: true,
+        familySize: true,
+        referenceNumber: true,
+        createdAt: true,
+        registrations: {
+          orderBy: { submittedAt: 'desc' },
+          select: {
+            id: true,
+            referenceNumber: true,
+            status: true,
+            submittedAt: true,
+            properties: {
+              select: {
+                id: true,
+                propertyNumber: true,
+                propertyType: true,
+                occupancyType: true,
+                buildingName: true,
+                unitArea: true,
+                latitude: true,
+                longitude: true,
+                _count: { select: { units: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!citizen) return null;
+
+    return {
+      id: citizen.id,
+      fullName: [citizen.firstName, citizen.middleName, citizen.lastName]
+        .filter(Boolean)
+        .join(' '),
+      phone: citizen.phone,
+      whatsapp: citizen.whatsapp,
+      gender: citizen.gender,
+      nationality: citizen.nationality,
+      isLebanese: citizen.isLebanese,
+      residencyNumber: citizen.residencyNumber,
+      residentStatus: citizen.residentStatus,
+      identityDocType: citizen.identityDocType,
+      identityDocNumber: citizen.identityDocNumber,
+      civilRecordNumber: citizen.civilRecordNumber,
+      familySize: citizen.familySize,
+      referenceNumber: citizen.referenceNumber,
+      registeredAt: citizen.createdAt.toISOString(),
+      registrations: citizen.registrations.map((registration) => ({
+        id: registration.id,
+        referenceNumber: registration.referenceNumber,
+        status: registration.status,
+        submittedAt: registration.submittedAt.toISOString(),
+        properties: registration.properties.map((property) => ({
+          id: property.id,
+          propertyNumber: property.propertyNumber,
+          propertyType: property.propertyType,
+          occupancyType: property.occupancyType,
+          buildingName: property.buildingName,
+          unitArea: property.unitArea == null ? null : Number(property.unitArea),
+          latitude: property.latitude,
+          longitude: property.longitude,
+          unitCount: property._count.units,
+        })),
+      })),
+    };
+  }
+
+  /**
+   * Parcels that have registrations, each with every citizen attached to it.
+   *
+   * Grouped by رقم العقار rather than returned as a flat property list because
+   * that is the unit the staff map interacts with: one dot per parcel, and
+   * clicking it opens everyone on it. An apartment building is a single
+   * cadastral number shared by all its residents, so the many-to-one shape
+   * here is the common case and not an edge one.
+   *
+   * Coordinates come from the property row, which the submission path fills
+   * from the cadastre — so a parcel missing them was registered before the
+   * cadastre import and simply cannot be placed on a map.
+   */
+  async getRegisteredParcels(): Promise<RegisteredParcel[]> {
+    const rows = await this.db.propertyEntry.findMany({
+      where: { latitude: { not: null }, longitude: { not: null } },
+      select: {
+        propertyNumber: true,
+        propertyType: true,
+        occupancyType: true,
+        latitude: true,
+        longitude: true,
+        createdAt: true,
+        _count: { select: { units: true } },
+        registration: {
+          select: {
+            id: true,
+            status: true,
+            submittedAt: true,
+            citizen: {
+              select: {
+                id: true,
+                firstName: true,
+                middleName: true,
+                lastName: true,
+                phone: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 5000,
+    });
+
+    const byParcel = new Map<string, RegisteredParcel>();
+
+    for (const row of rows) {
+      const parcel = byParcel.get(row.propertyNumber) ?? {
+        propertyNumber: row.propertyNumber,
+        latitude: row.latitude!,
+        longitude: row.longitude!,
+        registrants: [],
+      };
+
+      parcel.registrants.push({
+        citizenId: row.registration.citizen.id,
+        registrationId: row.registration.id,
+        fullName: [
+          row.registration.citizen.firstName,
+          row.registration.citizen.middleName,
+          row.registration.citizen.lastName,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        phone: row.registration.citizen.phone,
+        occupancyType: row.occupancyType,
+        propertyType: row.propertyType,
+        status: row.registration.status,
+        registeredAt: row.registration.submittedAt.toISOString(),
+        unitCount: row._count.units,
+      });
+
+      byParcel.set(row.propertyNumber, parcel);
+    }
+
+    return [...byParcel.values()];
   }
 
   /**

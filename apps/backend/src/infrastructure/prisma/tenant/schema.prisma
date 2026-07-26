@@ -200,9 +200,11 @@ model PropertyEntry {
   landlordPhone String?
 
   propertyType   PropertyType
-  /// Unique within this municipality, which is exactly what the schema boundary
-  /// already gives us — no composite key with a tenant column required.
-  propertyNumber String        @unique
+  /// رقم العقار as printed on the deed. Deliberately NOT unique: an apartment
+  /// building is one cadastral number shared by every owner and tenant inside
+  /// it, so co-registration is the normal case. Uniqueness here used to tell the
+  /// second resident of a building that their own address was already taken.
+  propertyNumber String
   /// unitType/floor/side/unitArea/sharedRights describe a single unit, which is
   /// all a HOUSE or a LAND ever has. A BUILDING reads its units from
   /// `units` instead — see BuildingUnit.
@@ -225,6 +227,7 @@ model PropertyEntry {
   units     BuildingUnit[]
 
   @@index([propertyType])
+  @@index([propertyNumber])
   @@index([latitude, longitude])
   @@map("property_entries")
 }

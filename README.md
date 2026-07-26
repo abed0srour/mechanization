@@ -158,6 +158,50 @@ therefore does not have to wait on their survey office — `zahle` is seeded thi
 way on purpose, so the fallback path is exercised in development rather than
 discovered in production.
 
+## The staff map
+
+`/{tenant}/{locale}/{adminPath}/map` — a fullscreen cadastral map, reached from
+the **فتح الخريطة الكاملة** button on the dashboard toolbar.
+
+Three things are layered, and the distinction between them is the point:
+
+| Layer | Source | Interactive |
+|---|---|---|
+| Basemap — satellite / light / dark | Esri imagery, CARTO raster | switcher, bottom-centre |
+| The whole cadastre: ~1,800 parcel outlines + numbers | static GeoJSON | no |
+| A dot per parcel that has registrations | `GET /dashboard/map/parcels` | yes |
+
+**A dot is never drawn on an unregistered parcel.** With 1,825 parcels and (in
+development) six registered, a marker on every one would be 1,819 dots that mean
+nothing. A visible dot is therefore a promise that there is a citizen record
+behind it; a parcel carrying more than one registration is drawn larger and
+labelled with the count, because co-ownership is what staff most need to spot.
+
+Clicking a dot opens a left-anchored drawer listing everyone on that parcel —
+name, صفة (مالك/مستأجر), status, registration date, phone — each with a link
+through to `/{tenant}/{locale}/{adminPath}/citizens/{id}`.
+
+### Why parcels can have several registrants
+
+`property_entries.propertyNumber` is deliberately **not unique** (migration
+`0004_parcel_co_registration`). An apartment building is one cadastral number
+shared by every owner and tenant inside it. The unique index meant the second
+resident to register was told their own address was "already registered" and
+could not file at all — so the constraint was not protecting data, it was
+losing it. The citizen form now reports neighbours as reassurance
+("مسجّل ٣ أشخاص آخرين على هذا العقار — هذا طبيعي في المباني المشتركة") instead
+of refusing the entry, and overlapping claims are surfaced to staff on the map
+rather than prevented at the keyboard.
+
+### Why the citizen page is not at `/citizens/{id}`
+
+It is at `/{tenant}/{locale}/{adminPath}/citizens/{id}`. A bare id says nothing
+about *which municipality's* schema to read — in this system the tenant boundary
+is the database connection, not a `WHERE` clause — and the page renders identity
+document numbers and residency status, which belong behind the same obscure
+staff path and role guard as the rest of the portal. The API mirrors this:
+`GET /t/:slug/citizens/:id`, with no un-scoped route.
+
 ### Adding a migration
 
 Schema-per-tenant means migrations apply once **per municipality**:

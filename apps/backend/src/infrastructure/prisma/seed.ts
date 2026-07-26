@@ -287,7 +287,12 @@ async function seedTenant(
         select: { id: true },
       });
 
-      const existing = await db.propertyEntry.findUnique({
+      // `findFirst`, not `findUnique`: رقم العقار is no longer unique, because
+      // a building is one cadastral number shared by everyone in it. This is
+      // only re-run protection for the seed itself — it keeps a second
+      // `pnpm db:seed` from stacking duplicate sample registrations onto the
+      // same parcel, which real citizens are explicitly allowed to do.
+      const existing = await db.propertyEntry.findFirst({
         where: { propertyNumber: sample.property.propertyNumber },
         select: { id: true },
       });

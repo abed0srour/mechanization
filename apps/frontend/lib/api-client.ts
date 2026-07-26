@@ -86,13 +86,16 @@ export function getTenantConfig(tenant: string) {
 
 export interface PropertyNumberCheck {
   propertyNumber: string;
-  /** Nobody has registered this parcel yet. */
-  available: boolean;
   /** In the municipality's cadastre. Null when the municipality has none. */
   inCadastre: boolean | null;
   location: { latitude: number; longitude: number; approximate: boolean } | null;
   /** Nearest real parcel numbers, offered only when the typed one is unknown. */
   suggestions: string[];
+  /**
+   * Neighbours already registered on this parcel. Informational only — a
+   * building shares one cadastral number, so this never blocks a submission.
+   */
+  registeredCount: number;
 }
 
 /** Blur-check for رقم العقار while the citizen is still typing. */
@@ -172,6 +175,8 @@ export interface RegistrationListItem {
   referenceNumber: string;
   status: string;
   submittedAt: string;
+  /** Lets a table row link straight to the citizen's profile page. */
+  citizenId: string;
   citizenName: string;
   propertyCount: number;
 }
@@ -209,17 +214,77 @@ export function getDashboardCounters(tenant: string, token: string) {
   return apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token });
 }
 
-export interface SpatialFeature {
+/** One citizen registered against a parcel, as the map drawer lists them. */
+export interface ParcelRegistrant {
+  citizenId: string;
+  registrationId: string;
+  fullName: string;
+  phone: string | null;
+  occupancyType: string;
+  propertyType: string;
+  status: string;
+  registeredAt: string;
+  unitCount: number;
+}
+
+/**
+ * A parcel with at least one registration. The fullscreen map places an
+ * interactive marker only on these — every other cadastral parcel is drawn
+ * from the static GeoJSON with no dot, so a dot always means there is
+ * citizen data to open.
+ */
+export interface RegisteredParcel {
+  propertyNumber: string;
+  latitude: number;
+  longitude: number;
+  registrants: ParcelRegistrant[];
+}
+
+export function getRegisteredParcels(tenant: string, token: string) {
+  return apiFetch<{ parcels: RegisteredParcel[] }>(tenant, '/dashboard/map/parcels', { token });
+}
+
+export interface CitizenProfileProperty {
   id: string;
   propertyNumber: string;
   propertyType: string;
-  status: string;
-  latitude: number;
-  longitude: number;
+  occupancyType: string;
+  buildingName: string | null;
+  unitArea: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  unitCount: number;
 }
 
-export function getSpatialData(tenant: string, token: string) {
-  return apiFetch<{ features: SpatialFeature[] }>(tenant, '/dashboard/map', { token });
+export interface CitizenProfileRegistration {
+  id: string;
+  referenceNumber: string;
+  status: string;
+  submittedAt: string;
+  properties: CitizenProfileProperty[];
+}
+
+export interface CitizenProfile {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  whatsapp: string | null;
+  gender: string | null;
+  nationality: string | null;
+  isLebanese: boolean | null;
+  residencyNumber: string | null;
+  residentStatus: string | null;
+  identityDocType: string | null;
+  identityDocNumber: string | null;
+  civilRecordNumber: string | null;
+  familySize: number | null;
+  referenceNumber: string | null;
+  registeredAt: string;
+  registrations: CitizenProfileRegistration[];
+}
+
+export function getCitizenProfile(tenant: string, token: string, citizenId: string) {
+  return apiFetch<CitizenProfile>(tenant, `/citizens/${encodeURIComponent(citizenId)}`, { token });
 }
 
 export function changeRegistrationStatus(

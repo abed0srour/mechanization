@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Loader2, MapPin, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Loader2, MapPin, Plus, Trash2, Users } from 'lucide-react';
 import { ar, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
 import type { LandType, OccupancyType, PropertyType, UnitType } from '@mechanization/shared-schemas';
 import { checkPropertyNumber, type PropertyNumberCheck } from '@/lib/api-client';
@@ -573,15 +573,20 @@ function PropertyNumberField({
   const stale = result !== null && result.propertyNumber !== value.trim();
   const settled = result !== null && !stale && !checking;
 
-  const taken = settled && !result.available;
   const unknown = settled && result.inCadastre === false;
-  const confirmed = settled && result.inCadastre !== false && result.available;
+  const confirmed = settled && result.inCadastre !== false;
 
-  const error = taken
-    ? 'رقم العقار مسجّل مسبقاً في هذه البلدية'
-    : unknown
-      ? 'هذا الرقم غير موجود في السجل العقاري للبلدية. تأكّد من الرقم المدوّن على سند الملكية.'
-      : undefined;
+  /**
+   * Neighbours already registered on this parcel. Not an error and not a
+   * warning — an apartment building is a single cadastral number, so everyone
+   * inside it enters the same one. This used to be a hard block, which told
+   * the second resident of a building that their own address was taken.
+   */
+  const neighbours = settled ? result.registeredCount : 0;
+
+  const error = unknown
+    ? 'هذا الرقم غير موجود في السجل العقاري للبلدية. تأكّد من الرقم المدوّن على سند الملكية.'
+    : undefined;
 
   return (
     <Field
@@ -596,7 +601,7 @@ function PropertyNumberField({
         inputMode="numeric"
         dir="ltr"
         className="text-start"
-        invalid={taken || unknown}
+        invalid={unknown}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -613,7 +618,21 @@ function PropertyNumberField({
           <CheckCircle2 className="size-4" aria-hidden />
           {result.location
             ? 'رقم صحيح — تم تحديد موقع العقار على خريطة البلدية'
-            : 'الرقم متاح'}
+            : 'رقم صحيح'}
+        </p>
+      ) : null}
+
+      {/**
+       * Stated as reassurance, in muted text rather than as a warning: someone
+       * registering an apartment expects their neighbours to already be here,
+       * and anything red would read as "you have done something wrong".
+       */}
+      {confirmed && neighbours > 0 ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Users className="size-4 shrink-0" aria-hidden />
+          {neighbours === 1
+            ? 'مسجّل شخص آخر على هذا العقار — هذا طبيعي في المباني المشتركة.'
+            : `مسجّل ${neighbours} أشخاص آخرين على هذا العقار — هذا طبيعي في المباني المشتركة.`}
         </p>
       ) : null}
 

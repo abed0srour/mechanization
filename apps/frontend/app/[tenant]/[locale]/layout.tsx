@@ -20,6 +20,19 @@ async function getTenant(slug: string): Promise<PublicTenantConfig | null> {
   }
 }
 
+/**
+ * The `<html>`/`<body>` shell for every route under this tenant — citizen
+ * pages and the staff portal alike — plus the one thing both genuinely share:
+ * language direction and the municipality's branding colour.
+ *
+ * Deliberately carries no header, container width or footer. Those used to
+ * live here and applied to every route by construction, which put the staff
+ * dashboard and the fullscreen map inside the citizen wizard's
+ * `max-w-3xl` reading column — a limit chosen for a single-column form, wrong
+ * for a data table and fatal for a full-viewport map. Citizen-facing chrome
+ * now lives in `(citizen)/layout.tsx`, scoped to the routes that are actually
+ * citizen-facing; `[adminPath]/**` pages own their own full-width shell.
+ */
 export default async function TenantLayout({
   children,
   params,
@@ -31,11 +44,11 @@ export default async function TenantLayout({
   const config = await getTenant(tenant);
 
   // An unknown municipality is a 404, not a generic error page: the slug is the
-  // tenant, so a wrong slug means the citizen is in the wrong place entirely.
+  // tenant, so a wrong slug means the visitor — citizen or staff — is in the
+  // wrong place entirely.
   if (!config) notFound();
 
   const isRtl = locale === 'ar';
-  const { branding } = config;
 
   return (
     <html lang={locale} dir={isRtl ? 'rtl' : 'ltr'}>
@@ -56,46 +69,15 @@ export default async function TenantLayout({
          * every use site composes alpha into it as `hsl(var(--primary) / …)`.
          */
         style={
-          branding.primaryColor
-            ? ({ '--primary': branding.primaryColor, '--ring': branding.primaryColor } as React.CSSProperties)
+          config.branding.primaryColor
+            ? ({
+                '--primary': config.branding.primaryColor,
+                '--ring': config.branding.primaryColor,
+              } as React.CSSProperties)
             : undefined
         }
       >
-        <header className="border-b bg-background">
-          <div className="container flex items-center gap-4 py-4">
-            {branding.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={branding.logoUrl} alt="" className="h-12 w-12 object-contain" />
-            ) : (
-              <div
-                aria-hidden
-                className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground"
-              >
-                {config.nameAr.slice(0, 2)}
-              </div>
-            )}
-            <div>
-              <p className="text-lg font-bold leading-tight">{config.nameAr}</p>
-              <p className="text-sm text-muted-foreground">تسجيل العقارات والوحدات السكنية</p>
-            </div>
-          </div>
-        </header>
-
-        <main className="container max-w-3xl py-8">{children}</main>
-
-        <footer className="mt-16 border-t py-6 text-center text-sm text-muted-foreground">
-          {config.supportPhone ? (
-            <p>
-              للمساعدة اتصل بالبلدية:{' '}
-              <a
-                className="font-medium text-primary hover:underline"
-                href={`tel:${config.supportPhone}`}
-              >
-                {config.supportPhone}
-              </a>
-            </p>
-          ) : null}
-        </footer>
+        {children}
       </body>
     </html>
   );

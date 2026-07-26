@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ar } from '@mechanization/shared-schemas';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -37,6 +37,26 @@ export function PersonalStep({
 }) {
   const set = (patch: Values) => onChange({ ...value, ...patch });
   const isLebanese = value.isLebanese !== false;
+
+  /**
+   * Everything downstream of "هل الشخص لبناني؟" follows automatically rather
+   * than asking twice: a Lebanese citizen's nationality is لبناني by
+   * definition, and a non-Lebanese person's identity document is a passport
+   * in the overwhelming majority of cases — رقم الهوية اللبنانية and إخراج
+   * القيد do not apply to them at all. Re-deriving both here means the citizen
+   * only ever answers the nationality question once.
+   */
+  useEffect(() => {
+    if (isLebanese) {
+      if (value.nationality !== 'لبناني') set({ nationality: 'لبناني' });
+    } else if (value.identityDocType !== 'PASSPORT') {
+      set({ identityDocType: 'PASSPORT' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLebanese]);
+
+  const identityDocNumberLabel =
+    ar.identityDocNumberLabel[value.identityDocType as never] ?? 'رقم الوثيقة';
 
   return (
     <div className="space-y-6">
@@ -84,6 +104,47 @@ export function PersonalStep({
       </Field>
 
       {/**
+       * Asked before anything about identity documents, because it decides
+       * which of those apply: رقم السجل only makes sense for a Lebanese
+       * citizen, and رقم الإقامة only for someone who is not one.
+       */}
+      <Field label="الجنسية" htmlFor="isLebanese" required error={errors['personal.isLebanese']}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ChoiceCard
+            name="isLebanese"
+            value="LEBANESE"
+            checked={isLebanese}
+            onChange={() => set({ isLebanese: true, residencyNumber: undefined })}
+            title="لبناني"
+          />
+          <ChoiceCard
+            name="isLebanese"
+            value="FOREIGN"
+            checked={!isLebanese}
+            onChange={() => set({ isLebanese: false, civilRecordNumber: undefined })}
+            title="أجنبي"
+          />
+        </div>
+      </Field>
+
+      {!isLebanese ? (
+        <Field
+          label="الجنسية"
+          htmlFor="nationality"
+          required
+          hint="مثال: سوري، مصري، فلسطيني"
+          error={errors['personal.nationality']}
+        >
+          <Input
+            id="nationality"
+            invalid={Boolean(errors['personal.nationality'])}
+            value={value.nationality === 'لبناني' ? '' : str(value.nationality)}
+            onChange={(e) => set({ nationality: e.target.value })}
+          />
+        </Field>
+      ) : null}
+
+      {/**
        * صفة الإقامة describes the person, never the property — a refugee may
        * still own an apartment, so this never gates the property step.
        */}
@@ -107,96 +168,121 @@ export function PersonalStep({
         </div>
       </Field>
 
-      <Field
-        label="نوع وثيقة الإثبات"
-        htmlFor="identityDocType"
-        required
-        error={errors['personal.identityDocType']}
-      >
-        <Select
-          value={str(value.identityDocType)}
-          onValueChange={(next) => set({ identityDocType: next })}
-        >
-          <SelectTrigger id="identityDocType">
-            <SelectValue placeholder="اختر…" />
-          </SelectTrigger>
-          <SelectContent>
-            {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map((o) => (
-              <SelectItem key={o} value={o}>
-                {ar.identityDocType[o]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-
-      <div className="grid gap-5 sm:grid-cols-2">
+      {/**
+       * The type select only appears for a Lebanese citizen — a foreigner's
+       * document is always treated as a passport, so there is nothing to
+       * choose and one less question to ask.
+       */}
+      {isLebanese ? (
         <Field
-          label="رقم الوثيقة"
-          htmlFor="identityDocNumber"
+          label="نوع وثيقة الإثبات"
+          htmlFor="identityDocType"
           required
-          error={errors['personal.identityDocNumber']}
+          error={errors['personal.identityDocType']}
         >
-          <Input
-            id="identityDocNumber"
-            inputMode="numeric"
-            invalid={Boolean(errors['personal.identityDocNumber'])}
-            value={str(value.identityDocNumber)}
-            onChange={(e) => set({ identityDocNumber: e.target.value })}
-          />
-        </Field>
-
-        <Field
-          label="رقم السجل"
-          htmlFor="civilRecordNumber"
-          required
-          hint="عادةً رقم قصير من خانة إلى ثلاث خانات"
-          error={errors['personal.civilRecordNumber']}
-        >
-          <Input
-            id="civilRecordNumber"
-            inputMode="numeric"
-            invalid={Boolean(errors['personal.civilRecordNumber'])}
-            value={str(value.civilRecordNumber)}
-            onChange={(e) => set({ civilRecordNumber: e.target.value })}
-          />
-        </Field>
-      </div>
-
-      <Field label="الجنسية" htmlFor="nationality" required error={errors['personal.nationality']}>
-        <Input
-          id="nationality"
-          invalid={Boolean(errors['personal.nationality'])}
-          value={str(value.nationality)}
-          onChange={(e) => set({ nationality: e.target.value })}
-        />
-      </Field>
-
-      <div className="flex min-h-touch items-center gap-3">
-        <Checkbox
-          id="isLebanese"
-          checked={isLebanese}
-          onCheckedChange={(checked) => set({ isLebanese: checked === true })}
-        />
-        <Label htmlFor="isLebanese">لبناني الجنسية</Label>
-      </div>
-
-      {!isLebanese ? (
-        <Field
-          label="رقم الإقامة"
-          htmlFor="residencyNumber"
-          required
-          hint="مطلوب لغير اللبنانيين"
-          error={errors['personal.residencyNumber']}
-        >
-          <Input
-            id="residencyNumber"
-            invalid={Boolean(errors['personal.residencyNumber'])}
-            value={str(value.residencyNumber)}
-            onChange={(e) => set({ residencyNumber: e.target.value })}
-          />
+          <Select
+            value={str(value.identityDocType)}
+            onValueChange={(next) => set({ identityDocType: next })}
+          >
+            <SelectTrigger id="identityDocType">
+              <SelectValue placeholder="اختر…" />
+            </SelectTrigger>
+            <SelectContent>
+              {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map(
+                (o) => (
+                  <SelectItem key={o} value={o}>
+                    {ar.identityDocType[o]}
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
         </Field>
       ) : null}
+
+      {/**
+       * Both columns are deliberately hint-free: a hint under only one field
+       * pushes its input down relative to its neighbour, so the two boxes in
+       * this row stop lining up. Guidance that used to live there is now
+       * either a placeholder (which sits inside the box, adding no height) or
+       * dropped as redundant once the field only appears in one branch.
+       */}
+      {isLebanese ? (
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field
+            label={identityDocNumberLabel}
+            htmlFor="identityDocNumber"
+            required
+            error={errors['personal.identityDocNumber']}
+          >
+            <Input
+              id="identityDocNumber"
+              inputMode="numeric"
+              invalid={Boolean(errors['personal.identityDocNumber'])}
+              value={str(value.identityDocNumber)}
+              onChange={(e) => set({ identityDocNumber: e.target.value })}
+            />
+          </Field>
+
+          <Field
+            label="رقم السجل"
+            htmlFor="civilRecordNumber"
+            required
+            error={errors['personal.civilRecordNumber']}
+          >
+            <Input
+              id="civilRecordNumber"
+              inputMode="numeric"
+              placeholder="١-٣ أرقام عادةً"
+              invalid={Boolean(errors['personal.civilRecordNumber'])}
+              value={str(value.civilRecordNumber)}
+              onChange={(e) => set({ civilRecordNumber: e.target.value })}
+            />
+          </Field>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/**
+           * Neither field is individually required here — only one of the two
+           * has to be filled. A foreigner without a passport on hand still has
+           * a رقم إقامة, and one without a residency permit yet still has a
+           * passport; asking for both would block someone who has already
+           * given the municipality a usable identifier.
+           */}
+          <p className="text-sm text-muted-foreground">
+            يكفي إدخال رقم جواز السفر أو رقم الإقامة — لا حاجة لإدخال كليهما.
+          </p>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              label={identityDocNumberLabel}
+              htmlFor="identityDocNumber"
+              error={errors['personal.identityDocNumber']}
+            >
+              <Input
+                id="identityDocNumber"
+                inputMode="numeric"
+                invalid={Boolean(errors['personal.identityDocNumber'])}
+                value={str(value.identityDocNumber)}
+                onChange={(e) => set({ identityDocNumber: e.target.value })}
+              />
+            </Field>
+
+            <Field
+              label="رقم الإقامة"
+              htmlFor="residencyNumber"
+              error={errors['personal.residencyNumber']}
+            >
+              <Input
+                id="residencyNumber"
+                invalid={Boolean(errors['personal.residencyNumber'])}
+                value={str(value.residencyNumber)}
+                onChange={(e) => set({ residencyNumber: e.target.value })}
+              />
+            </Field>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

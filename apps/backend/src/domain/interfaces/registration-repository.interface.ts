@@ -21,6 +21,8 @@ export interface RegistrationListItem {
   referenceNumber: string;
   status: ReportStatus;
   submittedAt: Date;
+  /** Carried so the staff table can link a row straight to the citizen's page. */
+  citizenId: string;
   citizenName: string;
   propertyCount: number;
 }
@@ -49,5 +51,9 @@ export interface RegistrationRepository {
     reviewedById: string;
   }): Promise<void>;
 
-  isPropertyNumberAvailable(propertyNumber: string): Promise<boolean>;
+  /**
+   * How many citizens are already registered on this parcel. Context for the
+   * form, not a gate — co-registration on one cadastral number is normal.
+   */
+  countRegistrationsForParcel(propertyNumber: string): Promise<number>;
 }

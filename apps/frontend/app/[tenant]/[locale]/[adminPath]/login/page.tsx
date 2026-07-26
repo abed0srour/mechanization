@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ApiRequestError, loginStaff } from '@/lib/api-client';
 import { saveSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 
@@ -64,71 +65,75 @@ export default function StaffLogin({
   }
 
   return (
-    <div className="mx-auto max-w-sm space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">دخول الموظفين</h1>
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+      <Card className="w-full max-w-sm">
+        <CardContent className="space-y-6 p-6">
+          <h1 className="text-2xl font-bold tracking-tight">دخول الموظفين</h1>
 
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
-        >
-          {error}
-        </p>
-      ) : null}
+          {error ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
+            >
+              {error}
+            </p>
+          ) : null}
 
-      <Field label="البريد الإلكتروني" htmlFor="email" required>
-        <Input
-          id="email"
-          type="email"
-          dir="ltr"
-          autoComplete="username"
-          className="text-start"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          disabled={needsTotp}
-        />
-      </Field>
+          <Field label="البريد الإلكتروني" htmlFor="email" required>
+            <Input
+              id="email"
+              type="email"
+              dir="ltr"
+              autoComplete="username"
+              className="text-start"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={needsTotp}
+            />
+          </Field>
 
-      <Field label="كلمة المرور" htmlFor="password" required>
-        <Input
-          id="password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={needsTotp}
-        />
-      </Field>
+          <Field label="كلمة المرور" htmlFor="password" required>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={needsTotp}
+            />
+          </Field>
 
-      {needsTotp ? (
-        <Field
-          label="رمز التحقق الثنائي"
-          htmlFor="totp"
-          required
-          hint="ستة أرقام من تطبيق المصادقة"
-        >
-          <Input
-            id="totp"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            dir="ltr"
-            maxLength={6}
-            autoFocus
-            className="text-center text-2xl tracking-[0.5em]"
-            value={totpToken}
-            onChange={(e) => setTotpToken(e.target.value.replace(/\D/g, ''))}
-          />
-        </Field>
-      ) : null}
+          {needsTotp ? (
+            <Field
+              label="رمز التحقق الثنائي"
+              htmlFor="totp"
+              required
+              hint="ستة أرقام من تطبيق المصادقة"
+            >
+              <Input
+                id="totp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                dir="ltr"
+                maxLength={6}
+                autoFocus
+                className="text-center text-2xl tracking-[0.5em]"
+                value={totpToken}
+                onChange={(e) => setTotpToken(e.target.value.replace(/\D/g, ''))}
+              />
+            </Field>
+          ) : null}
 
-      <Button
-        size="lg"
-        className="w-full"
-        disabled={busy || !email || !password || (needsTotp && totpToken.length !== 6)}
-        onClick={submit}
-      >
-        {busy ? 'جارٍ الدخول…' : needsTotp ? 'تحقّق وادخل' : 'دخول'}
-      </Button>
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={busy || !email || !password || (needsTotp && totpToken.length !== 6)}
+            onClick={submit}
+          >
+            {busy ? 'جارٍ الدخول…' : needsTotp ? 'تحقّق وادخل' : 'دخول'}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

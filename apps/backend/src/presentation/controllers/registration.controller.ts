@@ -102,11 +102,18 @@ export class RegistrationController {
     };
   }
 
-  /** Blur-check while the citizen types رقم العقار. */
+  /**
+   * Live check while the citizen types رقم العقار: is it a real parcel, and
+   * how many neighbours are already registered on it.
+   *
+   * Still on the `/availability` path so an older client keeps working; the
+   * response no longer carries an `available` flag, because co-registration
+   * on one cadastral number is normal and never refused.
+   */
   @Public()
   @Get('property-number/:propertyNumber/availability')
   async checkPropertyNumber(@Param('propertyNumber') propertyNumber: string) {
-    return this.registrations.checkPropertyNumberAvailable(propertyNumber);
+    return this.registrations.checkPropertyNumber(propertyNumber);
   }
 
   // ──────────────────────────  Citizen views  ──────────────────────────

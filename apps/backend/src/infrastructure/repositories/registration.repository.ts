@@ -153,7 +153,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     const rows = await this.db.registration.findMany({
       where: { citizenId },
       include: {
-        citizen: { select: { firstName: true, lastName: true } },
+        citizen: { select: { id: true, firstName: true, lastName: true } },
         _count: { select: { properties: true } },
       },
       orderBy: { submittedAt: 'desc' },
@@ -164,6 +164,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
       referenceNumber: row.referenceNumber,
       status: row.status as ReportStatus,
       submittedAt: row.submittedAt,
+      citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       propertyCount: row._count.properties,
     }));
@@ -180,7 +181,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
       this.db.registration.findMany({
         where,
         include: {
-          citizen: { select: { firstName: true, lastName: true } },
+          citizen: { select: { id: true, firstName: true, lastName: true } },
           _count: { select: { properties: true } },
         },
         orderBy: { submittedAt: 'desc' },
@@ -196,7 +197,8 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
         referenceNumber: row.referenceNumber,
         status: row.status as ReportStatus,
         submittedAt: row.submittedAt,
-        citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
+        citizenId: row.citizen.id,
+      citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
         propertyCount: row._count.properties,
       })),
       total,
@@ -221,16 +223,22 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
   }
 
   /**
-   * Straight indexed lookup on a unique column. v1 put a 10-second Redis cache
-   * in front of this; it is a single-row index probe on a table of thousands,
-   * and the cache was more moving parts than the query it accelerated.
+   * How many people have already registered this parcel.
+   *
+   * This used to answer "is the number free", gating the submission. It no
+   * longer gates anything — a building is one cadastral number shared by
+   * everyone inside it — so the count is reported to the citizen as context
+   * ("three neighbours are already registered here") rather than used to
+   * refuse the write.
+   *
+   * Straight indexed count. v1 put a 10-second Redis cache in front of the
+   * old version of this; it is an index scan on a table of thousands, and the
+   * cache was more moving parts than the query it accelerated.
    */
-  async isPropertyNumberAvailable(propertyNumber: string): Promise<boolean> {
-    const existing = await this.db.propertyEntry.findUnique({
+  async countRegistrationsForParcel(propertyNumber: string): Promise<number> {
+    return this.db.propertyEntry.count({
       where: { propertyNumber: propertyNumber.trim() },
-      select: { id: true },
     });
-    return existing === null;
   }
 
   private toDomain(row: {
@@ -282,9 +290,10 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       const target = (error.meta?.target as string[] | undefined)?.join(', ') ?? '';
 
-      if (target.includes('propertyNumber')) {
-        return new ConflictError('رقم العقار مسجّل مسبقاً');
-      }
+      // No propertyNumber branch: that column is deliberately not unique any
+      // more (see migration 0004), so a P2002 naming it would mean the index
+      // came back — worth surfacing as the generic conflict rather than as a
+      // reassuring message that hides a schema drift.
       if (target.includes('identityDocNumber')) {
         return new ConflictError('هذه الوثيقة مسجّلة مسبقاً لشخص آخر');
       }

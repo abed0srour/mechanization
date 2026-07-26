@@ -1,25 +1,32 @@
 'use client';
 
-import { use, useCallback, useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
+import {
+  CheckCircle2,
+  Clock,
+  Download,
+  FileSpreadsheet,
+  Map as MapIcon,
+  RefreshCw,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   changeRegistrationStatus,
   getDashboardCounters,
-  getSpatialData,
   listForReview,
 } from '@/lib/api-client';
-import type {
-  DashboardCounters,
-  RegistrationListItem,
-  SpatialFeature,
-} from '@/lib/api-client';
+import type { DashboardCounters, RegistrationListItem } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import {
   Select,
   SelectContent,
@@ -27,26 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-
-/**
- * MapLibre and a megabyte of cadastre GeoJSON load only for staff who reach the
- * dashboard — never on the citizen wizard, which is the bundle that matters.
- */
-const PropertyMapPanel = dynamic(
-  () => import('@/components/admin/property-map-panel').then((m) => m.PropertyMapPanel),
-  {
-    ssr: false,
-    loading: () => <p className="text-muted-foreground">جارٍ تحميل الخريطة…</p>,
-  },
-);
 
 const STATUSES = ['PENDING', 'UNDER_REVIEW', 'VERIFIED', 'APPROVED', 'REJECTED'] as const;
 
@@ -56,6 +43,24 @@ const STATUSES = ['PENDING', 'UNDER_REVIEW', 'VERIFIED', 'APPROVED', 'REJECTED']
  */
 const ALL_STATUSES = 'ALL';
 
+const TABLE_LABELS: DataTableLabels = {
+  searchAriaLabel: 'بحث في الطلبات',
+  searchPlaceholder: 'ابحث برقم مرجعي أو اسم…',
+  clearSearch: 'مسح البحث',
+  empty: 'لا توجد طلبات.',
+  emptySearch: 'لا نتائج مطابقة لبحثك.',
+  loadError: 'تعذّر تحميل الطلبات.',
+  retry: 'إعادة المحاولة',
+  previous: 'السابق',
+  next: 'التالي',
+  pageOf: 'صفحة {current} من {total}',
+  rowsPerPage: 'عدد الصفوف',
+  totalRows: '{count} طلب',
+  sortAscending: 'ترتيب تصاعدي',
+  sortDescending: 'ترتيب تنازلي',
+  sortNone: 'إلغاء الترتيب',
+};
+
 export default function StaffDashboard({
   params,
 }: {
@@ -63,41 +68,42 @@ export default function StaffDashboard({
 }) {
   const { tenant, locale, adminPath } = use(params);
   const router = useRouter();
+  const base = `/${tenant}/${locale}/${adminPath}`;
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
   const [counters, setCounters] = useState<DashboardCounters | null>(null);
   const [items, setItems] = useState<RegistrationListItem[]>([]);
-  const [features, setFeatures] = useState<SpatialFeature[]>([]);
   const [filter, setFilter] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const session = loadSession(tenant);
     if (!session || session.user.kind !== 'STAFF') {
-      router.replace(`/${tenant}/${locale}/${adminPath}/login`);
+      router.replace(`${base}/login`);
       return;
     }
     setToken(session.accessToken);
     setRole(session.user.role);
-  }, [tenant, locale, adminPath, router]);
+  }, [tenant, base, router]);
 
   const signOut = useCallback(() => {
     clearSession(tenant);
-    router.replace(`/${tenant}/${locale}/${adminPath}/login`);
-  }, [tenant, locale, adminPath, router]);
+    router.replace(`${base}/login`);
+  }, [tenant, base, router]);
 
   const load = useCallback(async () => {
     if (!token) return;
+    setRefreshing(true);
     try {
-      const [countersResult, listResult, mapResult] = await Promise.all([
+      const [countersResult, listResult] = await Promise.all([
         getDashboardCounters(tenant, token),
         listForReview(tenant, token, { status: filter || undefined }),
-        getSpatialData(tenant, token),
       ]);
       setCounters(countersResult);
       setItems(listResult.items);
-      setFeatures(mapResult.features);
       setError(null);
     } catch (caught) {
       if (caught instanceof ApiRequestError && caught.status === 401) {
@@ -105,6 +111,9 @@ export default function StaffDashboard({
         return;
       }
       setError('تعذّر تحميل البيانات.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [tenant, token, filter, signOut]);
 
@@ -112,33 +121,114 @@ export default function StaffDashboard({
     void load();
   }, [load]);
 
-  async function transition(id: string, status: string) {
-    if (!token) return;
+  const transition = useCallback(
+    async (id: string, status: string) => {
+      if (!token) return;
 
-    // Rejection must carry a reason — the domain refuses one without it, so
-    // asking here avoids a round-trip that can only fail.
-    const reason =
-      status === 'REJECTED' ? (prompt('سبب الرفض (إلزامي):') ?? '').trim() : undefined;
-    if (status === 'REJECTED' && !reason) return;
+      // Rejection must carry a reason — the domain refuses one without it, so
+      // asking here avoids a round-trip that can only fail.
+      const reason =
+        status === 'REJECTED' ? (prompt('سبب الرفض (إلزامي):') ?? '').trim() : undefined;
+      if (status === 'REJECTED' && !reason) return;
 
-    try {
-      await changeRegistrationStatus(tenant, token, id, { status, reason });
-      await load();
-    } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تغيير الحالة.');
-    }
-  }
+      try {
+        await changeRegistrationStatus(tenant, token, id, { status, reason });
+        await load();
+      } catch (caught) {
+        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تغيير الحالة.');
+      }
+    },
+    [tenant, token, load],
+  );
+
+  const columns = useMemo<ColumnDef<RegistrationListItem>[]>(
+    () => [
+      {
+        accessorKey: 'referenceNumber',
+        header: 'الرقم المرجعي',
+        cell: ({ row }) => (
+          <span className="font-medium" dir="ltr">
+            {row.original.referenceNumber}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'citizenName',
+        header: 'مقدّم الطلب',
+      },
+      {
+        accessorKey: 'submittedAt',
+        header: 'تاريخ التقديم',
+        cell: ({ row }) => new Date(row.original.submittedAt).toLocaleDateString('ar-LB'),
+      },
+      {
+        accessorKey: 'propertyCount',
+        header: 'العقارات',
+        meta: { headerClassName: 'w-24' },
+      },
+      {
+        accessorKey: 'status',
+        header: 'الحالة',
+        cell: ({ row }) => (
+          <Badge variant={STATUS_BADGE_VARIANT[row.original.status] ?? 'secondary'}>
+            {ar.reportStatus[row.original.status as never] ?? row.original.status}
+          </Badge>
+        ),
+      },
+      {
+        id: 'actions',
+        header: 'إجراء',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Always first, and always present: reviewing a claim starts with
+                reading who filed it, whatever state the claim is in. */}
+            <Link
+              href={`${base}/citizens/${row.original.citizenId}`}
+              className={buttonVariants({ variant: 'secondary', size: 'sm' })}
+            >
+              <UserRound className="size-3.5" aria-hidden />
+              عرض التفاصيل
+            </Link>
+
+            {nextStatusesFor(row.original.status).map((next) => (
+              <Button
+                key={next}
+                variant="outline"
+                size="sm"
+                onClick={() => void transition(row.original.id, next)}
+              >
+                {ar.reportStatus[next as never] ?? next}
+              </Button>
+            ))}
+          </div>
+        ),
+      },
+    ],
+    [base, transition],
+  );
 
   if (!token) return null;
 
   return (
-    <div className="space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">لوحة البلدية</h1>
-          <p className="text-muted-foreground">{role ? `الصلاحية: ${role}` : null}</p>
+    <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
+        <div className="space-y-2">
+          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
+            لوحة البلدية
+            {role ? <Badge variant="secondary">{role}</Badge> : null}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            مراجعة طلبات تسجيل العقارات وإدارة حالاتها
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Button asChild variant="outline">
+            <Link href={`${base}/map`}>
+              <MapIcon className="size-4" aria-hidden />
+              الخريطة
+            </Link>
+          </Button>
           {/* Export is SUPER_ADMIN/AUDITOR only server-side; hidden here too so
               the button is not offered to someone it will refuse. */}
           {role === 'SUPER_ADMIN' || role === 'AUDITOR' ? (
@@ -146,14 +236,19 @@ export default function StaffDashboard({
               href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/t/${tenant}/dashboard/export.csv${filter ? `?status=${filter}` : ''}`}
               className={buttonVariants({ variant: 'outline' })}
             >
+              <Download className="size-4" aria-hidden />
               تصدير CSV
             </a>
           ) : null}
+          <Button variant="outline" onClick={() => void load()} disabled={refreshing} title="تحديث البيانات">
+            <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} aria-hidden />
+            تحديث
+          </Button>
           <Button variant="ghost" onClick={signOut}>
             خروج
           </Button>
         </div>
-      </header>
+      </div>
 
       {error ? (
         <p
@@ -164,25 +259,52 @@ export default function StaffDashboard({
         </p>
       ) : null}
 
-      {counters ? (
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Counter label="إجمالي الطلبات" value={counters.total} />
-          <Counter label="آخر ٧ أيام" value={counters.submittedLast7Days} />
-          <Counter label="قيد المراجعة" value={counters.byStatus.UNDER_REVIEW ?? 0} />
-          <Counter label="مقبولة" value={counters.byStatus.APPROVED ?? 0} />
-        </section>
-      ) : null}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          label="إجمالي الطلبات"
+          value={counters?.total ?? 0}
+          loading={loading}
+          icon={<Users className="size-6 text-primary" aria-hidden />}
+        />
+        <MetricCard
+          label="آخر ٧ أيام"
+          value={counters?.submittedLast7Days ?? 0}
+          loading={loading}
+          icon={<FileSpreadsheet className="size-6 text-primary" aria-hidden />}
+        />
+        <MetricCard
+          label="قيد المراجعة"
+          value={counters?.byStatus.UNDER_REVIEW ?? 0}
+          loading={loading}
+          icon={<Clock className="size-6 text-warning" aria-hidden />}
+          accent="bg-warning/10"
+        />
+        <MetricCard
+          label="مقبولة"
+          value={counters?.byStatus.APPROVED ?? 0}
+          loading={loading}
+          icon={<CheckCircle2 className="size-6 text-success" aria-hidden />}
+          accent="bg-success/10"
+        />
+      </div>
 
-      <PropertyMapPanel tenant={tenant} features={features} />
+      <Card className="overflow-hidden">
+        <CardHeader className="flex-col gap-4 border-b md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <FileSpreadsheet className="size-5" aria-hidden />
+              الطلبات
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              كل طلبات تسجيل العقارات المقدَّمة، مع حالة المراجعة الحالية
+            </p>
+          </div>
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">الطلبات</h2>
           <Select
             value={filter || ALL_STATUSES}
             onValueChange={(next) => setFilter(next === ALL_STATUSES ? '' : next)}
           >
-            <SelectTrigger className="w-[180px]" aria-label="تصفية حسب الحالة">
+            <SelectTrigger className="h-10 w-full md:w-[180px]" aria-label="تصفية حسب الحالة">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -194,66 +316,45 @@ export default function StaffDashboard({
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </CardHeader>
 
-        <Card>
-          <Table>
-            <TableHeader className="bg-muted/50">
-              <TableRow>
-                <TableHead scope="col">الرقم المرجعي</TableHead>
-                <TableHead scope="col">مقدّم الطلب</TableHead>
-                <TableHead scope="col">العقارات</TableHead>
-                <TableHead scope="col">الحالة</TableHead>
-                <TableHead scope="col">إجراء</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium" dir="ltr">
-                    {item.referenceNumber}
-                  </TableCell>
-                  <TableCell>{item.citizenName}</TableCell>
-                  <TableCell>{item.propertyCount}</TableCell>
-                  <TableCell>
-                    <Badge variant={STATUS_BADGE_VARIANT[item.status] ?? 'secondary'}>
-                      {ar.reportStatus[item.status as never] ?? item.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-2">
-                      {nextStatusesFor(item.status).map((next) => (
-                        <Button
-                          key={next}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => transition(item.id, next)}
-                        >
-                          {ar.reportStatus[next as never] ?? next}
-                        </Button>
-                      ))}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {items.length === 0 ? (
-            <p className="p-6 text-center text-muted-foreground">لا توجد طلبات.</p>
-          ) : null}
-        </Card>
-      </section>
+        <CardContent className="p-6">
+          <DataTable
+            columns={columns}
+            data={items}
+            labels={TABLE_LABELS}
+            getRowId={(row) => row.id}
+            loading={loading}
+            onRetry={() => void load()}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function Counter({ label, value }: { label: string; value: number }) {
+/** A single KPI widget: label, value, and an accent icon chip. */
+function MetricCard({
+  label,
+  value,
+  loading,
+  icon,
+  accent = 'bg-accent',
+}: {
+  label: string;
+  value: number;
+  loading: boolean;
+  icon: React.ReactNode;
+  accent?: string;
+}) {
   return (
-    <Card>
-      <CardContent className="p-5">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="text-3xl font-bold">{value}</p>
+    <Card className="transition-shadow hover:shadow-md">
+      <CardContent className="flex items-center justify-between p-5">
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="text-3xl font-bold">{loading ? '—' : value.toLocaleString('en-US')}</p>
+        </div>
+        <div className={`rounded-lg p-3 ${accent}`}>{icon}</div>
       </CardContent>
     </Card>
   );

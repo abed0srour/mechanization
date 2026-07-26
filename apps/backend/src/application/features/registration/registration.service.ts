@@ -26,16 +26,23 @@ const SUGGESTION_LIMIT = 8;
 
 export interface PropertyNumberCheck {
   propertyNumber: string;
-  /** Not already registered by someone else in this municipality. */
-  available: boolean;
   /**
    * Whether the number exists in the municipality's cadastre. `null` when the
    * municipality has not imported one, i.e. the question does not apply.
+   *
+   * This is the only thing on this response that can be *wrong* — everything
+   * else is context.
    */
   inCadastre: boolean | null;
   location: { latitude: number; longitude: number; approximate: boolean } | null;
   /** Nearby real parcel numbers, offered only when the typed one is unknown. */
   suggestions: string[];
+  /**
+   * How many citizens have already registered this parcel. Reported so the
+   * form can say "your neighbours are here too" — never to refuse the entry.
+   * An apartment building is one cadastral number shared by everyone in it.
+   */
+  registeredCount: number;
 }
 
 export interface SubmitResult {
@@ -126,8 +133,17 @@ export class RegistrationService {
         residencyNumber: input.payload.personal.residencyNumber || undefined,
         residentStatus: input.payload.personal.residentStatus,
         identityDocType: input.payload.personal.identityDocType,
-        identityDocNumber: input.payload.personal.identityDocNumber,
-        civilRecordNumber: input.payload.personal.civilRecordNumber,
+        /**
+         * A Lebanese citizen always has this. A non-Lebanese one is only
+         * required to supply *one* of a passport number or a رقم إقامة
+         * (`personalDetailsSchema`'s refine enforces that), so this falls
+         * back to whichever the person actually gave — the identity lookup
+         * key needs one real value either way, and the fallback never
+         * triggers for a payload that passed validation.
+         */
+        identityDocNumber:
+          input.payload.personal.identityDocNumber || input.payload.personal.residencyNumber || '',
+        civilRecordNumber: input.payload.personal.civilRecordNumber || undefined,
         familySize: input.payload.contact.familySize,
       },
       citizenReference,
@@ -224,14 +240,18 @@ export class RegistrationService {
   }
 
   /**
-   * Blur-check while the citizen types رقم العقار — now answering two questions
-   * at once: is this a real parcel in this municipality, and is it still free?
+   * Live check while the citizen types رقم العقار.
+   *
+   * Answers one question that can fail — is this a real parcel in this
+   * municipality — and one that cannot: how many neighbours are already
+   * registered on it. The second used to be a gate, which meant the second
+   * resident of an apartment building was told their own address was taken.
    */
-  async checkPropertyNumberAvailable(propertyNumber: string): Promise<PropertyNumberCheck> {
+  async checkPropertyNumber(propertyNumber: string): Promise<PropertyNumberCheck> {
     const trimmed = propertyNumber.trim();
 
-    const [available, parcel, cadastreSize] = await Promise.all([
-      this.registrations.isPropertyNumberAvailable(trimmed),
+    const [registeredCount, parcel, cadastreSize] = await Promise.all([
+      this.registrations.countRegistrationsForParcel(trimmed),
       this.parcels.findByNumber(trimmed),
       this.parcels.count(),
     ]);
@@ -240,7 +260,6 @@ export class RegistrationService {
 
     return {
       propertyNumber: trimmed,
-      available,
       inCadastre: hasCadastre ? parcel !== null : null,
       location: parcel
         ? {
@@ -251,6 +270,7 @@ export class RegistrationService {
         : null,
       suggestions:
         hasCadastre && !parcel ? await this.parcels.suggest(trimmed, SUGGESTION_LIMIT) : [],
+      registeredCount,
     };
   }
 
