@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { SubmitRegistration } from '@mechanization/shared-schemas';
+import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
+import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { PropertyEntry, PropertyType } from '../../../domain/entities/property-entry.entity';
 import { Registration, ReportStatus } from '../../../domain/entities/registration.entity';
 import { ReferenceNumber } from '../../../domain/value-objects/reference-number.vo';
@@ -69,6 +72,9 @@ export class RegistrationService {
     @Inject(PARCEL_REPOSITORY) private readonly parcels: ParcelRepository,
     private readonly tenants: TenantService,
     private readonly events: EventEmitter2,
+    private readonly cache: RedisCacheService,
+    private readonly config: ConfigService,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   async submit(input: {
@@ -304,7 +310,21 @@ export class RegistrationService {
     return this.registrations.listByCitizen(citizenId);
   }
 
+  /**
+   * The dashboard's main table — every registration, optionally filtered by
+   * status. Cached under the same `dashboard:{tenant}:` namespace the
+   * counters and map parcels use (see ReportingService), so the one
+   * event-driven invalidation there clears this too without a second
+   * listener to keep in sync.
+   */
   async listForReview(filter: { status?: ReportStatus; limit: number; offset: number }) {
-    return this.registrations.listForReview(filter);
+    const key = `dashboard:${this.tenantContext.tenantSlug}:list:${filter.status ?? 'ALL'}:${filter.limit}:${filter.offset}`;
+    const cached = await this.cache.get<Awaited<ReturnType<RegistrationRepository['listForReview']>>>(key);
+    if (cached) return cached;
+
+    const result = await this.registrations.listForReview(filter);
+    const ttl = this.config.get<number>('DASHBOARD_CACHE_TTL_SECONDS') ?? 60;
+    await this.cache.set(key, result, ttl);
+    return result;
   }
 }

@@ -544,19 +544,18 @@ export class ReportingService {
 
   /**
    * Cache invalidation, event-driven like the audit trail: this service does
-   * not know which feature just wrote data, only that the counters and map
-   * are now stale. Listeners run inside the emitting request's tenant scope
-   * (see app.module.ts), so `cacheKey` still namespaces to the right
-   * municipality without the event needing to carry a tenant slug.
+   * not know which feature just wrote data, only that everything under the
+   * tenant's `dashboard:` namespace is now stale — counters, map parcels, and
+   * RegistrationService's cached list table all share that one prefix, so a
+   * single wildcard delete clears all three without a listener per cache key.
+   * Listeners run inside the emitting request's tenant scope (see
+   * app.module.ts), so this needs no tenant slug from the event payload.
    */
   @OnEvent('registration.submitted')
   @OnEvent('registration.status-changed')
   @OnEvent('cadastre.imported')
   async onDashboardDataChanged(): Promise<void> {
-    await Promise.all([
-      this.cache.invalidatePrefix(this.cacheKey('counters')),
-      this.cache.invalidatePrefix(this.cacheKey('parcels')),
-    ]);
+    await this.cache.invalidatePrefix(`dashboard:${this.tenantContext.tenantSlug}:`);
   }
 }
 
