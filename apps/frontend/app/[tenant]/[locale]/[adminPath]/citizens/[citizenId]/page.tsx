@@ -173,7 +173,7 @@ export default function CitizenProfilePage({
               label="الحالة الاجتماعية"
               value={
                 citizen.maritalStatus
-                  ? (ar.maritalStatus[citizen.maritalStatus as never] ?? citizen.maritalStatus)
+                  ? (ar.maritalStatus?.[citizen.maritalStatus as never] ?? citizen.maritalStatus)
                   : undefined
               }
             />
@@ -256,7 +256,7 @@ export default function CitizenProfilePage({
                           <span className="flex min-w-0 items-center gap-2">
                             <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                             <span className="truncate text-sm font-medium">
-                              {ar.documentType[document.type as never] ?? document.type}
+                              {ar.documentType?.[document.type as never] ?? document.type}
                             </span>
                           </span>
                           {openingDocId === document.id ? (
