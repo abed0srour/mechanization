@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   genderSchema,
   identityDocTypeSchema,
+  maritalStatusSchema,
   residentStatusSchema,
 } from './enums';
 import {
@@ -14,7 +15,7 @@ import {
 /**
  * Step 1 — البيانات الشخصية ومعلومات الإثبات
  *
- * Three conditional rules are enforced here rather than in the UI alone:
+ * Four conditional rules are enforced here rather than in the UI alone:
  *  1. civilRecordNumber (رقم السجل) is a Lebanese civil-registry number — it is
  *     required for a Lebanese person and meaningless for anyone else, so it is
  *     required only when `isLebanese` is true.
@@ -27,6 +28,10 @@ import {
  *     simply does not have it yet (a passport pending renewal, a residency
  *     permit still in process). At least one of identityDocNumber /
  *     residencyNumber must be present; neither is required on its own.
+ *  4. residentStatus REFUGEE describes someone displaced from outside Lebanon —
+ *     a Lebanese citizen cannot hold it. The UI hides the option once لبناني
+ *     is chosen; this is what actually stops it reaching the server if that
+ *     selection is ever bypassed or left stale from before a nationality switch.
  */
 export const personalDetailsSchema = z
   .object({
@@ -37,8 +42,12 @@ export const personalDetailsSchema = z
     identityDocType: identityDocTypeSchema,
     identityDocNumber: documentNumber.optional().or(z.literal('')),
     civilRecordNumber: civilRecordNumber.optional().or(z.literal('')),
-    nationality: z.string().trim().min(2).max(60),
-    isLebanese: z.boolean(),
+    nationality: z
+      .string({ required_error: 'الجنسية مطلوبة' })
+      .trim()
+      .min(2, 'الجنسية قصيرة جداً')
+      .max(60, 'الجنسية طويلة جداً'),
+    isLebanese: z.boolean({ required_error: 'يرجى تحديد الجنسية' }),
     residencyNumber: documentNumber.optional().or(z.literal('')),
     residentStatus: residentStatusSchema,
   })
@@ -56,6 +65,13 @@ export const personalDetailsSchema = z
           code: z.ZodIssueCode.custom,
           path: ['civilRecordNumber'],
           message: 'رقم السجل مطلوب للبنانيين',
+        });
+      }
+      if (data.residentStatus === 'REFUGEE') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['residentStatus'],
+          message: 'صفة «لاجئ» غير متاحة للمواطنين اللبنانيين',
         });
       }
       return;
@@ -78,10 +94,18 @@ export type PersonalDetails = z.infer<typeof personalDetailsSchema>;
  */
 export const contactDetailsSchema = z
   .object({
+    maritalStatus: maritalStatusSchema,
     phone: lebanesePhone,
     whatsappSameAsPhone: z.boolean().default(true),
     whatsapp: lebanesePhone.optional(),
-    familySize: z.coerce.number().int().min(1, 'يجب أن يكون فرداً واحداً على الأقل').max(50),
+    familySize: z.coerce
+      .number({
+        required_error: 'عدد أفراد الأسرة مطلوب',
+        invalid_type_error: 'عدد أفراد الأسرة يجب أن يكون رقماً',
+      })
+      .int('عدد أفراد الأسرة يجب أن يكون رقماً صحيحاً')
+      .min(1, 'يجب أن يكون فرداً واحداً على الأقل')
+      .max(50, 'العدد كبير جداً — يرجى مراجعة البلدية'),
   })
   .transform((data) => ({
     ...data,

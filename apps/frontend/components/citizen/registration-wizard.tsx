@@ -1,17 +1,86 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ZodError } from 'zod';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import { allowedPropertyTypesFor, ar } from '@mechanization/shared-schemas';
+import {
+  allowedPropertyTypesFor,
+  ar,
+  contactDetailsSchema,
+  personalDetailsSchema,
+  propertyEntriesSchema,
+} from '@mechanization/shared-schemas';
 import type { PropertyType } from '@mechanization/shared-schemas';
 import type { PublicTenantConfig } from '@/lib/api-client';
 import { ApiRequestError, submitRegistration } from '@/lib/api-client';
 import { clearDraft, loadDraft, saveDraft } from '@/lib/wizard-storage';
+import { scopeErrors } from '@/lib/utils';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { WizardProgress } from './wizard-progress';
 import { PropertyCard, type PropertyDraft, type UnitDraft } from './property-card';
 import { ContactStep, DeclarationStep, DocumentsStep, PersonalStep, ReviewStep } from './steps';
+
+/** Turns a failed `safeParse` into the `"personal.firstName"` keys every step already reads. */
+function fieldErrorsFrom(error: ZodError, prefix: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const key = [prefix, ...issue.path].join('.');
+    if (!(key in out)) out[key] = issue.message;
+  }
+  return out;
+}
+
+/**
+ * One validator per step, all built on the same schemas the server validates
+ * against — so "can I move on?" and "will the server accept this?" can never
+ * quietly drift apart into two different definitions of complete.
+ */
+function validatePersonalStep(personal: Record<string, unknown>): Record<string, string> {
+  const result = personalDetailsSchema.safeParse(personal);
+  return result.success ? {} : fieldErrorsFrom(result.error, 'personal');
+}
+
+function validateContactStep(contact: Record<string, unknown>): Record<string, string> {
+  const result = contactDetailsSchema.safeParse(contact);
+  return result.success ? {} : fieldErrorsFrom(result.error, 'contact');
+}
+
+function validatePropertiesStep(properties: PropertyDraft[]): Record<string, string> {
+  // The same transform handleSubmit applies before sending the payload —
+  // reusing it is what keeps a numeric string like unitArea validating the
+  // same way here as it will at submission.
+  const result = propertyEntriesSchema.safeParse(properties.map(toPayloadProperty));
+  return result.success ? {} : fieldErrorsFrom(result.error, 'properties');
+}
+
+/**
+ * Attached files never pass through Zod — they are browser `File` objects, not
+ * wire-format JSON — so their "is this complete" check is a plain procedural
+ * one, kept in lock-step with the `required` flags `DocumentsStep` itself
+ * renders (identity conditionally, one ownership/rental proof per property).
+ */
+function validateDocumentsStep(
+  properties: PropertyDraft[],
+  files: Record<string, File>,
+  requiredDocuments: string[],
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+
+  if (requiredDocuments.includes('IDENTITY') && !files.identity) {
+    errors['documents.identity'] = 'وثيقة إثبات الهوية مطلوبة';
+  }
+
+  properties.forEach((property, index) => {
+    const isTenant = property.occupancyType === 'TENANT';
+    const field = isTenant ? `contract-${index}` : `proof-${index}`;
+    if (!files[field]) {
+      errors[`documents.${field}`] = isTenant ? 'عقد الإيجار مطلوب' : 'سند الملكية مطلوب';
+    }
+  });
+
+  return errors;
+}
 
 /**
  * Six steps, not seven. "مواقع العقارات" — a MapLibre pin-drop per property —
@@ -231,6 +300,41 @@ export function RegistrationWizard({
     }
   }
 
+  /**
+   * Gates "التالي": the step being left is validated against the same schema
+   * the server uses before the wizard ever advances, rather than only finding
+   * out what was missing after a submit five steps later. Leaving the review
+   * step re-checks everything, since its inline «تعديل» editors can just have
+   * introduced a fresh gap in a section the citizen already passed.
+   */
+  function handleNext() {
+    let stepErrors: Record<string, string> = {};
+
+    if (step === 0) stepErrors = validatePersonalStep(data.personal);
+    else if (step === 1) stepErrors = validateContactStep(data.contact);
+    else if (step === 2) stepErrors = validatePropertiesStep(data.properties);
+    else if (step === 3) {
+      stepErrors = validateDocumentsStep(data.properties, files, config.requiredDocuments);
+    } else if (step === 4) {
+      stepErrors = {
+        ...validatePersonalStep(data.personal),
+        ...validateContactStep(data.contact),
+        ...validatePropertiesStep(data.properties),
+        ...validateDocumentsStep(data.properties, files, config.requiredDocuments),
+      };
+    }
+
+    if (Object.keys(stepErrors).length > 0) {
+      setFieldErrors(stepErrors);
+      setError('يرجى تعبئة جميع الحقول الإلزامية قبل المتابعة.');
+      return;
+    }
+
+    setFieldErrors({});
+    setError(null);
+    setStep((s) => s + 1);
+  }
+
   if (result) {
     return <SubmissionReceipt tenant={tenant} locale={locale} {...result} />;
   }
@@ -254,6 +358,7 @@ export function RegistrationWizard({
           onChange={(next) => setProperty(index, next)}
           onRemove={() => removeProperty(index)}
           canRemove={data.properties.length > 1}
+          errors={scopeErrors(fieldErrors, `properties.${index}`)}
         />
       ))}
 
@@ -322,6 +427,7 @@ export function RegistrationWizard({
               files={files}
               requiredDocuments={config.requiredDocuments}
               draftRestored={restoredAt !== null}
+              errors={scopeErrors(fieldErrors, 'documents')}
               onChange={setFiles}
             />
           ) : null}
@@ -363,7 +469,14 @@ export function RegistrationWizard({
               variant="outline"
               size="lg"
               className="flex-1"
-              onClick={() => setStep((s) => s - 1)}
+              onClick={() => {
+                // Errors belong to the step being left, not the one about to
+                // show — carrying them backwards would flag fields the
+                // citizen has not even reached yet.
+                setFieldErrors({});
+                setError(null);
+                setStep((s) => s - 1);
+              }}
               disabled={submitting}
             >
               <ChevronLeft className="size-5 rtl:rotate-180" aria-hidden />
@@ -372,7 +485,7 @@ export function RegistrationWizard({
           ) : null}
 
           {step < STEPS.length - 1 ? (
-            <Button size="lg" className="flex-1" onClick={() => setStep((s) => s + 1)}>
+            <Button size="lg" className="flex-1" onClick={handleNext}>
               التالي
               <ChevronRight className="size-5 rtl:rotate-180" aria-hidden />
             </Button>

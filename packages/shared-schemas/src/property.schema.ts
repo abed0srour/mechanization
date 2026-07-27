@@ -17,18 +17,61 @@ import { arabicOrLatinName, lebanesePhone } from './primitives';
  *                TENT     -> location description only
  */
 
-const occupancyBranch = z.discriminatedUnion('occupancyType', [
-  z.object({ occupancyType: z.literal('OWNER') }),
-  z.object({
-    occupancyType: z.literal('TENANT'),
-    landlordName: arabicOrLatinName,
-    landlordPhone: lebanesePhone,
-  }),
-]);
+/**
+ * `errorMap` on both discriminated unions below because Zod's own message for
+ * a missing or unrecognised discriminator — "Invalid discriminator value.
+ * Expected 'OWNER' | 'TENANT'" — is English and names the wire value, not the
+ * Arabic label a citizen chose from a ChoiceCard. One Arabic message covers
+ * every way this branch can fail to resolve; it can only fail this way when
+ * the choice has not been made yet.
+ */
+const occupancyBranch = z.discriminatedUnion(
+  'occupancyType',
+  [
+    z.object({ occupancyType: z.literal('OWNER') }),
+    z.object({
+      occupancyType: z.literal('TENANT'),
+      landlordName: arabicOrLatinName,
+      landlordPhone: lebanesePhone,
+    }),
+  ],
+  { errorMap: () => ({ message: 'نوع الإشغال مطلوب' }) },
+);
 
-const sharedRightsField = z.array(z.string().trim().min(1)).max(20).default([]);
-const areaField = z.coerce.number().positive('المساحة يجب أن تكون أكبر من صفر').max(1_000_000);
-const propertyNumberField = z.string().trim().min(1, 'رقم العقار مطلوب').max(40);
+const sharedRightsField = z
+  .array(z.string().trim().min(1, 'القيمة غير صالحة'))
+  .max(20)
+  .default([]);
+
+/**
+ * `z.coerce.number()` turns a missing/blank input into `NaN` before Zod's own
+ * type check ever sees it, so the failure surfaces as `invalid_type` — with
+ * `required_error` alone silently never firing (the value is never literally
+ * `undefined` by the time Zod inspects it). Both messages are set to the same
+ * Arabic text so whichever code path actually triggers, the citizen sees the
+ * same thing rather than either message falling back to Zod's English default.
+ */
+const areaField = z.coerce
+  .number({ required_error: 'المساحة مطلوبة', invalid_type_error: 'المساحة يجب أن تكون رقماً' })
+  .positive('المساحة يجب أن تكون أكبر من صفر')
+  .max(1_000_000);
+
+const propertyNumberField = z
+  .string({ required_error: 'رقم العقار مطلوب' })
+  .trim()
+  .min(1, 'رقم العقار مطلوب')
+  .max(40);
+
+/**
+ * الحي — common to every property type, unlike رقم العقار it is not checked
+ * against anything (the cadastre has no neighbourhood layer), so this is a
+ * plain free-text field rather than a lookup.
+ */
+const neighborhoodField = z
+  .string({ required_error: 'الحي مطلوب' })
+  .trim()
+  .min(1, 'الحي مطلوب')
+  .max(80, 'اسم الحي طويل جداً');
 
 /**
  * One unit inside a building — شقة, عيادة or محل.
@@ -40,7 +83,7 @@ const propertyNumberField = z.string().trim().min(1, 'رقم العقار مطل
  */
 export const buildingUnitSchema = z.object({
   unitType: unitTypeSchema,
-  floor: z.string().trim().min(1, 'الطابق مطلوب').max(20),
+  floor: z.string({ required_error: 'الطابق مطلوب' }).trim().min(1, 'الطابق مطلوب').max(20),
   side: z.string().trim().max(60).optional(),
   unitArea: areaField,
   sharedRights: sharedRightsField,
@@ -50,37 +93,57 @@ export type BuildingUnit = z.infer<typeof buildingUnitSchema>;
 
 /** A building with more units than this is a data-entry accident, not a landlord. */
 export const buildingUnitsSchema = z
-  .array(buildingUnitSchema)
+  .array(buildingUnitSchema, { required_error: 'يجب إضافة وحدة واحدة على الأقل' })
   .min(1, 'يجب إضافة وحدة واحدة على الأقل')
   .max(60, 'عدد الوحدات كبير جداً — يرجى مراجعة البلدية');
 
-const propertyBranch = z.discriminatedUnion('propertyType', [
-  z.object({
-    propertyType: z.literal('BUILDING'),
-    propertyNumber: propertyNumberField,
-    buildingName: z.string().trim().min(1, 'اسم المبنى مطلوب').max(120),
-    units: buildingUnitsSchema,
-  }),
-  z.object({
-    propertyType: z.literal('HOUSE'),
-    propertyNumber: propertyNumberField,
-    buildingName: z.string().trim().min(1, 'اسم المبنى/المنزل مطلوب').max(120),
-    side: z.string().trim().max(60).optional(),
-    unitArea: areaField,
-    sharedRights: sharedRightsField,
-  }),
-  z.object({
-    propertyType: z.literal('LAND'),
-    propertyNumber: propertyNumberField,
-    landType: landTypeSchema,
-    unitArea: areaField,
-  }),
-  z.object({
-    propertyType: z.literal('TENT'),
-    propertyNumber: propertyNumberField,
-    tentLocation: z.string().trim().min(3, 'موقع الخيمة مطلوب').max(200),
-  }),
-]);
+const propertyBranch = z.discriminatedUnion(
+  'propertyType',
+  [
+    z.object({
+      propertyType: z.literal('BUILDING'),
+      neighborhood: neighborhoodField,
+      propertyNumber: propertyNumberField,
+      buildingName: z
+        .string({ required_error: 'اسم المبنى مطلوب' })
+        .trim()
+        .min(1, 'اسم المبنى مطلوب')
+        .max(120),
+      units: buildingUnitsSchema,
+    }),
+    z.object({
+      propertyType: z.literal('HOUSE'),
+      neighborhood: neighborhoodField,
+      propertyNumber: propertyNumberField,
+      buildingName: z
+        .string({ required_error: 'اسم المبنى/المنزل مطلوب' })
+        .trim()
+        .min(1, 'اسم المبنى/المنزل مطلوب')
+        .max(120),
+      side: z.string().trim().max(60).optional(),
+      unitArea: areaField,
+      sharedRights: sharedRightsField,
+    }),
+    z.object({
+      propertyType: z.literal('LAND'),
+      neighborhood: neighborhoodField,
+      propertyNumber: propertyNumberField,
+      landType: landTypeSchema,
+      unitArea: areaField,
+    }),
+    z.object({
+      propertyType: z.literal('TENT'),
+      neighborhood: neighborhoodField,
+      propertyNumber: propertyNumberField,
+      tentLocation: z
+        .string({ required_error: 'موقع الخيمة مطلوب' })
+        .trim()
+        .min(3, 'موقع الخيمة مطلوب')
+        .max(200),
+    }),
+  ],
+  { errorMap: () => ({ message: 'نوع العقار مطلوب' }) },
+);
 
 export const propertyEntrySchema = z.intersection(occupancyBranch, propertyBranch);
 export type PropertyEntry = z.infer<typeof propertyEntrySchema>;
@@ -96,10 +159,10 @@ export const propertyEntriesSchema = z
  * re-implementing the branch logic, so the form and the validator cannot drift.
  */
 export const PROPERTY_FIELD_MAP = {
-  BUILDING: ['propertyNumber', 'buildingName', 'units'],
-  HOUSE: ['propertyNumber', 'buildingName', 'side', 'unitArea', 'sharedRights'],
-  LAND: ['propertyNumber', 'landType', 'unitArea'],
-  TENT: ['propertyNumber', 'tentLocation'],
+  BUILDING: ['neighborhood', 'propertyNumber', 'buildingName', 'units'],
+  HOUSE: ['neighborhood', 'propertyNumber', 'buildingName', 'side', 'unitArea', 'sharedRights'],
+  LAND: ['neighborhood', 'propertyNumber', 'landType', 'unitArea'],
+  TENT: ['neighborhood', 'propertyNumber', 'tentLocation'],
 } as const satisfies Record<string, readonly string[]>;
 
 /** The per-unit fields a building's unit editor renders. */

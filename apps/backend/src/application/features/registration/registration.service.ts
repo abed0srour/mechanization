@@ -145,6 +145,7 @@ export class RegistrationService {
           input.payload.personal.identityDocNumber || input.payload.personal.residencyNumber || '',
         civilRecordNumber: input.payload.personal.civilRecordNumber || undefined,
         familySize: input.payload.contact.familySize,
+        maritalStatus: input.payload.contact.maritalStatus,
       },
       citizenReference,
       registrationReference,

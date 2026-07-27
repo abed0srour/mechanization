@@ -179,6 +179,8 @@ export interface RegistrationListItem {
   citizenId: string;
   citizenName: string;
   propertyCount: number;
+  /** Distinct الحي values across this registration's properties. Usually one. */
+  neighborhoods: string[];
 }
 
 export function listMyRegistrations(tenant: string, token: string) {
@@ -246,6 +248,7 @@ export function getRegisteredParcels(tenant: string, token: string) {
 
 export interface CitizenProfileProperty {
   id: string;
+  neighborhood: string;
   propertyNumber: string;
   propertyType: string;
   occupancyType: string;
@@ -278,6 +281,7 @@ export interface CitizenProfile {
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
   familySize: number | null;
+  maritalStatus: string | null;
   referenceNumber: string | null;
   registeredAt: string;
   registrations: CitizenProfileRegistration[];

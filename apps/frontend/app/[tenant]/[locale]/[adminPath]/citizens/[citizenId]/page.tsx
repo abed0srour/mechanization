@@ -149,6 +149,14 @@ export default function CitizenProfilePage({
             )}
             <Row label="عدد أفراد الأسرة" value={citizen.familySize?.toString()} />
             <Row
+              label="الحالة الاجتماعية"
+              value={
+                citizen.maritalStatus
+                  ? (ar.maritalStatus[citizen.maritalStatus as never] ?? citizen.maritalStatus)
+                  : undefined
+              }
+            />
+            <Row
               label="تاريخ أول تسجيل"
               value={new Date(citizen.registeredAt).toLocaleDateString('ar-LB')}
             />
@@ -190,6 +198,7 @@ export default function CitizenProfilePage({
                       {' · '}
                       {ar.occupancyType[property.occupancyType as never] ??
                         property.occupancyType}
+                      {property.neighborhood ? ` · ${property.neighborhood}` : ''}
                       {property.buildingName ? ` · ${property.buildingName}` : ''}
                       {property.unitCount > 0 ? ` · ${property.unitCount} وحدة` : ''}
                       {property.unitArea ? ` · ${property.unitArea} م²` : ''}

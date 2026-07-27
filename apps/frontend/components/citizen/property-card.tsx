@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
+import { cn, scopeErrors } from '@/lib/utils';
 
 /** One unit inside a building — شقة, عيادة or محل. */
 export interface UnitDraft {
@@ -34,6 +34,7 @@ export interface PropertyDraft {
   landlordName?: string;
   landlordPhone?: string;
   propertyType?: PropertyType;
+  neighborhood?: string;
   propertyNumber?: string;
   landType?: LandType;
   buildingName?: string;
@@ -70,6 +71,7 @@ export function PropertyCard({
   onChange,
   onRemove,
   canRemove,
+  errors = {},
 }: {
   tenant: string;
   index: number;
@@ -80,6 +82,8 @@ export function PropertyCard({
   onChange: (next: PropertyDraft) => void;
   onRemove: () => void;
   canRemove: boolean;
+  /** Keyed by bare field name — the caller has already stripped `properties.N.`. */
+  errors?: Record<string, string>;
 }) {
   const visible: readonly string[] = draft.propertyType
     ? PROPERTY_FIELD_MAP[draft.propertyType]
@@ -135,8 +139,25 @@ export function PropertyCard({
 
       {collapsed ? null : (
         <CardContent className="space-y-6 pt-6">
-          {/* رقم العقار leads: it locates the property and it is the only
-              answer verified against the cadastre as it is typed. */}
+          {/* الحي comes first: it is the plain-language answer ("which part of
+              town"), before رقم العقار asks for the one checked against the
+              cadastre. */}
+          <Field
+            label="الحي"
+            htmlFor={`nb-${index}`}
+            required
+            error={errors.neighborhood}
+          >
+            <Input
+              id={`nb-${index}`}
+              invalid={Boolean(errors.neighborhood)}
+              value={draft.neighborhood ?? ''}
+              onChange={(e) => set({ neighborhood: e.target.value })}
+            />
+          </Field>
+
+          {/* رقم العقار leads the rest: it locates the property and it is the
+              only answer verified against the cadastre as it is typed. */}
           <PropertyNumberField
             tenant={tenant}
             index={index}
@@ -144,7 +165,12 @@ export function PropertyCard({
             onChange={(propertyNumber) => set({ propertyNumber })}
           />
 
-          <Field label="نوع الإشغال" htmlFor={`occ-${index}`} required>
+          <Field
+            label="نوع الإشغال"
+            htmlFor={`occ-${index}`}
+            required
+            error={errors.occupancyType}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               {(['OWNER', 'TENANT'] as const).map((option) => (
                 <ChoiceCard
@@ -162,19 +188,31 @@ export function PropertyCard({
 
           {draft.occupancyType === 'TENANT' ? (
             <div className="grid gap-5 border-s-2 border-primary/20 ps-4 sm:grid-cols-2">
-              <Field label="اسم المالك" htmlFor={`ln-${index}`} required>
+              <Field
+                label="اسم المالك"
+                htmlFor={`ln-${index}`}
+                required
+                error={errors.landlordName}
+              >
                 <Input
                   id={`ln-${index}`}
+                  invalid={Boolean(errors.landlordName)}
                   value={draft.landlordName ?? ''}
                   onChange={(e) => set({ landlordName: e.target.value })}
                 />
               </Field>
-              <Field label="رقم هاتف المالك" htmlFor={`lp-${index}`} required>
+              <Field
+                label="رقم هاتف المالك"
+                htmlFor={`lp-${index}`}
+                required
+                error={errors.landlordPhone}
+              >
                 <Input
                   id={`lp-${index}`}
                   type="tel"
                   inputMode="tel"
                   dir="ltr"
+                  invalid={Boolean(errors.landlordPhone)}
                   value={draft.landlordPhone ?? ''}
                   onChange={(e) => set({ landlordPhone: e.target.value })}
                 />
@@ -182,7 +220,12 @@ export function PropertyCard({
             </div>
           ) : null}
 
-          <Field label="نوع العقار" htmlFor={`pt-${index}`} required>
+          <Field
+            label="نوع العقار"
+            htmlFor={`pt-${index}`}
+            required
+            error={errors.propertyType}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               {allowedTypes.map((option) => (
                 <ChoiceCard
@@ -208,9 +251,11 @@ export function PropertyCard({
               label={isBuilding ? 'اسم المبنى' : 'اسم المبنى/المنزل'}
               htmlFor={`bn-${index}`}
               required
+              error={errors.buildingName}
             >
               <Input
                 id={`bn-${index}`}
+                invalid={Boolean(errors.buildingName)}
                 value={draft.buildingName ?? ''}
                 onChange={(e) => set({ buildingName: e.target.value })}
               />
@@ -218,7 +263,7 @@ export function PropertyCard({
           ) : null}
 
           {visible.includes('landType') ? (
-            <Field label="نوع الأرض" htmlFor={`lt-${index}`} required>
+            <Field label="نوع الأرض" htmlFor={`lt-${index}`} required error={errors.landType}>
               <Select
                 value={draft.landType ?? ''}
                 onValueChange={(next) => set({ landType: next as LandType })}
@@ -253,9 +298,11 @@ export function PropertyCard({
               htmlFor={`tl-${index}`}
               required
               hint="مثال: المخيم الشمالي — قطعة ٤"
+              error={errors.tentLocation}
             >
               <Input
                 id={`tl-${index}`}
+                invalid={Boolean(errors.tentLocation)}
                 value={draft.tentLocation ?? ''}
                 onChange={(e) => set({ tentLocation: e.target.value })}
               />
@@ -263,10 +310,16 @@ export function PropertyCard({
           ) : null}
 
           {visible.includes('unitArea') ? (
-            <Field label="مساحة الوحدة (متر مربع)" htmlFor={`ua-${index}`} required>
+            <Field
+              label="مساحة الوحدة (متر مربع)"
+              htmlFor={`ua-${index}`}
+              required
+              error={errors.unitArea}
+            >
               <Input
                 id={`ua-${index}`}
                 inputMode="decimal"
+                invalid={Boolean(errors.unitArea)}
                 value={draft.unitArea ?? ''}
                 onChange={(e) => set({ unitArea: e.target.value })}
               />
@@ -285,6 +338,7 @@ export function PropertyCard({
             <UnitsEditor
               index={index}
               units={units}
+              errors={scopeErrors(errors, 'units')}
               onChange={(next) => set({ units: next })}
             />
           ) : null}
@@ -307,6 +361,7 @@ function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): P
     occupancyType: draft.occupancyType,
     landlordName: draft.landlordName,
     landlordPhone: draft.landlordPhone,
+    neighborhood: draft.neighborhood,
     propertyNumber: draft.propertyNumber,
     propertyType,
   };
@@ -338,6 +393,7 @@ function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): P
 function summarise(draft: PropertyDraft): string {
   const parts = [
     draft.propertyType ? ar.propertyType[draft.propertyType] : 'لم يُحدَّد النوع',
+    draft.neighborhood || null,
     draft.propertyNumber ? `رقم ${draft.propertyNumber}` : null,
     draft.buildingName || null,
     draft.propertyType === 'BUILDING' && draft.units?.length
@@ -390,18 +446,58 @@ function SharedRightsField({
  * property card per apartment is not possible: رقم العقار is unique per
  * municipality, so the second card would be rejected as a duplicate of the
  * first. The units therefore live inside the building rather than beside it.
+ *
+ * Collapsible for the same reason the property cards above it are: a citizen
+ * filing a ten-unit building should not have to scroll past nine finished
+ * units to reach the tenth, so adding one folds the rest shut — every unit
+ * stays a tap away, because copying a floor's details from the one above it
+ * is the usual reason to open an earlier one again.
  */
 function UnitsEditor({
   index,
   units,
+  errors,
   onChange,
 }: {
   index: number;
   units: UnitDraft[];
+  /** Keyed `"0.floor"` etc — the caller has stripped the `units.` prefix. */
+  errors: Record<string, string>;
   onChange: (next: UnitDraft[]) => void;
 }) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
+
   const setUnit = (unitIndex: number, patch: Partial<UnitDraft>) =>
     onChange(units.map((u, i) => (i === unitIndex ? { ...u, ...patch } : u)));
+
+  const toggleCollapsed = (unitIndex: number) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(unitIndex)) next.delete(unitIndex);
+      else next.add(unitIndex);
+      return next;
+    });
+
+  const addUnit = () => {
+    // A new unit inherits the last one's type: a building is usually floor
+    // after floor of the same thing.
+    onChange([...units, { unitType: units.at(-1)?.unitType }]);
+    setCollapsed(new Set(units.map((_, i) => i)));
+  };
+
+  const removeUnit = (unitIndex: number) => {
+    onChange(units.filter((_, i) => i !== unitIndex));
+    // Indices above the removed unit all shift down by one; rebuilding the
+    // set rather than deleting from it keeps the wrong unit folding shut.
+    setCollapsed((current) => {
+      const next = new Set<number>();
+      for (const i of current) {
+        if (i < unitIndex) next.add(i);
+        else if (i > unitIndex) next.add(i - 1);
+      }
+      return next;
+    });
+  };
 
   return (
     <section className="space-y-4">
@@ -413,101 +509,148 @@ function UnitsEditor({
         </p>
       </header>
 
-      {units.map((unit, unitIndex) => (
-        <div
-          key={unitIndex}
-          className="space-y-5 rounded-lg border border-s-2 border-s-primary/40 bg-muted/20 p-4"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="font-semibold">الوحدة {unitIndex + 1}</h4>
-            {units.length > 1 ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => onChange(units.filter((_, i) => i !== unitIndex))}
-              >
-                <Trash2 className="size-4" aria-hidden />
-                حذف
-              </Button>
-            ) : null}
-          </div>
+      {units.map((unit, unitIndex) => {
+        const unitCollapsed = collapsed.has(unitIndex);
+        const unitErrors = scopeErrors(errors, String(unitIndex));
 
-          <Field label="نوع الوحدة" htmlFor={`ut-${index}-${unitIndex}`} required>
-            <Select
-              value={unit.unitType ?? ''}
-              onValueChange={(next) => setUnit(unitIndex, { unitType: next as UnitType })}
-            >
-              <SelectTrigger id={`ut-${index}-${unitIndex}`}>
-                <SelectValue placeholder="اختر…" />
-              </SelectTrigger>
-              <SelectContent>
-                {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
-                  <SelectItem key={o} value={o}>
-                    {ar.unitType[o]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="الطابق" htmlFor={`fl-${index}-${unitIndex}`} required>
-              <Input
-                id={`fl-${index}-${unitIndex}`}
-                value={unit.floor ?? ''}
-                onChange={(e) => setUnit(unitIndex, { floor: e.target.value })}
-              />
-            </Field>
-
-            <Field
-              label="مساحة الوحدة (متر مربع)"
-              htmlFor={`ua-${index}-${unitIndex}`}
-              required
-            >
-              <Input
-                id={`ua-${index}-${unitIndex}`}
-                inputMode="decimal"
-                value={unit.unitArea ?? ''}
-                onChange={(e) => setUnit(unitIndex, { unitArea: e.target.value })}
-              />
-            </Field>
-          </div>
-
-          <Field
-            label="الجهة"
-            htmlFor={`sd-${index}-${unitIndex}`}
-            hint="مثال: شمالي، جنوبي"
+        return (
+          <div
+            key={unitIndex}
+            className="space-y-5 rounded-lg border border-s-2 border-s-primary/40 bg-muted/20 p-4"
           >
-            <Input
-              id={`sd-${index}-${unitIndex}`}
-              value={unit.side ?? ''}
-              onChange={(e) => setUnit(unitIndex, { side: e.target.value })}
-            />
-          </Field>
+            <div className="flex items-center justify-between gap-2">
+              {/* The whole header toggles, matching the property card above it. */}
+              <button
+                type="button"
+                onClick={() => toggleCollapsed(unitIndex)}
+                aria-expanded={!unitCollapsed}
+                className="-m-2 flex min-w-0 flex-1 items-center gap-2 rounded-md p-2 text-start transition-colors hover:bg-accent"
+              >
+                <ChevronDown
+                  className={cn(
+                    'size-4 shrink-0 text-muted-foreground transition-transform',
+                    unitCollapsed && '-rotate-90 rtl:rotate-90',
+                  )}
+                  aria-hidden
+                />
+                <span className="min-w-0">
+                  <h4 className="font-semibold">الوحدة {unitIndex + 1}</h4>
+                  {unitCollapsed ? (
+                    <span className="mt-0.5 block truncate text-sm font-normal text-muted-foreground">
+                      {summariseUnit(unit)}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
 
-          <SharedRightsField
-            idPrefix={`sr-${index}-${unitIndex}`}
-            selected={unit.sharedRights ?? []}
-            onChange={(sharedRights) => setUnit(unitIndex, { sharedRights })}
-          />
-        </div>
-      ))}
+              {units.length > 1 ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => removeUnit(unitIndex)}
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                  حذف
+                </Button>
+              ) : null}
+            </div>
 
-      <Button
-        variant="outline"
-        className="w-full border-dashed"
-        onClick={() =>
-          // A new unit inherits the last one's type: a building is usually
-          // floor after floor of the same thing.
-          onChange([...units, { unitType: units.at(-1)?.unitType }])
-        }
-      >
+            {unitCollapsed ? null : (
+              <>
+                <Field
+                  label="نوع الوحدة"
+                  htmlFor={`ut-${index}-${unitIndex}`}
+                  required
+                  error={unitErrors.unitType}
+                >
+                  <Select
+                    value={unit.unitType ?? ''}
+                    onValueChange={(next) => setUnit(unitIndex, { unitType: next as UnitType })}
+                  >
+                    <SelectTrigger id={`ut-${index}-${unitIndex}`}>
+                      <SelectValue placeholder="اختر…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
+                        <SelectItem key={o} value={o}>
+                          {ar.unitType[o]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field
+                    label="الطابق"
+                    htmlFor={`fl-${index}-${unitIndex}`}
+                    required
+                    error={unitErrors.floor}
+                  >
+                    <Input
+                      id={`fl-${index}-${unitIndex}`}
+                      invalid={Boolean(unitErrors.floor)}
+                      value={unit.floor ?? ''}
+                      onChange={(e) => setUnit(unitIndex, { floor: e.target.value })}
+                    />
+                  </Field>
+
+                  <Field
+                    label="مساحة الوحدة (متر مربع)"
+                    htmlFor={`ua-${index}-${unitIndex}`}
+                    required
+                    error={unitErrors.unitArea}
+                  >
+                    <Input
+                      id={`ua-${index}-${unitIndex}`}
+                      inputMode="decimal"
+                      invalid={Boolean(unitErrors.unitArea)}
+                      value={unit.unitArea ?? ''}
+                      onChange={(e) => setUnit(unitIndex, { unitArea: e.target.value })}
+                    />
+                  </Field>
+                </div>
+
+                <Field
+                  label="الجهة"
+                  htmlFor={`sd-${index}-${unitIndex}`}
+                  hint="مثال: شمالي، جنوبي"
+                >
+                  <Input
+                    id={`sd-${index}-${unitIndex}`}
+                    value={unit.side ?? ''}
+                    onChange={(e) => setUnit(unitIndex, { side: e.target.value })}
+                  />
+                </Field>
+
+                <SharedRightsField
+                  idPrefix={`sr-${index}-${unitIndex}`}
+                  selected={unit.sharedRights ?? []}
+                  onChange={(sharedRights) => setUnit(unitIndex, { sharedRights })}
+                />
+              </>
+            )}
+          </div>
+        );
+      })}
+
+      <Button variant="outline" className="w-full border-dashed" onClick={addUnit}>
         <Plus className="size-4" aria-hidden />
         إضافة وحدة أخرى
       </Button>
     </section>
   );
+}
+
+/** Collapsed-unit summary: enough to tell two units apart at a glance. */
+function summariseUnit(unit: UnitDraft): string {
+  const parts = [
+    unit.unitType ? ar.unitType[unit.unitType] : 'لم يُحدَّد النوع',
+    unit.floor ? `طابق ${unit.floor}` : null,
+    unit.unitArea ? `${unit.unitArea} م²` : null,
+  ];
+  return parts.filter(Boolean).join(' — ');
 }
 
 /**

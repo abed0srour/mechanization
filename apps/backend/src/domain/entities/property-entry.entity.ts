@@ -23,6 +23,8 @@ export interface PropertyEntryProps {
   landlordName?: string | null;
   landlordPhone?: string | null;
   propertyType: PropertyType;
+  /** الحي — common to every property type; free text, unlike رقم العقار there is nothing to check it against. */
+  neighborhood: string;
   propertyNumber: string;
   unitType?: UnitType | null;
   landType?: LandType | null;
@@ -71,6 +73,10 @@ export class PropertyEntry {
   private static assertTaxonomyConsistent(props: PropertyEntryProps): void {
     const fail = (message: string) =>
       new ValidationError(message, { propertyNumber: props.propertyNumber });
+
+    // Common to every type, checked once here rather than duplicated in each
+    // branch below.
+    if (!props.neighborhood?.trim()) throw fail('Every property requires a neighbourhood');
 
     // Only a building is divisible into units; anything else with a `units`
     // array is a caller that has confused the two shapes.
@@ -145,6 +151,7 @@ export class PropertyEntry {
 
     return {
       ...props,
+      neighborhood: props.neighborhood.trim(),
       landlordName: isTenant ? props.landlordName?.trim() : null,
       landlordPhone: isTenant ? props.landlordPhone?.trim() : null,
       // A building's unit detail lives in `units`; the inline columns describe

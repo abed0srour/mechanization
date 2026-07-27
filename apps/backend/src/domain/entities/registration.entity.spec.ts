@@ -6,6 +6,7 @@ const property = (propertyNumber: string): PropertyEntry =>
   PropertyEntry.create({
     occupancyType: 'OWNER',
     propertyType: 'LAND',
+    neighborhood: 'الزهراء',
     propertyNumber,
     landType: 'AGRICULTURAL',
     unitArea: 500,
