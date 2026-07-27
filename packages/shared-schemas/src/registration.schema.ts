@@ -20,7 +20,7 @@ export const submitRegistrationSchema = z
     documentSlots: z
       .array(
         z.object({
-          field: z.string().min(1),
+          field: z.string({ required_error: 'حقل المستند مطلوب' }).min(1, 'حقل المستند مطلوب'),
           type: documentTypeSchema,
           propertyIndex: z.number().int().min(0).optional(),
         }),

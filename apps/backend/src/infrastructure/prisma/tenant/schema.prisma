@@ -48,6 +48,14 @@ enum ResidentStatus {
   VILLAGE_RESIDENT
 }
 
+/// الحالة الاجتماعية — asked in step 2 alongside the rest of the household picture.
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DIVORCED
+  WIDOWED
+}
+
 enum IdentityDocType {
   NATIONAL_ID
   FAMILY_RECORD
@@ -90,6 +98,7 @@ model User {
   identityDocNumber String?
   civilRecordNumber String?
   familySize        Int?
+  maritalStatus     MaritalStatus?
 
   /// رقم مرجعي — usable when a phone is lost or shared.
   referenceNumber String? @unique
@@ -200,6 +209,9 @@ model PropertyEntry {
   landlordPhone String?
 
   propertyType   PropertyType
+  /// الحي — common to every property type. Free text: unlike رقم العقار there is
+  /// no neighbourhood layer in the cadastre to check it against.
+  neighborhood   String
   /// رقم العقار as printed on the deed. Deliberately NOT unique: an apartment
   /// building is one cadastral number shared by every owner and tenant inside
   /// it, so co-registration is the normal case. Uniqueness here used to tell the

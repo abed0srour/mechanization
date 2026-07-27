@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Lebanese mobile numbers: +961 3/70/71/76/78/79/81 XXXXXX, stored E.164. */
 export const lebanesePhone = z
-  .string()
+  .string({ required_error: 'رقم الهاتف مطلوب' })
   .trim()
   .transform((v) => v.replace(/[\s-]/g, ''))
   .pipe(
@@ -16,14 +16,14 @@ export const lebanesePhone = z
   });
 
 export const arabicOrLatinName = z
-  .string()
+  .string({ required_error: 'الاسم مطلوب' })
   .trim()
   .min(2, 'الاسم قصير جداً')
   .max(60, 'الاسم طويل جداً')
   .regex(/^[\u0600-\u06FFa-zA-Z\s'-]+$/u, 'الاسم يحتوي على رموز غير مسموحة');
 
 export const documentNumber = z
-  .string()
+  .string({ required_error: 'رقم الوثيقة مطلوب' })
   .trim()
   .min(3, 'رقم الوثيقة قصير جداً')
   .max(40, 'رقم الوثيقة طويل جداً');
@@ -33,7 +33,7 @@ export const documentNumber = z
  * generic `documentNumber` minimum would wrongly reject valid records.
  */
 export const civilRecordNumber = z
-  .string()
+  .string({ required_error: 'رقم السجل مطلوب' })
   .trim()
   .min(1, 'رقم السجل مطلوب')
   .max(20, 'رقم السجل طويل جداً')

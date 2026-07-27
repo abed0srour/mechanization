@@ -9,6 +9,7 @@ import { ValidationError } from '../errors/domain-error';
 const building = (overrides: Partial<PropertyEntryProps> = {}): PropertyEntryProps => ({
   occupancyType: 'OWNER',
   propertyType: 'BUILDING',
+  neighborhood: 'الزهراء',
   propertyNumber: 'B-101',
   buildingName: 'مبنى الزهراء',
   units: [{ unitType: 'APARTMENT', floor: '3', unitArea: 120 }],
@@ -99,6 +100,7 @@ describe('PropertyEntry — taxonomy rules', () => {
       PropertyEntry.create({
         occupancyType: 'OWNER',
         propertyType: 'LAND',
+        neighborhood: 'الزهراء',
         propertyNumber: 'L-405',
         landType: 'AGRICULTURAL',
         unitArea: 900,
@@ -111,6 +113,7 @@ describe('PropertyEntry — taxonomy rules', () => {
     const house: PropertyEntryProps = {
       occupancyType: 'OWNER',
       propertyType: 'HOUSE',
+      neighborhood: 'الزهراء',
       propertyNumber: 'H-202',
       buildingName: 'منزل الحديقة',
       unitArea: 85,
@@ -128,6 +131,7 @@ describe('PropertyEntry — taxonomy rules', () => {
       PropertyEntry.create({
         occupancyType: 'OWNER',
         propertyType: 'LAND',
+        neighborhood: 'الزهراء',
         propertyNumber: 'L-404',
         landType: 'AGRICULTURAL',
         unitArea: 2400,
@@ -141,6 +145,7 @@ describe('PropertyEntry — taxonomy rules', () => {
       PropertyEntry.create({
         occupancyType: 'OWNER',
         propertyType: 'TENT',
+        neighborhood: 'الزهراء',
         propertyNumber: 'T-303',
       }),
     ).toThrow(/location/);
@@ -148,6 +153,7 @@ describe('PropertyEntry — taxonomy rules', () => {
     const tent = PropertyEntry.create({
       occupancyType: 'OWNER',
       propertyType: 'TENT',
+      neighborhood: 'الزهراء',
       propertyNumber: 'T-303',
       tentLocation: 'مخيم الشمال — قطاع ب',
       unitArea: 20,

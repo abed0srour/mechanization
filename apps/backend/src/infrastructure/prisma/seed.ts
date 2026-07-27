@@ -167,6 +167,7 @@ async function seedTenant(
         property: {
           occupancyType: 'OWNER' as const,
           propertyType: 'BUILDING' as const,
+          neighborhood: 'الزهراء',
           propertyNumber: `${tenant.prefix}-B-101`,
           buildingName: 'مبنى الزهراء',
           latitude: 33.2705,
@@ -195,6 +196,7 @@ async function seedTenant(
           landlordName: 'سمير مراد',
           landlordPhone: '+96176555666',
           propertyType: 'HOUSE' as const,
+          neighborhood: 'الحديقة',
           propertyNumber: `${tenant.prefix}-H-202`,
           buildingName: 'منزل الحديقة',
           unitArea: 85,
@@ -212,6 +214,7 @@ async function seedTenant(
         property: {
           occupancyType: 'OWNER' as const,
           propertyType: 'TENT' as const,
+          neighborhood: 'المخيم الشمالي',
           propertyNumber: `${tenant.prefix}-T-303`,
           tentLocation: 'مخيم الشمال — قطاع ب',
           latitude: 33.2688,
@@ -228,6 +231,7 @@ async function seedTenant(
         property: {
           occupancyType: 'OWNER' as const,
           propertyType: 'LAND' as const,
+          neighborhood: 'الأطراف الشرقية',
           propertyNumber: `${tenant.prefix}-L-404`,
           landType: 'AGRICULTURAL' as const,
           unitArea: 2400,
@@ -282,6 +286,7 @@ async function seedTenant(
           identityDocNumber: sample.docNumber,
           civilRecordNumber: '12',
           familySize: 4,
+          maritalStatus: 'MARRIED',
           referenceNumber: ReferenceNumber.generate(tenant.prefix).value,
         },
         select: { id: true },

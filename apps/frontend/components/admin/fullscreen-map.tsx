@@ -71,7 +71,7 @@ export function FullscreenMap({
    * Adds the cadastre overlay to whichever style is currently loaded.
    *
    * Called on first load *and* after every basemap switch: `setStyle` replaces
-   * the entire style document, taking every custom source and layer with it,
+   * the entire style docum ent, taking every custom source and layer with it,
    * so the overlay has to be reattached rather than merely restyled.
    */
   const attachCadastre = useCallback(
