@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { OtpCleanupJob } from './background-jobs/otp-cleanup.job';
 import { AuditService } from './features/audit/audit.service';
+import { CadastreImportService } from './features/cadastre/cadastre-import.service';
 import { DocumentService } from './features/documents/document.service';
 import { IdentityService } from './features/identity/identity.service';
 import { OtpService } from './features/identity/otp.service';
@@ -34,6 +35,7 @@ import { TenantService } from './features/tenant/tenant.service';
     DocumentService,
     AuditService,
     ReportingService,
+    CadastreImportService,
     OtpCleanupJob,
   ],
   exports: [
@@ -44,6 +46,7 @@ import { TenantService } from './features/tenant/tenant.service';
     DocumentService,
     AuditService,
     ReportingService,
+    CadastreImportService,
     JwtModule,
   ],
 })

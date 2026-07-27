@@ -1,4 +1,5 @@
 import type {
+  DocumentType,
   Gender,
   IdentityDocType,
   LandType,
@@ -69,4 +70,12 @@ export const ar = {
     APPROVED: 'مقبول',
     REJECTED: 'مرفوض',
   } satisfies Record<ReportStatus, string>,
+
+  documentType: {
+    IDENTITY: 'وثيقة الإثبات',
+    OWNERSHIP_PROOF: 'سند الملكية',
+    RENTAL_CONTRACT: 'عقد الإيجار',
+    RESIDENCY_PROOF: 'إثبات الإقامة',
+    EXTRA_PHOTO: 'صورة إضافية',
+  } satisfies Record<DocumentType, string>,
 } as const;

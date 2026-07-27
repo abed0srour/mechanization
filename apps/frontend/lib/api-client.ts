@@ -224,6 +224,7 @@ export interface ParcelRegistrant {
   phone: string | null;
   occupancyType: string;
   propertyType: string;
+  buildingName: string | null;
   status: string;
   registeredAt: string;
   unitCount: number;
@@ -259,12 +260,22 @@ export interface CitizenProfileProperty {
   unitCount: number;
 }
 
+export interface CitizenProfileDocument {
+  id: string;
+  type: string;
+  mimeType: string;
+  sizeBytes: number;
+  propertyEntryId: string | null;
+  createdAt: string;
+}
+
 export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   status: string;
   submittedAt: string;
   properties: CitizenProfileProperty[];
+  documents: CitizenProfileDocument[];
 }
 
 export interface CitizenProfile {
@@ -289,6 +300,33 @@ export interface CitizenProfile {
 
 export function getCitizenProfile(tenant: string, token: string, citizenId: string) {
   return apiFetch<CitizenProfile>(tenant, `/citizens/${encodeURIComponent(citizenId)}`, { token });
+}
+
+/** Opens the signed URL in a new tab; the backend records who viewed what. */
+export function getDocumentViewUrl(tenant: string, token: string, documentId: string) {
+  return apiFetch<{ url: string; expiresInSeconds: number }>(
+    tenant,
+    `/documents/${encodeURIComponent(documentId)}/url`,
+    { token },
+  );
+}
+
+export interface CadastreImportResult {
+  parcelsImported: number;
+  parcelsSkipped: number;
+  linesImported: number;
+}
+
+/** SUPER_ADMIN only — rebuilds the parcel registry and the map's static
+ * cartography layer from an uploaded GeoJSON file. */
+export function importCadastre(tenant: string, token: string, file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<CadastreImportResult>(tenant, '/cadastre/import', {
+    method: 'POST',
+    token,
+    body: form,
+  });
 }
 
 export function changeRegistrationStatus(

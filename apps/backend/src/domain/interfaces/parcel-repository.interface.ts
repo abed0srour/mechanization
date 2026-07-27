@@ -28,4 +28,14 @@ export interface ParcelRepository {
 
   /** Nearby numbers to offer when what the citizen typed is not in the cadastre. */
   suggest(prefix: string, limit: number): Promise<string[]>;
+
+  /**
+   * Rebuilds the registry wholesale from a fresh cadastre file. Whole-table
+   * replace rather than an upsert-per-row: a corrected survey export removes
+   * parcels as often as it adds them, and a partial update would leave stale
+   * numbers resolvable that the new file no longer contains.
+   */
+  replaceAll(
+    parcels: readonly { parcelNumber: string; latitude: number; longitude: number; pointCount: number }[],
+  ): Promise<void>;
 }

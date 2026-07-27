@@ -3,9 +3,9 @@
 import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2, MapPin, Phone } from 'lucide-react';
+import { ArrowRight, ExternalLink, FileText, Loader2, MapPin, Phone } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
-import { ApiRequestError, getCitizenProfile } from '@/lib/api-client';
+import { ApiRequestError, getCitizenProfile, getDocumentViewUrl } from '@/lib/api-client';
 import type { CitizenProfile } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
@@ -34,6 +34,8 @@ export default function CitizenProfilePage({
 
   const [citizen, setCitizen] = useState<CitizenProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [openingDocId, setOpeningDocId] = useState<string | null>(null);
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -41,6 +43,7 @@ export default function CitizenProfilePage({
       router.replace(`${base}/login`);
       return;
     }
+    setToken(session.accessToken);
 
     getCitizenProfile(tenant, session.accessToken, citizenId)
       .then(setCitizen)
@@ -84,6 +87,24 @@ export default function CitizenProfilePage({
     (total, registration) => total + registration.properties.length,
     0,
   );
+
+  const openDocument = async (documentId: string) => {
+    if (!token) return;
+    setOpeningDocId(documentId);
+    try {
+      const { url } = await getDocumentViewUrl(tenant, token, documentId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (caught) {
+      if (caught instanceof ApiRequestError && caught.status === 401) {
+        clearSession(tenant);
+        router.replace(`${base}/login`);
+        return;
+      }
+      alert('تعذّر فتح الملف.');
+    } finally {
+      setOpeningDocId(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
@@ -217,6 +238,38 @@ export default function CitizenProfilePage({
               {registration.properties.length === 0 ? (
                 <p className="text-sm text-muted-foreground">لا توجد عقارات في هذا الطلب.</p>
               ) : null}
+
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-sm font-medium">المرفقات</p>
+                {registration.documents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">لا توجد مرفقات لهذا الطلب.</p>
+                ) : (
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {registration.documents.map((document) => (
+                      <li key={document.id}>
+                        <button
+                          type="button"
+                          onClick={() => openDocument(document.id)}
+                          disabled={openingDocId === document.id}
+                          className="flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3 text-start hover:bg-muted/60 disabled:opacity-60"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                            <span className="truncate text-sm font-medium">
+                              {ar.documentType[document.type as never] ?? document.type}
+                            </span>
+                          </span>
+                          {openingDocId === document.id ? (
+                            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                          ) : (
+                            <ExternalLink className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}
