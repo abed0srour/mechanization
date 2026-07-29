@@ -1,11 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AuditLogEntry } from '../../../domain/entities/audit-log-entry.entity';
 import { AUDIT_REPOSITORY } from '../../../domain/interfaces/base-repository.interface';
 import {
   AuditQuery,
   AuditRepository,
+  AuditRow,
 } from '../../../domain/interfaces/audit-repository.interface';
+import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
+import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 
 /**
  * The audit trail subscribes to domain events rather than being called by the
@@ -22,6 +26,9 @@ export class AuditService {
 
   constructor(
     @Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository,
+    private readonly tenantContext: TenantContextService,
+    private readonly cache: RedisCacheService,
+    private readonly config: ConfigService,
   ) {}
 
   @OnEvent('registration.submitted')
@@ -108,6 +115,31 @@ export class AuditService {
     });
   }
 
+  @OnEvent('cadastre.imported')
+  async onCadastreImported(payload: {
+    actorId: string;
+    actorRole: string;
+    parcelsImported: number;
+    parcelsSkipped: number;
+    linesImported: number;
+  }): Promise<void> {
+    // Rebuilding the parcel registry a citizen's submission validates against
+    // is exactly the kind of system-wide change an audit trail exists to
+    // record, not just per-registration edits.
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: 'CADASTRE_IMPORT',
+      entityType: 'Parcel',
+      after: {
+        parcelsImported: payload.parcelsImported,
+        parcelsSkipped: payload.parcelsSkipped,
+        linesImported: payload.linesImported,
+      },
+    });
+  }
+
   @OnEvent('report.exported')
   async onExport(payload: {
     actorId: string;
@@ -129,8 +161,36 @@ export class AuditService {
     });
   }
 
-  async query(query: AuditQuery) {
-    return this.audit.query(query);
+  /**
+   * Its own cache namespace, separate from the dashboard's, and TTL-only
+   * rather than event-invalidated: the trail is appended to on almost every
+   * action here (including every login), so clearing it on write would
+   * invalidate about as often as it's read. A short TTL is enough to absorb
+   * repeated reads of the same page — reopening it, paginating back — without
+   * the log ever needing to look perfectly live.
+   */
+  async query(query: AuditQuery): Promise<{ items: AuditRow[]; total: number }> {
+    const key = this.cacheKey(query);
+    const cached = await this.cache.get<{ items: AuditRow[]; total: number }>(key);
+    if (cached) return cached;
+
+    const result = await this.audit.query(query);
+    const ttl = this.config.get<number>('AUDIT_CACHE_TTL_SECONDS') ?? 20;
+    await this.cache.set(key, result, ttl);
+    return result;
+  }
+
+  private cacheKey(query: AuditQuery): string {
+    const parts = [
+      query.actorId ?? 'ALL',
+      query.entityType ?? 'ALL',
+      query.entityId ?? 'ALL',
+      query.from ? query.from.toISOString() : 'ALL',
+      query.to ? query.to.toISOString() : 'ALL',
+      query.limit,
+      query.offset,
+    ];
+    return `audit:${this.tenantContext.tenantSlug}:query:${parts.join(':')}`;
   }
 
   /**

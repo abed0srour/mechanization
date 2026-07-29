@@ -109,12 +109,14 @@ export interface CitizenProfile {
 /**
  * Read side of the dashboard.
  *
- * These are `groupBy` aggregates over a table with thousands of rows per
- * municipality, which Postgres alone answers in single-digit milliseconds —
- * but admins hit `counters` and `map/parcels` on every dashboard load, often
- * several times a minute, so a short-lived cache still cuts real load even
- * though no single query is slow. `RedisCacheService` degrades to a no-op
- * when `REDIS_URL` is unset, so this is additive rather than a hard dependency.
+ * These are `groupBy` aggregates and multi-table reads over tables with
+ * thousands of rows per municipality, which Postgres alone answers in
+ * single-digit milliseconds — but admins hit `counters`, `map`, `map/parcels`
+ * and a citizen's profile repeatedly (dashboard polling, re-opening the same
+ * map drawer, a citizen page revisited mid-review), so a short-lived cache
+ * still cuts real load even though no single query is slow. `RedisCacheService`
+ * degrades to a no-op when `REDIS_URL` is unset, so this is additive rather
+ * than a hard dependency.
  *
  * This service reads the tenant client directly rather than going through a
  * repository port: these are reporting projections with no domain invariants to
@@ -195,6 +197,16 @@ export class ReportingService {
    * bundle size on exactly the low-end Android devices this project targets.
    */
   async getSpatialData(): Promise<SpatialFeature[]> {
+    const key = this.cacheKey('map');
+    const cached = await this.cache.get<SpatialFeature[]>(key);
+    if (cached) return cached;
+
+    const features = await this.computeSpatialData();
+    await this.cache.set(key, features, this.cacheTtlSeconds);
+    return features;
+  }
+
+  private async computeSpatialData(): Promise<SpatialFeature[]> {
     const rows = await this.db.propertyEntry.findMany({
       where: { latitude: { not: null }, longitude: { not: null } },
       select: {
@@ -228,6 +240,18 @@ export class ReportingService {
    * — this layer has no opinion about 404s.
    */
   async getCitizenProfile(citizenId: string): Promise<CitizenProfile | null> {
+    const key = this.cacheKey(`citizen:${citizenId}`);
+    const cached = await this.cache.get<CitizenProfile>(key);
+    if (cached) return cached;
+
+    const profile = await this.computeCitizenProfile(citizenId);
+    // A missing citizen isn't cached: caching the 404 would keep serving it
+    // for the TTL window even after the citizen is created moments later.
+    if (profile) await this.cache.set(key, profile, this.cacheTtlSeconds);
+    return profile;
+  }
+
+  private async computeCitizenProfile(citizenId: string): Promise<CitizenProfile | null> {
     const citizen = await this.db.user.findFirst({
       // `kind` is part of the filter, not an afterthought: without it a staff
       // id in the URL would render a staff member through the citizen view.
@@ -550,19 +574,18 @@ export class ReportingService {
 
   /**
    * Cache invalidation, event-driven like the audit trail: this service does
-   * not know which feature just wrote data, only that the counters and map
-   * are now stale. Listeners run inside the emitting request's tenant scope
-   * (see app.module.ts), so `cacheKey` still namespaces to the right
-   * municipality without the event needing to carry a tenant slug.
+   * not know which feature just wrote data, only that everything under the
+   * tenant's `dashboard:` namespace is now stale — counters, map parcels, and
+   * RegistrationService's cached list table all share that one prefix, so a
+   * single wildcard delete clears all three without a listener per cache key.
+   * Listeners run inside the emitting request's tenant scope (see
+   * app.module.ts), so this needs no tenant slug from the event payload.
    */
   @OnEvent('registration.submitted')
   @OnEvent('registration.status-changed')
   @OnEvent('cadastre.imported')
   async onDashboardDataChanged(): Promise<void> {
-    await Promise.all([
-      this.cache.invalidatePrefix(this.cacheKey('counters')),
-      this.cache.invalidatePrefix(this.cacheKey('parcels')),
-    ]);
+    await this.cache.invalidatePrefix(`dashboard:${this.tenantContext.tenantSlug}:`);
   }
 }
 

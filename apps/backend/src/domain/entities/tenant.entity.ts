@@ -76,6 +76,12 @@ export class Tenant {
     return this.props.isActive;
   }
 
+  /** Plain-data snapshot for callers that need to serialize this entity — a
+   *  cache, most likely — and rebuild it later via `rehydrate`. */
+  toProps(): TenantProps {
+    return { ...this.props };
+  }
+
   /**
    * A tenant row can exist before its Postgres schema does — provisioning is a
    * deliberate second step. Serving requests in that window would produce
