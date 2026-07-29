@@ -21,8 +21,16 @@ import mapboxgl from 'mapbox-gl';
  * Latin digits need no shaping.
  *
  * Must run before the first `new mapboxgl.Map()`, and exactly once per page:
- * calling it twice throws. Loaded lazily, so the plugin is fetched only when a
- * map that needs it is actually rendered.
+ * calling it twice throws.
+ *
+ * Fetched eagerly — the third argument is `deferred`, and it must stay `false`.
+ * Deferring sounds harmless (fetch the plugin only once RTL text shows up) but
+ * the trigger never fires: encountering an Arabic label while the plugin is
+ * merely *registered* makes Mapbox skip laying that label out rather than
+ * download the plugin and retry. The symptom is silent and easy to misread —
+ * Latin sector names like "test" draw normally, Arabic ones like "الساحة" draw
+ * nothing at all, no error, and the Arabic glyph range is never even requested
+ * from the font endpoint.
  */
 export function ensureRtlTextPlugin(): void {
   if (mapboxgl.getRTLTextPluginStatus() !== 'unavailable') return;
@@ -30,7 +38,7 @@ export function ensureRtlTextPlugin(): void {
   mapboxgl.setRTLTextPlugin(
     'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.2.3/mapbox-gl-rtl-text.js',
     null,
-    true,
+    false,
   );
 }
 
