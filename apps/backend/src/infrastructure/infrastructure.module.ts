@@ -11,8 +11,10 @@ import {
   TENANT_REPOSITORY,
   TOTP_SERVICE,
   USER_REPOSITORY,
+  ZONE_REPOSITORY,
 } from '../domain/interfaces/base-repository.interface';
 import { RedisCacheService } from './cache/redis-cache.service';
+import { CadastreAssetsService } from './cadastre/cadastre-assets.service';
 import { TenantContextService } from './context/tenant-context.service';
 import { RegistryPrismaService } from './prisma/registry-prisma.service';
 import { TenantPrismaFactory } from './prisma/tenant-prisma.factory';
@@ -23,6 +25,7 @@ import { PrismaParcelRepository } from './repositories/parcel.repository';
 import { PrismaRegistrationRepository } from './repositories/registration.repository';
 import { PrismaTenantRepository } from './repositories/tenant.repository';
 import { PrismaUserRepository } from './repositories/user.repository';
+import { PrismaZoneRepository } from './repositories/zone.repository';
 import { BcryptPasswordHasher } from './security/bcrypt-password.hasher';
 import { OtplibTotpService } from './security/totp.service';
 import { SmsProviderService } from './sms/sms-provider.service';
@@ -42,6 +45,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     RegistryPrismaService,
     TenantPrismaFactory,
     RedisCacheService,
+    CadastreAssetsService,
 
     { provide: TENANT_REPOSITORY, useClass: PrismaTenantRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
@@ -50,6 +54,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     { provide: DOCUMENT_REPOSITORY, useClass: PrismaDocumentRepository },
     { provide: AUDIT_REPOSITORY, useClass: PrismaAuditRepository },
     { provide: OTP_REPOSITORY, useClass: PrismaOtpRepository },
+    { provide: ZONE_REPOSITORY, useClass: PrismaZoneRepository },
 
     { provide: IMAGE_STORAGE_SERVICE, useClass: SupabaseStorageService },
     { provide: SMS_SENDER, useClass: SmsProviderService },
@@ -61,6 +66,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     RegistryPrismaService,
     TenantPrismaFactory,
     RedisCacheService,
+    CadastreAssetsService,
     TENANT_REPOSITORY,
     USER_REPOSITORY,
     REGISTRATION_REPOSITORY,
@@ -68,6 +74,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     DOCUMENT_REPOSITORY,
     AUDIT_REPOSITORY,
     OTP_REPOSITORY,
+    ZONE_REPOSITORY,
     IMAGE_STORAGE_SERVICE,
     SMS_SENDER,
     PASSWORD_HASHER,

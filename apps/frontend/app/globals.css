@@ -81,8 +81,8 @@
   }
 }
 
-/* MapLibre's popup chrome is white-on-white against this palette otherwise. */
-.maplibregl-popup-content {
+/* Mapbox's popup chrome is white-on-white against this palette otherwise. */
+.mapboxgl-popup-content {
   border-radius: var(--radius);
   padding: 0.625rem 0.875rem;
   box-shadow: 0 4px 12px hsl(222.2 84% 4.9% / 0.15);

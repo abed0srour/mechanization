@@ -10,6 +10,7 @@ import { DocumentController } from './controllers/document.controller';
 import { HealthController } from './controllers/health.controller';
 import { RegistrationController } from './controllers/registration.controller';
 import { TenantController } from './controllers/tenant.controller';
+import { ZonesController } from './controllers/zones.controller';
 import { DomainExceptionFilter } from './filters/domain-exception.filter';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -28,6 +29,7 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
     DashboardController,
     CitizenController,
     CadastreController,
+    ZonesController,
   ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },

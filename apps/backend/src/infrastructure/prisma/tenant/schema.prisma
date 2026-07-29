@@ -308,6 +308,47 @@ model Parcel {
   @@map("parcels")
 }
 
+/// An administrative sector (قطاع) the municipality draws over its own cadastre.
+///
+/// Unlike the parcel registry above, this is the municipality's own construct
+/// rather than the survey office's: staff group parcels into sectors to assign
+/// field inspectors, report registration coverage per area, and filter the map
+/// down to a neighbourhood. Nothing outside the municipality knows these exist.
+///
+/// Membership is stored as the parcel *numbers* rather than as a relation to
+/// `Parcel`. A cadastre re-import rebuilds the parcel table wholesale (see
+/// `cadastre:import`), which would cascade away every zone's contents on a
+/// routine survey correction. Parcel numbers are what the deed prints and what
+/// staff actually type, so keeping them here lets a zone outlive the re-import
+/// and simply reference a number the new cadastre may or may not still carry.
+model Zone {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Free text as the municipality words it, e.g. "المنطقة الشرقية - قطاع أ".
+  name String
+
+  /// Short handle staff use in conversation and reports, e.g. "SEC-A1".
+  code String @unique
+
+  /// Hex fill this zone draws with on the map, `#RRGGBB`. Validated in the zone
+  /// schema rather than by a Postgres type, matching how tenant branding colours
+  /// are handled in the registry.
+  color String @default("#3B82F6")
+
+  description String?
+
+  /// The رقم العقار values belonging to this zone. A number may appear in only
+  /// one zone at a time; the service enforces that, since Postgres cannot
+  /// express uniqueness across the elements of an array.
+  parcelNumbers String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@map("zones")
+}
+
 enum DocumentType {
   IDENTITY
   OWNERSHIP_PROOF

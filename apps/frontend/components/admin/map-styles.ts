@@ -8,6 +8,32 @@
  * `satellite-v9` rather than `satellite-streets-v12`: no street labels
  * competing with the cadastre's own parcel numbers.
  */
+import mapboxgl from 'mapbox-gl';
+
+/**
+ * Teaches Mapbox to shape Arabic before it draws any.
+ *
+ * Mapbox GL JS does not do bidirectional text or Arabic glyph joining in its
+ * core renderer; without this plugin a label reading "المنطقة الشرقية" is drawn
+ * left-to-right from unjoined letterforms — "ةيقرشلا ةقطنملا" — which is not
+ * merely ugly but genuinely unreadable. It went unnoticed until zone names
+ * reached the map because every label before them was a parcel number, and
+ * Latin digits need no shaping.
+ *
+ * Must run before the first `new mapboxgl.Map()`, and exactly once per page:
+ * calling it twice throws. Loaded lazily, so the plugin is fetched only when a
+ * map that needs it is actually rendered.
+ */
+export function ensureRtlTextPlugin(): void {
+  if (mapboxgl.getRTLTextPluginStatus() !== 'unavailable') return;
+
+  mapboxgl.setRTLTextPlugin(
+    'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.2.3/mapbox-gl-rtl-text.js',
+    null,
+    true,
+  );
+}
+
 export type BasemapId = 'satellite' | 'light' | 'dark';
 
 export interface Basemap {
