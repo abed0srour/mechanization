@@ -29,6 +29,7 @@ import {
   parseCadastre,
   readKmlText,
 } from './kmz-parser';
+import { buildCadastreGeometryAssets } from './parcel-geometry';
 
 /**
  * Six decimal places is ~0.11 m at this latitude — finer than the survey's own
@@ -171,6 +172,21 @@ export async function importCadastre(args: Args): Promise<void> {
 
     writeAsset(join(outDir, 'parcels.geojson'), parcelsGeoJson(parcels));
     writeAsset(join(outDir, 'cadastre.geojson'), cadastreGeoJson(lines));
+
+    // ── Derived geometry ──
+    // The survey ships lines and labels but no shapes; these are reconstructed
+    // so the zone editor has parcels to click and an outline to draw.
+    const geometry = buildCadastreGeometryAssets(lines, points);
+    console.log(
+      `  ${geometry.shapeCount}/${parcels.length} parcel shapes traced ` +
+        `(${geometry.unmatchedCount} stay point-only)`,
+    );
+    if (geometry.parcelPolygonsGeoJson) {
+      writeAsset(join(outDir, 'parcel-polygons.geojson'), geometry.parcelPolygonsGeoJson);
+    }
+    if (geometry.cityBoundaryGeoJson) {
+      writeAsset(join(outDir, 'city-boundary.geojson'), geometry.cityBoundaryGeoJson);
+    }
 
     console.log(`\n✓ Cadastre imported for '${slug.value}'`);
   } finally {

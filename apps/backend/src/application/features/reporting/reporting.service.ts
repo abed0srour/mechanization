@@ -56,6 +56,7 @@ export interface RegisteredParcel {
 
 export interface CitizenProfileProperty {
   id: string;
+  neighborhood: string;
   propertyNumber: string;
   propertyType: string;
   occupancyType: string;
@@ -99,6 +100,7 @@ export interface CitizenProfile {
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
   familySize: number | null;
+  maritalStatus: string | null;
   referenceNumber: string | null;
   registeredAt: string;
   registrations: CitizenProfileRegistration[];
@@ -270,6 +272,7 @@ export class ReportingService {
         identityDocNumber: true,
         civilRecordNumber: true,
         familySize: true,
+        maritalStatus: true,
         referenceNumber: true,
         createdAt: true,
         registrations: {
@@ -282,6 +285,7 @@ export class ReportingService {
             properties: {
               select: {
                 id: true,
+                neighborhood: true,
                 propertyNumber: true,
                 propertyType: true,
                 occupancyType: true,
@@ -329,6 +333,7 @@ export class ReportingService {
       identityDocNumber: citizen.identityDocNumber,
       civilRecordNumber: citizen.civilRecordNumber,
       familySize: citizen.familySize,
+      maritalStatus: citizen.maritalStatus,
       referenceNumber: citizen.referenceNumber,
       registeredAt: citizen.createdAt.toISOString(),
       registrations: citizen.registrations.map((registration) => ({
@@ -338,6 +343,7 @@ export class ReportingService {
         submittedAt: registration.submittedAt.toISOString(),
         properties: registration.properties.map((property) => ({
           id: property.id,
+          neighborhood: property.neighborhood,
           propertyNumber: property.propertyNumber,
           propertyType: property.propertyType,
           occupancyType: property.occupancyType,

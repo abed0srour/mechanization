@@ -117,6 +117,7 @@ export class PrismaUserRepository implements UserRepository {
           residentStatus: input.residentStatus as never,
           civilRecordNumber: input.civilRecordNumber,
           familySize: input.familySize,
+          maritalStatus: input.maritalStatus as never,
         },
         create: {
           kind: 'CITIZEN',
@@ -135,6 +136,7 @@ export class PrismaUserRepository implements UserRepository {
           identityDocNumber: input.identityDocNumber,
           civilRecordNumber: input.civilRecordNumber,
           familySize: input.familySize,
+          maritalStatus: input.maritalStatus as never,
           referenceNumber,
         },
         select: { id: true },

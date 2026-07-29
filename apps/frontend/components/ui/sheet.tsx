@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 
 /**
  * A lightweight slide-over sheet — a self-contained alternative to the
@@ -21,9 +22,8 @@ interface SheetProps {
    *
    * `inline-end` is the default and follows text direction — right in LTR,
    * left in RTL — which is what a form's contextual panel should do. `left`
-   * and `right` are absolute and ignore direction: the map drawer is pinned
-   * physically left in both locales, because it is anchored to the map canvas
-   * behind it rather than to the reading order.
+   * and `right` are absolute and ignore direction, for a panel anchored to
+   * something on the canvas behind it rather than to the reading order.
    */
   side?: 'inline-end' | 'left' | 'right';
   /** Rendered under the header, outside the scrolling body — e.g. a footer bar. */
@@ -67,6 +67,9 @@ export function Sheet({
       role="dialog"
       aria-modal="true"
     >
+      {/* The scrim stays a bare <button>: it is a backdrop, not a control, and
+          Button's variants all carry a hover treatment that would light the
+          whole overlay up on mouse-over. */}
       <button
         type="button"
         aria-label="Close"
@@ -94,14 +97,9 @@ export function Sheet({
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
             <X className="h-5 w-5" />
-          </button>
+          </Button>
         </div>
 
         {/* Only the body scrolls, so a long co-owner list never pushes the

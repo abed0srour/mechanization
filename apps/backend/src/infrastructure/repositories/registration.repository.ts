@@ -51,6 +51,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
             residentStatus: input.citizen.residentStatus as never,
             civilRecordNumber: input.citizen.civilRecordNumber,
             familySize: input.citizen.familySize,
+            maritalStatus: input.citizen.maritalStatus as never,
           },
           create: {
             kind: 'CITIZEN',
@@ -69,6 +70,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
             identityDocNumber: input.citizen.identityDocNumber,
             civilRecordNumber: input.citizen.civilRecordNumber,
             familySize: input.citizen.familySize,
+            maritalStatus: input.citizen.maritalStatus as never,
             referenceNumber: input.citizenReference,
           },
           select: { id: true },
@@ -93,6 +95,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
               landlordName: p.landlordName ?? null,
               landlordPhone: p.landlordPhone ?? null,
               propertyType: p.propertyType as never,
+              neighborhood: p.neighborhood,
               propertyNumber: p.propertyNumber,
               unitType: (p.unitType ?? null) as never,
               landType: (p.landType ?? null) as never,
@@ -154,6 +157,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
       where: { citizenId },
       include: {
         citizen: { select: { id: true, firstName: true, lastName: true } },
+        properties: { select: { neighborhood: true } },
         _count: { select: { properties: true } },
       },
       orderBy: { submittedAt: 'desc' },
@@ -167,6 +171,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       propertyCount: row._count.properties,
+      neighborhoods: distinctNeighborhoods(row.properties),
     }));
   }
 
@@ -182,6 +187,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
         where,
         include: {
           citizen: { select: { id: true, firstName: true, lastName: true } },
+          properties: { select: { neighborhood: true } },
           _count: { select: { properties: true } },
         },
         orderBy: { submittedAt: 'desc' },
@@ -200,6 +206,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
         citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
         propertyCount: row._count.properties,
+        neighborhoods: distinctNeighborhoods(row.properties),
       })),
       total,
     };
@@ -259,6 +266,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
           landlordName: p.landlordName as string | null,
           landlordPhone: p.landlordPhone as string | null,
           propertyType: p.propertyType as never,
+          neighborhood: p.neighborhood as string,
           propertyNumber: p.propertyNumber as string,
           unitType: p.unitType as never,
           landType: p.landType as never,
@@ -304,4 +312,14 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     }
     return error;
   }
+}
+
+/**
+ * A registration is usually one property, but a landlord filing several at
+ * once can span more than one حي — deduping rather than just taking the first
+ * is what keeps the dashboard row honest about that instead of silently
+ * showing only part of the claim.
+ */
+function distinctNeighborhoods(properties: Array<{ neighborhood: string }>): string[] {
+  return [...new Set(properties.map((p) => p.neighborhood))];
 }

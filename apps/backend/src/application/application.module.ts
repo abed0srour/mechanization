@@ -10,6 +10,7 @@ import { OtpService } from './features/identity/otp.service';
 import { RegistrationService } from './features/registration/registration.service';
 import { ReportingService } from './features/reporting/reporting.service';
 import { TenantService } from './features/tenant/tenant.service';
+import { ZonesService } from './features/zones/zones.service';
 
 /**
  * One service per bounded context — no command/query handler registration, no
@@ -36,6 +37,7 @@ import { TenantService } from './features/tenant/tenant.service';
     AuditService,
     ReportingService,
     CadastreImportService,
+    ZonesService,
     OtpCleanupJob,
   ],
   exports: [
@@ -47,6 +49,7 @@ import { TenantService } from './features/tenant/tenant.service';
     AuditService,
     ReportingService,
     CadastreImportService,
+    ZonesService,
     JwtModule,
   ],
 })

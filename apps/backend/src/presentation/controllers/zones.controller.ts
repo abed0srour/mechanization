@@ -1,0 +1,80 @@
+import { Body, Controller, Delete, Get, Header, Param, Post, Put } from '@nestjs/common';
+import {
+  type CreateZoneInput,
+  type UpdateZoneInput,
+  createZoneSchema,
+  updateZoneSchema,
+} from '@mechanization/shared-schemas';
+import { ZonesService } from '../../application/features/zones/zones.service';
+import { ZodValidationPipe } from '../../application/common/pipes/zod-validation.pipe';
+import { Roles } from '../decorators/roles.decorator';
+
+/**
+ * Sits under `t/:tenantSlug` like every other tenant-scoped controller — that
+ * prefix is what `TenantMiddleware` binds to, so a zone route outside it would
+ * run with no tenant-scoped Prisma client at all.
+ */
+@Controller('t/:tenantSlug/zones')
+export class ZonesController {
+  constructor(private readonly zones: ZonesService) {}
+
+  /** Reading sectors is part of reading the map, so every staff role may. */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Get()
+  async list() {
+    return { zones: await this.zones.list() };
+  }
+
+  /**
+   * The zone overlay both maps draw. Served from the API rather than as a static
+   * asset like the cadastre layers: zone membership changes whenever an admin
+   * saves the editor, where the cadastre changes only on a manual re-import.
+   *
+   * Not cached at the HTTP layer for the same reason — an admin who saves a
+   * sector expects to see it on the map immediately, and the expensive part
+   * (dissolving member parcels) is already memoised per zone in the service.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Get('geojson')
+  @Header('Cache-Control', 'no-store')
+  async geojson(@Param('tenantSlug') tenantSlug: string) {
+    return this.zones.buildGeoJson(tenantSlug);
+  }
+
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Get(':id')
+  async get(@Param('id') id: string) {
+    return this.zones.get(id);
+  }
+
+  /**
+   * SUPER_ADMIN only for every write below: sectors decide which inspector is
+   * accountable for which parcels and how coverage is reported, so redrawing
+   * them is an administrative act rather than day-to-day case work.
+   */
+  @Roles('SUPER_ADMIN')
+  @Post()
+  async create(
+    @Param('tenantSlug') tenantSlug: string,
+    @Body(new ZodValidationPipe(createZoneSchema)) body: CreateZoneInput,
+  ) {
+    return this.zones.create(tenantSlug, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Put(':id')
+  async update(
+    @Param('tenantSlug') tenantSlug: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateZoneSchema)) body: UpdateZoneInput,
+  ) {
+    return this.zones.update(tenantSlug, id, body);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    await this.zones.remove(id);
+    return { deleted: true };
+  }
+}

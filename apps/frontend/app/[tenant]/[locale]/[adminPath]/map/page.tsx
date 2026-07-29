@@ -4,7 +4,7 @@ import { use, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2, Map as MapIcon, Upload } from 'lucide-react';
+import { ArrowRight, Layers, Loader2, Map as MapIcon, Upload } from 'lucide-react';
 import {
   ApiRequestError,
   getRegisteredParcels,
@@ -16,7 +16,7 @@ import { clearSession, loadSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 
 /**
- * MapLibre plus a megabyte of cadastre GeoJSON, loaded only when a staff
+ * Mapbox GL JS plus a megabyte of cadastre GeoJSON, loaded only when a staff
  * member opens this route — never on the citizen wizard, which is the bundle
  * that actually matters.
  */
@@ -158,6 +158,12 @@ export default function FullscreenMapPage({
             </>
           ) : null}
           <Button asChild variant="outline">
+            <Link href={`${base}/zones`}>
+              <Layers className="size-4" aria-hidden />
+              القطاعات
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
             <Link href={`${base}/dashboard`}>
               <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
               رجوع إلى اللوحة
@@ -191,6 +197,7 @@ export default function FullscreenMapPage({
         ) : (
           <FullscreenMap
             tenant={tenant}
+            token={token}
             parcels={parcels}
             citizenHref={(citizenId) => `${base}/citizens/${citizenId}`}
             refreshToken={refreshToken}

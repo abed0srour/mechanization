@@ -158,6 +158,14 @@ export default function StaffDashboard({
         header: 'مقدّم الطلب',
       },
       {
+        accessorKey: 'neighborhoods',
+        header: 'الحي',
+        // A registration usually names one حي; a landlord filing several
+        // properties at once can span more than one, so every value the
+        // claim actually touches is shown rather than just the first.
+        cell: ({ row }) => row.original.neighborhoods.join('، ') || '—',
+      },
+      {
         accessorKey: 'submittedAt',
         header: 'تاريخ التقديم',
         cell: ({ row }) => new Date(row.original.submittedAt).toLocaleDateString('ar-LB'),

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ar } from '@mechanization/shared-schemas';
 import { Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, scopeErrors } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -39,16 +39,36 @@ export function PersonalStep({
   const isLebanese = value.isLebanese !== false;
 
   /**
+   * صفة الإقامة options a Lebanese citizen may choose from. لاجئ describes
+   * someone displaced from outside Lebanon — a Lebanese citizen cannot hold
+   * that status, so the choice is not offered once لبناني is selected.
+   */
+  const residentStatusOptions = isLebanese
+    ? (['VILLAGE_RESIDENT', 'DISPLACED'] as const)
+    : (['VILLAGE_RESIDENT', 'DISPLACED', 'REFUGEE'] as const);
+
+  /**
    * Everything downstream of "هل الشخص لبناني؟" follows automatically rather
    * than asking twice: a Lebanese citizen's nationality is لبناني by
    * definition, and a non-Lebanese person's identity document is a passport
    * in the overwhelming majority of cases — رقم الهوية اللبنانية and إخراج
    * القيد do not apply to them at all. Re-deriving both here means the citizen
    * only ever answers the nationality question once.
+   *
+   * Switching to لبناني also clears صفة الإقامة if it was لاجئ: that option is
+   * no longer offered, and a value left over from before the switch would
+   * otherwise reach the server unseen rather than being caught here, where the
+   * citizen can immediately pick a real answer.
    */
   useEffect(() => {
     if (isLebanese) {
-      if (value.nationality !== 'لبناني') set({ nationality: 'لبناني' });
+      // One merged patch, not two sequential `set()` calls: each would close
+      // over the same pre-update `value`, so the second call would silently
+      // undo the first instead of compounding with it.
+      const patch: Values = {};
+      if (value.nationality !== 'لبناني') patch.nationality = 'لبناني';
+      if (value.residentStatus === 'REFUGEE') patch.residentStatus = undefined;
+      if (Object.keys(patch).length > 0) set(patch);
     } else if (value.identityDocType !== 'PASSPORT') {
       set({ identityDocType: 'PASSPORT' });
     }
@@ -155,7 +175,7 @@ export function PersonalStep({
         error={errors['personal.residentStatus']}
       >
         <div className="grid gap-3">
-          {(['VILLAGE_RESIDENT', 'DISPLACED', 'REFUGEE'] as const).map((option) => (
+          {residentStatusOptions.map((option) => (
             <ChoiceCard
               key={option}
               name="residentStatus"
@@ -303,6 +323,29 @@ export function ContactStep({
   return (
     <div className="space-y-6">
       <Field
+        label="الحالة الاجتماعية"
+        htmlFor="maritalStatus"
+        required
+        error={errors['contact.maritalStatus']}
+      >
+        <Select
+          value={str(value.maritalStatus)}
+          onValueChange={(next) => set({ maritalStatus: next })}
+        >
+          <SelectTrigger id="maritalStatus">
+            <SelectValue placeholder="اختر…" />
+          </SelectTrigger>
+          <SelectContent>
+            {(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'] as const).map((o) => (
+              <SelectItem key={o} value={o}>
+                {ar.maritalStatus[o]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field
         label="رقم الهاتف"
         htmlFor="phone"
         required
@@ -371,12 +414,14 @@ export function DocumentsStep({
   files,
   requiredDocuments,
   draftRestored,
+  errors,
   onChange,
 }: {
   properties: PropertyDraft[];
   files: Record<string, File>;
   requiredDocuments: string[];
   draftRestored: boolean;
+  errors?: Errors;
   onChange: (next: Record<string, File>) => void;
 }) {
   const set = (field: string, file: File | null) => {
@@ -400,6 +445,7 @@ export function DocumentsStep({
         hint="صورة واضحة أو ملف PDF"
         required={requiredDocuments.includes('IDENTITY')}
         file={files.identity}
+        error={errors?.identity}
         onChange={set}
       />
 
@@ -417,6 +463,7 @@ export function DocumentsStep({
             hint={property.propertyNumber ? `رقم العقار ${property.propertyNumber}` : undefined}
             required
             file={files[field]}
+            error={errors?.[field]}
             onChange={set}
           />
         );
@@ -439,6 +486,7 @@ function FileField({
   hint,
   required,
   file,
+  error,
   onChange,
 }: {
   field: string;
@@ -446,10 +494,11 @@ function FileField({
   hint?: string;
   required?: boolean;
   file?: File;
+  error?: string;
   onChange: (field: string, file: File | null) => void;
 }) {
   return (
-    <Field label={label} hint={hint} htmlFor={field} required={required}>
+    <Field label={label} hint={hint} htmlFor={field} required={required} error={error}>
       <input
         id={field}
         type="file"
@@ -548,6 +597,10 @@ export function ReviewStep({
           />
         }
       >
+        <Row
+          label="الحالة الاجتماعية"
+          value={ar.maritalStatus[contact.maritalStatus as never] ?? '—'}
+        />
         <Row label="الهاتف" value={str(contact.phone)} />
         <Row label="عدد الأفراد" value={str(contact.familySize)} />
       </ReviewBlock>
@@ -564,6 +617,7 @@ export function ReviewStep({
             label={`العقار ${index + 1}`}
             value={[
               property.propertyType ? ar.propertyType[property.propertyType] : '—',
+              property.neighborhood || null,
               property.propertyNumber ? `رقم ${property.propertyNumber}` : null,
               property.units?.length ? `${property.units.length} وحدة` : null,
             ]
@@ -583,6 +637,7 @@ export function ReviewStep({
             files={files}
             requiredDocuments={requiredDocuments}
             draftRestored={draftRestored}
+            errors={scopeErrors(errors, 'documents')}
             onChange={onChangeFiles}
           />
         }

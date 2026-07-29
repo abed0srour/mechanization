@@ -3,6 +3,7 @@ import type {
   Gender,
   IdentityDocType,
   LandType,
+  MaritalStatus,
   OccupancyType,
   PropertyType,
   ReportStatus,
@@ -34,6 +35,13 @@ export const ar = {
     DRIVER_LICENSE: 'رقم الرخصة',
     PASSPORT: 'رقم الجواز',
   } satisfies Record<IdentityDocType, string>,
+
+  maritalStatus: {
+    SINGLE: 'أعزب',
+    MARRIED: 'متزوج',
+    DIVORCED: 'مطلّق',
+    WIDOWED: 'أرمل',
+  } satisfies Record<MaritalStatus, string>,
 
   occupancyType: { OWNER: 'مالك', TENANT: 'مستأجر' } satisfies Record<OccupancyType, string>,
 

@@ -25,6 +25,8 @@ export interface RegistrationListItem {
   citizenId: string;
   citizenName: string;
   propertyCount: number;
+  /** Distinct الحي values across this registration's properties. Usually one. */
+  neighborhoods: string[];
 }
 
 export interface RegistrationRepository {
