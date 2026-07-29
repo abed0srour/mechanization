@@ -1,17 +1,40 @@
 # Local development stack.
 #
-# Two services, because that is all this needs: Postgres and object storage are
-# hosted (Supabase), and v2 removed Redis entirely — the throttler runs
-# in-memory and OTP state lives in Postgres. Nothing here is a data store, so
-# `docker compose down -v` cannot lose anything.
+# Postgres and object storage are hosted (Supabase); Redis is the one local
+# data store, and it backs an optimisation, not a source of truth — the
+# dashboard cache degrades to "reads go straight to Postgres" if it is
+# missing, so `docker compose down -v` can lose the cache contents but never
+# real data.
 
 services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports: ['6379:6379']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
     env_file: ./apps/backend/.env
+    environment:
+      # Overrides whatever REDIS_URL is in .env: inside compose the only
+      # reachable Redis is the service above, addressed by service name — the
+      # value in .env is for `pnpm dev` on the host, where that name doesn't
+      # resolve.
+      REDIS_URL: redis://redis:6379
     ports: ['4000:4000']
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       # Readiness, not liveness: the frontend should wait until the registry is
       # actually reachable, otherwise its first page render 500s.
@@ -36,3 +59,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  redis-data:

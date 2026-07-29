@@ -1,0 +1,24 @@
+# node_modules is reinstalled inside the image — the host's copy has symlinks
+# with host-absolute paths (e.g. Windows drive paths) that are meaningless
+# inside the container, and copying it over the image's own node_modules is
+# exactly what broke `tsc` for @mechanization/shared-schemas.
+**/node_modules
+
+.git
+.gitignore
+
+# Build output — regenerated inside the image.
+apps/backend/dist
+apps/backend/src/generated
+apps/frontend/.next
+packages/shared-schemas/dist
+
+# Never let a secret ride along in a build context/layer.
+.env
+.env.local
+.env.*.local
+!.env.example
+
+*.log
+.vscode
+.idea
