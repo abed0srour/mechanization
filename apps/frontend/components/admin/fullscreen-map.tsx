@@ -1,13 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { Loader2, Search } from 'lucide-react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import type { FeatureCollection } from 'geojson';
+import { Loader2, Search, X } from 'lucide-react';
 import { checkPropertyNumber, type RegisteredParcel } from '@/lib/api-client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { MapLayerControl } from './map-layer-control';
 import { CitizenDetailDrawer } from './citizen-detail-drawer';
 import { basemapById, styleFor, type BasemapId, DEFAULT_BASEMAP } from './map-styles';
+
+// Falls back to Mapbox's own public example token — never a real project
+// token here, since this file is committed. Set NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
+// in `.env`/`.env.local` (both gitignored) for real usage.
+mapboxgl.accessToken =
+  process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
 /** Parcel numbers only become legible — and useful — this far in. */
 const PARCEL_LABEL_MIN_ZOOM = 16;
@@ -23,7 +32,7 @@ const LAYER = {
 } as const;
 
 /**
- * Fullscreen cadastral map.
+ * Fullscreen cadastral map using Mapbox GL JS.
  *
  * Fills its parent via `relative h-full w-full`, exactly like the sibling
  * Mechanization project's `BazoreyyeMap` — the parent (`map/page.tsx`) is a
@@ -36,7 +45,8 @@ const LAYER = {
  * Three things are layered here, and the distinction between them is the whole
  * point of the screen:
  *
- *   1. the basemap — switchable satellite / light / dark;
+ *   1. the basemap — switchable satellite / light / dark, Mapbox's own hosted
+ *      styles;
  *   2. the *whole* cadastre, ~1,800 parcels drawn from a static GeoJSON as
  *      lines and numbers, with no interactivity;
  *   3. a marker on each parcel that has citizen registrations behind it.
@@ -44,10 +54,6 @@ const LAYER = {
  * Only (3) is clickable, and it is deliberately sparse. If every parcel carried
  * a dot, the map would show 1,800 identical markers of which a handful mean
  * anything — so a visible dot here is a promise that there is something to open.
- *
- * MapLibre rather than Leaflet: it is already this project's map library (and
- * is the open-source fork of Mapbox GL), so this needs no new dependency and
- * the raster-basemap decision documented in the README still holds.
  */
 export function FullscreenMap({
   tenant,
@@ -64,9 +70,9 @@ export function FullscreenMap({
   refreshToken?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-  const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const searchMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   const [basemap, setBasemap] = useState<BasemapId>(DEFAULT_BASEMAP);
   const [selected, setSelected] = useState<RegisteredParcel | null>(null);
@@ -74,8 +80,20 @@ export function FullscreenMap({
 
   const [query, setQuery] = useState('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'not-found'>('idle');
+  /** Nearby real parcel numbers the server offers when the typed one is unknown. */
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [matchesOpen, setMatchesOpen] = useState(false);
 
   const dark = basemapById(basemap).dark;
+
+  const trimmedQuery = query.trim();
+
+  // Registered parcels whose number starts with what has been typed. Staff
+  // half-remember a number far more often than they know it exactly, and this
+  // list is already in memory — it answers before the server is even asked.
+  const localMatches = trimmedQuery
+    ? parcels.filter((parcel) => parcel.propertyNumber.startsWith(trimmedQuery)).slice(0, 6)
+    : [];
 
   /**
    * Adds the cadastre overlay to whichever style is currently loaded.
@@ -85,7 +103,7 @@ export function FullscreenMap({
    * so the overlay has to be reattached rather than merely restyled.
    */
   const attachCadastre = useCallback(
-    async (map: maplibregl.Map, force = false) => {
+    async (map: mapboxgl.Map, force = false) => {
       const base = `/tenants/${encodeURIComponent(tenant)}`;
       // A plain cache-buster: these are static files served with long-lived
       // cache headers, so a freshly-uploaded cadastre would otherwise keep
@@ -131,7 +149,9 @@ export function FullscreenMap({
           minzoom: PARCEL_LABEL_MIN_ZOOM,
           layout: {
             'text-field': ['get', 'parcelNumber'],
-            'text-font': ['Noto Sans Regular'],
+            // Mapbox's own hosted styles ship this font stack — no separate
+            // glyph source to wire up, unlike a bare raster style.
+            'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 16, 10, 19, 15],
             'text-allow-overlap': false,
           },
@@ -153,33 +173,56 @@ export function FullscreenMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const map = new maplibregl.Map({
+    const map = new mapboxgl.Map({
       container: containerRef.current,
       style: styleFor(DEFAULT_BASEMAP),
       center: FALLBACK_CENTER,
       zoom: FALLBACK_ZOOM,
-      attributionControl: { compact: true },
     });
 
-    // Kept on the physical right, matching the sibling project: the basemap
-    // switcher sits bottom-centre and the drawer opens from the left, so the
-    // right edge is the one side nothing else claims.
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+    // Kept on the physical left: the basemap switcher sits bottom-centre and
+    // the citizen drawer opens from the right, so the left edge is the one
+    // side nothing else claims. Default options, matching the sibling
+    // Mechanization project's `BazoreyyeMap`: zoom in/out plus the compass
+    // button (resets bearing to north; doubles as a rotate handle).
+    map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+    map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
     map.on('load', () => void attachCadastre(map));
     mapRef.current = map;
 
     return () => {
-      map.remove();
       mapRef.current = null;
+      try {
+        // React StrictMode's dev-only mount→cleanup→remount can tear this
+        // down before mapbox-gl's own async style/worker setup has settled;
+        // `remove()` mid-setup can throw from inside the library rather than
+        // clean up. Never fires in production, where StrictMode's double
+        // invoke doesn't happen.
+        map.remove();
+      } catch {
+        // Already torn down (or never finished initializing) — nothing left
+        // to clean up.
+      }
     };
     // Mount-only: attachCadastre is re-run explicitly on basemap change below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Basemap switching ──────────────────────────────────────────────
+  // Fires on mount too, since `basemap`/`attachCadastre` are both "new" the
+  // first time this effect runs — without this guard it called `setStyle()`
+  // on the map the instant it was constructed, before its *initial* style
+  // had loaded. Mapbox's own style-diffing in `setStyle()` assumes a settled
+  // style/transform to diff against; hitting it mid-construction is what
+  // threw "Cannot read properties of undefined (reading 'applyProjectionUpdate')"
+  // and "...(reading 'get')" from inside mapbox-gl.
+  const isFirstBasemap = useRef(true);
   useEffect(() => {
+    if (isFirstBasemap.current) {
+      isFirstBasemap.current = false;
+      return;
+    }
     const map = mapRef.current;
     if (!map) return;
 
@@ -206,6 +249,23 @@ export function FullscreenMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
 
+  /**
+   * Fly to a registered parcel and open its panel — the single path a marker
+   * click, a suggestion pick and a successful search all take, so all three
+   * land on exactly the same outcome for the same parcel.
+   */
+  const openParcel = useCallback((parcel: RegisteredParcel) => {
+    setSelected(parcel);
+    // A typeahead list left hanging over a panel that has already opened is
+    // stale the moment the panel appears — including when the map is clicked.
+    setMatchesOpen(false);
+    mapRef.current?.flyTo({
+      center: [parcel.longitude, parcel.latitude],
+      zoom: 17,
+      duration: 600,
+    });
+  }, []);
+
   // ── Registration markers ───────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -216,7 +276,7 @@ export function FullscreenMap({
 
     if (parcels.length === 0) return;
 
-    const bounds = new maplibregl.LngLatBounds();
+    const bounds = new mapboxgl.LngLatBounds();
 
     for (const parcel of parcels) {
       const element = document.createElement('button');
@@ -235,12 +295,11 @@ export function FullscreenMap({
 
       element.addEventListener('click', (event) => {
         event.stopPropagation();
-        setSelected(parcel);
-        map.flyTo({ center: [parcel.longitude, parcel.latitude], zoom: 17, duration: 600 });
+        openParcel(parcel);
       });
 
       markersRef.current.push(
-        new maplibregl.Marker({ element })
+        new mapboxgl.Marker({ element, offset: [0, -18] })
           .setLngLat([parcel.longitude, parcel.latitude])
           .addTo(map),
       );
@@ -249,91 +308,174 @@ export function FullscreenMap({
     }
 
     map.fitBounds(bounds, { padding: 96, maxZoom: 16, duration: 0 });
-  }, [parcels]);
+  }, [parcels, openParcel]);
 
   // ── Search by رقم العقار ────────────────────────────────────────────
-  const runSearch = useCallback(async () => {
-    const map = mapRef.current;
-    const propertyNumber = query.trim();
-    if (!map || !propertyNumber) return;
+  /** Takes an explicit number when the search is re-run from a suggestion. */
+  const runSearch = useCallback(
+    async (term?: string) => {
+      const map = mapRef.current;
+      const propertyNumber = (term ?? query).trim();
+      if (!map || !propertyNumber) return;
 
-    setSearchStatus('searching');
+      if (term) setQuery(term);
+      setMatchesOpen(false);
+      setSuggestions([]);
+      setSearchStatus('searching');
 
-    searchMarkerRef.current?.remove();
-    searchMarkerRef.current = null;
+      searchMarkerRef.current?.remove();
+      searchMarkerRef.current = null;
 
-    // An exact match among the registered parcels already on the map takes
-    // the citizen-facing lookup path: same fly-to-and-open behaviour as
-    // clicking its dot directly, so a search and a click land on the same
-    // outcome for the same parcel.
-    const registered = parcels.find((parcel) => parcel.propertyNumber === propertyNumber);
-    if (registered) {
-      setSelected(registered);
-      map.flyTo({ center: [registered.longitude, registered.latitude], zoom: 17, duration: 900 });
-      setSearchStatus('idle');
-      return;
-    }
-
-    try {
-      const result = await checkPropertyNumber(tenant, propertyNumber);
-      if (!result.location) {
-        setSearchStatus('not-found');
+      // An exact match among the registered parcels already on the map takes
+      // the citizen-facing lookup path: same fly-to-and-open behaviour as
+      // clicking its dot directly, so a search and a click land on the same
+      // outcome for the same parcel.
+      const registered = parcels.find((parcel) => parcel.propertyNumber === propertyNumber);
+      if (registered) {
+        openParcel(registered);
+        setSearchStatus('idle');
         return;
       }
 
-      const element = document.createElement('div');
-      element.className = 'map-search-pin';
-      searchMarkerRef.current = new maplibregl.Marker({ element })
-        .setLngLat([result.location.longitude, result.location.latitude])
-        .addTo(map);
+      try {
+        const result = await checkPropertyNumber(tenant, propertyNumber);
+        if (!result.location) {
+          // The endpoint already knows which real parcel numbers are near the
+          // typed one; a dead end that offers them is worth far more than one
+          // that only says no.
+          setSuggestions(result.suggestions ?? []);
+          setSearchStatus('not-found');
+          return;
+        }
 
-      map.flyTo({
-        center: [result.location.longitude, result.location.latitude],
-        zoom: 17,
-        duration: 900,
-      });
-      setSearchStatus('idle');
-    } catch {
-      setSearchStatus('not-found');
-    }
-  }, [query, parcels, tenant]);
+        const element = document.createElement('div');
+        element.className = 'map-search-pin';
+        searchMarkerRef.current = new mapboxgl.Marker({ element })
+          .setLngLat([result.location.longitude, result.location.latitude])
+          .addTo(map);
+
+        map.flyTo({
+          center: [result.location.longitude, result.location.latitude],
+          zoom: 17,
+          duration: 900,
+        });
+        setSearchStatus('idle');
+      } catch {
+        setSearchStatus('not-found');
+      }
+    },
+    [query, parcels, tenant, openParcel],
+  );
+
+  /** Resets the field *and* the pin it dropped — one without the other leaves
+   *  a marker on the map with nothing on screen explaining it. */
+  const clearSearch = useCallback(() => {
+    setQuery('');
+    setSearchStatus('idle');
+    setSuggestions([]);
+    setMatchesOpen(false);
+    searchMarkerRef.current?.remove();
+    searchMarkerRef.current = null;
+  }, []);
 
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" aria-label="خريطة العقارات" />
 
-      {/* Search by رقم العقار — top-centre, clear of the nav controls
-          (top-right), legend (top-left) and basemap switcher (bottom-centre). */}
+      {/* Search by رقم العقار — top-centre, clear of the nav control
+          (top-left), legend (top-right) and basemap switcher (bottom-centre). */}
       <div className="absolute left-1/2 top-3 z-10 w-[min(22rem,calc(100%-1.5rem))] -translate-x-1/2">
-        <div className="flex items-center gap-2 rounded-lg border bg-card/95 p-1.5 shadow-sm backdrop-blur">
+        <div className="flex items-center gap-1 rounded-lg border bg-card/95 p-1.5 shadow-sm backdrop-blur">
           <Search className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <input
+          {/* The shared Input, sized down to sit inside the pill: its chrome is
+              the pill's border and background, so the field contributes none. */}
+          <Input
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
+              setMatchesOpen(true);
               if (searchStatus === 'not-found') setSearchStatus('idle');
             }}
-            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void runSearch();
+              if (e.key === 'Escape') clearSearch();
+            }}
             placeholder="ابحث برقم العقار"
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            aria-label="ابحث برقم العقار"
+            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
-          <button
-            type="button"
-            onClick={runSearch}
+          {query ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={clearSearch}
+              aria-label="مسح البحث"
+              className="size-8 shrink-0"
+            >
+              <X className="size-4" aria-hidden />
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            onClick={() => void runSearch()}
             disabled={searchStatus === 'searching' || !query.trim()}
-            className="flex h-8 shrink-0 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            className="h-8 shrink-0"
           >
             {searchStatus === 'searching' ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
               'بحث'
             )}
-          </button>
+          </Button>
         </div>
+
+        {/* Typeahead over the parcels already on the map. Rows rather than
+            buttons, matching the reference's resident list — a stack of
+            button-shaped controls reads as a toolbar, not as results. */}
+        {matchesOpen && localMatches.length > 0 ? (
+          <ul className="mt-1.5 overflow-hidden rounded-md border bg-card/95 shadow-sm backdrop-blur">
+            {localMatches.map((parcel) => (
+              <li key={parcel.propertyNumber}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery(parcel.propertyNumber);
+                    setMatchesOpen(false);
+                    setSearchStatus('idle');
+                    openParcel(parcel);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm transition-colors hover:bg-accent"
+                >
+                  <span className="font-medium">العقار رقم {parcel.propertyNumber}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {parcel.registrants.length} مسجّل
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
         {searchStatus === 'not-found' ? (
-          <p className="mt-1.5 rounded-md border bg-card/95 px-3 py-1.5 text-xs text-destructive shadow-sm backdrop-blur">
-            لا يوجد عقار بهذا الرقم في هذه البلدية
-          </p>
+          <div className="mt-1.5 rounded-md border bg-card/95 px-3 py-1.5 shadow-sm backdrop-blur">
+            <p className="text-xs text-destructive">لا يوجد عقار بهذا الرقم في هذه البلدية</p>
+            {suggestions.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">هل تقصد</span>
+                {suggestions.map((suggestion) => (
+                  <Button
+                    key={suggestion}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void runSearch(suggestion)}
+                    className="h-7 px-2 text-xs"
+                  >
+                    {suggestion}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -378,16 +520,17 @@ export function FullscreenMap({
       `}</style>
 
       {/* What the dots mean, stated plainly — the conditional-rendering rule
-          is otherwise invisible. Pinned physically left, matching the
-          reference: MapLibre's own controls sit top/bottom-right. */}
-      <div className="pointer-events-none absolute left-3 top-3 z-10 rounded-lg border bg-card/95 px-3 py-2 text-sm shadow-sm backdrop-blur">
-        <p className="font-bold">{parcels.length} عقار مسجّل</p>
+          is otherwise invisible. Pinned physically right: Mapbox's own nav
+          control sits top-left, and the citizen drawer opens from this same
+          right edge but well below the header. */}
+      <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
+        <p className="text-sm font-bold">{parcels.length} عقار مسجّل</p>
         {cadastreReady ? (
           <p className="text-xs text-muted-foreground">النقاط تظهر فقط على العقارات المسجّلة</p>
         ) : null}
       </div>
 
-      <MapLayerControl value={basemap} onChange={setBasemap} dark={dark} />
+      <MapLayerControl value={basemap} onChange={setBasemap} />
 
       <CitizenDetailDrawer
         parcel={selected}
@@ -402,11 +545,11 @@ export function FullscreenMap({
  * A 404 is an expected answer, not a failure: it means this municipality's
  * cadastre has not been imported. The map still works without it.
  */
-async function fetchGeoJson(url: string): Promise<GeoJSON.FeatureCollection | null> {
+async function fetchGeoJson(url: string): Promise<FeatureCollection | null> {
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
-    return (await response.json()) as GeoJSON.FeatureCollection;
+    return (await response.json()) as FeatureCollection;
   } catch {
     return null;
   }

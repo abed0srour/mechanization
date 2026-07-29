@@ -16,7 +16,7 @@ import { clearSession, loadSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 
 /**
- * MapLibre plus a megabyte of cadastre GeoJSON, loaded only when a staff
+ * Mapbox GL JS plus a megabyte of cadastre GeoJSON, loaded only when a staff
  * member opens this route — never on the citizen wizard, which is the bundle
  * that actually matters.
  */
