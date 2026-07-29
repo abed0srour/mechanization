@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
+import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
 
 export interface DashboardCounters {
   total: number;
@@ -156,37 +157,52 @@ export class ReportingService {
     return counters;
   }
 
+  /**
+   * One round trip instead of five separate queries across three tables. The
+   * five used to run via `Promise.all`, which — against a pooler with
+   * `connection_limit=1` — meant five queries briefly fighting over one
+   * connection on every cache miss; combining them into a single query with
+   * scalar subqueries removes that contention entirely rather than just
+   * widening the pool to tolerate it.
+   */
   private async computeDashboardCounters(): Promise<DashboardCounters> {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3_600_000);
 
-    const [total, byStatus, byPropertyType, byResidentStatus, recent] = await Promise.all([
-      this.db.registration.count(),
-      this.db.registration.groupBy({ by: ['status'], _count: { _all: true } }),
-      this.db.propertyEntry.groupBy({ by: ['propertyType'], _count: { _all: true } }),
-      this.db.user.groupBy({
-        by: ['residentStatus'],
-        where: { kind: 'CITIZEN' },
-        _count: { _all: true },
-      }),
-      this.db.registration.count({ where: { submittedAt: { gte: sevenDaysAgo } } }),
-    ]);
-
-    const tally = (rows: Array<Record<string, unknown>>, key: string): Record<string, number> =>
-      Object.fromEntries(
-        rows
-          .filter((row) => row[key] != null)
-          .map((row) => [
-            String(row[key]),
-            (row._count as { _all: number })._all,
-          ]),
-      );
+    const [row] = await withConnectionRetry(() =>
+      this.db.$queryRaw<
+        Array<{
+          total: number;
+          recent: number;
+          byStatus: Record<string, number>;
+          byPropertyType: Record<string, number>;
+          byResidentStatus: Record<string, number>;
+        }>
+      >`
+        SELECT
+          (SELECT count(*)::int FROM registrations) AS total,
+          (SELECT count(*)::int FROM registrations WHERE "submittedAt" >= ${sevenDaysAgo}) AS recent,
+          (SELECT COALESCE(json_object_agg(status, cnt), '{}'::json)
+             FROM (SELECT status, count(*)::int AS cnt FROM registrations GROUP BY status) s
+          ) AS "byStatus",
+          (SELECT COALESCE(json_object_agg("propertyType", cnt), '{}'::json)
+             FROM (SELECT "propertyType", count(*)::int AS cnt FROM property_entries GROUP BY "propertyType") p
+          ) AS "byPropertyType",
+          (SELECT COALESCE(json_object_agg("residentStatus", cnt), '{}'::json)
+             FROM (
+               SELECT "residentStatus", count(*)::int AS cnt FROM users
+               WHERE kind = 'CITIZEN' AND "residentStatus" IS NOT NULL
+               GROUP BY "residentStatus"
+             ) u
+          ) AS "byResidentStatus"
+      `,
+    );
 
     return {
-      total,
-      byStatus: tally(byStatus as never, 'status'),
-      byPropertyType: tally(byPropertyType as never, 'propertyType'),
-      byResidentStatus: tally(byResidentStatus as never, 'residentStatus'),
-      submittedLast7Days: recent,
+      total: row.total,
+      byStatus: row.byStatus,
+      byPropertyType: row.byPropertyType,
+      byResidentStatus: row.byResidentStatus,
+      submittedLast7Days: row.recent,
     };
   }
 
@@ -207,20 +223,22 @@ export class ReportingService {
   }
 
   private async computeSpatialData(): Promise<SpatialFeature[]> {
-    const rows = await this.db.propertyEntry.findMany({
-      where: { latitude: { not: null }, longitude: { not: null } },
-      select: {
-        id: true,
-        propertyNumber: true,
-        propertyType: true,
-        latitude: true,
-        longitude: true,
-        registration: { select: { status: true } },
-      },
-      // A municipality that somehow has more than this has a data problem, and
-      // a map with 5k markers is unusable anyway.
-      take: 5000,
-    });
+    const rows = await withConnectionRetry(() =>
+      this.db.propertyEntry.findMany({
+        where: { latitude: { not: null }, longitude: { not: null } },
+        select: {
+          id: true,
+          propertyNumber: true,
+          propertyType: true,
+          latitude: true,
+          longitude: true,
+          registration: { select: { status: true } },
+        },
+        // A municipality that somehow has more than this has a data problem, and
+        // a map with 5k markers is unusable anyway.
+        take: 5000,
+      }),
+    );
 
     return rows.map((row) => ({
       id: row.id,
@@ -252,7 +270,7 @@ export class ReportingService {
   }
 
   private async computeCitizenProfile(citizenId: string): Promise<CitizenProfile | null> {
-    const citizen = await this.db.user.findFirst({
+    const citizen = await withConnectionRetry(() => this.db.user.findFirst({
       // `kind` is part of the filter, not an afterthought: without it a staff
       // id in the URL would render a staff member through the citizen view.
       where: { id: citizenId, kind: 'CITIZEN' },
@@ -313,7 +331,7 @@ export class ReportingService {
           },
         },
       },
-    });
+    }));
 
     if (!citizen) return null;
 
@@ -389,37 +407,39 @@ export class ReportingService {
   }
 
   private async computeRegisteredParcels(): Promise<RegisteredParcel[]> {
-    const rows = await this.db.propertyEntry.findMany({
-      where: { latitude: { not: null }, longitude: { not: null } },
-      select: {
-        propertyNumber: true,
-        propertyType: true,
-        occupancyType: true,
-        buildingName: true,
-        latitude: true,
-        longitude: true,
-        createdAt: true,
-        _count: { select: { units: true } },
-        registration: {
-          select: {
-            id: true,
-            status: true,
-            submittedAt: true,
-            citizen: {
-              select: {
-                id: true,
-                firstName: true,
-                middleName: true,
-                lastName: true,
-                phone: true,
+    const rows = await withConnectionRetry(() =>
+      this.db.propertyEntry.findMany({
+        where: { latitude: { not: null }, longitude: { not: null } },
+        select: {
+          propertyNumber: true,
+          propertyType: true,
+          occupancyType: true,
+          buildingName: true,
+          latitude: true,
+          longitude: true,
+          createdAt: true,
+          _count: { select: { units: true } },
+          registration: {
+            select: {
+              id: true,
+              status: true,
+              submittedAt: true,
+              citizen: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  middleName: true,
+                  lastName: true,
+                  phone: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: { createdAt: 'asc' },
-      take: 5000,
-    });
+        orderBy: { createdAt: 'asc' },
+        take: 5000,
+      }),
+    );
 
     const byParcel = new Map<string, RegisteredParcel>();
 
