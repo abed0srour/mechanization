@@ -41,15 +41,21 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     const { status, body } = this.describe(exception, correlationId);
 
+    // Leads with `error (STATUS): message` so the terminal reads the same way
+    // as the frontend's own console output — the request context (method,
+    // path, correlationId) trails it rather than burying the message behind
+    // an arrow.
     if (status >= 500) {
-      // Full detail to the logs, never to the client.
+      // The client only ever gets the generic body message; the log gets the
+      // real exception detail (and full stack, never sent to the client).
+      const detail = exception instanceof Error ? exception.message : String(exception);
       this.logger.error(
-        `[${correlationId}] ${request.method} ${request.originalUrl} → ${status}`,
-        exception instanceof Error ? exception.stack : String(exception),
+        `error (${status}): ${detail} — ${request.method} ${request.originalUrl} [${correlationId}]`,
+        exception instanceof Error ? exception.stack : undefined,
       );
     } else {
       this.logger.warn(
-        `[${correlationId}] ${request.method} ${request.originalUrl} → ${status}: ${body.message}`,
+        `error (${status}): ${body.message} — ${request.method} ${request.originalUrl} [${correlationId}]`,
       );
     }
 

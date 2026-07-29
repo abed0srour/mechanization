@@ -21,6 +21,7 @@ import {
   changeRegistrationStatus,
   getDashboardCounters,
   listForReview,
+  logApiError,
 } from '@/lib/api-client';
 import type { DashboardCounters, RegistrationListItem } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
@@ -107,6 +108,7 @@ export default function StaffDashboard({
       setItems(listResult.items);
       setError(null);
     } catch (caught) {
+      logApiError(caught);
       if (caught instanceof ApiRequestError && caught.status === 401) {
         signOut();
         return;
@@ -136,6 +138,7 @@ export default function StaffDashboard({
         await changeRegistrationStatus(tenant, token, id, { status, reason });
         await load();
       } catch (caught) {
+        logApiError(caught);
         setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تغيير الحالة.');
       }
     },

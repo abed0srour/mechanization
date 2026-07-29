@@ -4,7 +4,7 @@ import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ar } from '@mechanization/shared-schemas';
-import { ApiRequestError, listMyRegistrations } from '@/lib/api-client';
+import { ApiRequestError, listMyRegistrations, logApiError } from '@/lib/api-client';
 import type { RegistrationListItem } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
@@ -39,6 +39,7 @@ export default function MyAccount({
     listMyRegistrations(tenant, session.accessToken)
       .then((response) => setItems(response.items))
       .catch((caught) => {
+        logApiError(caught);
         // An expired token is the common case, not an error worth alarming
         // someone with — send them back to sign in.
         if (caught instanceof ApiRequestError && caught.status === 401) {

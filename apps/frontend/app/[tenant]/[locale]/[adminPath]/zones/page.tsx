@@ -11,6 +11,7 @@ import {
   deleteZone,
   getZone,
   getZones,
+  logApiError,
   updateZone,
   type Session,
   type ZoneDetail,
@@ -82,6 +83,7 @@ export default function ZonesPage({
 
   const handleApiError = useCallback(
     (caught: unknown, fallback: string): string => {
+      logApiError(caught);
       if (caught instanceof ApiRequestError && caught.status === 401) {
         clearSession(tenant);
         router.replace(`${base}/login`);
@@ -222,6 +224,7 @@ export default function ZonesPage({
       await reload();
       setNotice(editing ? 'تم حفظ تعديلات القطاع' : 'تم إنشاء القطاع');
     } catch (caught) {
+      logApiError(caught);
       if (caught instanceof ApiRequestError) {
         setFieldErrors(caught.fieldErrors);
         setSaveError(caught.payload.message);

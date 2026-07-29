@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiRequestError, requestOtp, verifyOtp } from '@/lib/api-client';
+import { ApiRequestError, logApiError, requestOtp, verifyOtp } from '@/lib/api-client';
 import type { CitizenChoice } from '@/lib/api-client';
 import { saveSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
@@ -62,6 +62,7 @@ export default function CitizenLogin({
         ),
       );
     } catch (caught) {
+      logApiError(caught);
       setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر إرسال الرمز.');
     } finally {
       setBusy(false);
@@ -84,6 +85,7 @@ export default function CitizenLogin({
       saveSession(tenant, result);
       router.push(`/${tenant}/${locale}/my-account`);
     } catch (caught) {
+      logApiError(caught);
       setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر التحقق من الرمز.');
     } finally {
       setBusy(false);

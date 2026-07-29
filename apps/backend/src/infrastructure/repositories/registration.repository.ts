@@ -10,6 +10,7 @@ import {
   SubmitRegistrationResult,
 } from '../../domain/interfaces/registration-repository.interface';
 import { TenantContextService } from '../context/tenant-context.service';
+import { withConnectionRetry } from '../prisma/with-connection-retry';
 
 @Injectable()
 export class PrismaRegistrationRepository implements RegistrationRepository {
@@ -175,27 +176,59 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     }));
   }
 
+  /**
+   * One round trip via a window function rather than the `findMany` +
+   * `count` pair this used to be: `count(*) OVER()` computes the filtered
+   * total across the whole result set before `LIMIT` is applied, in the same
+   * query as the page of rows. Two queries meant two connections briefly
+   * competing for the same tenant schema's pool — with `connection_limit=1`
+   * on the Supabase pooler, that competition is exactly what surfaced as
+   * "Timed out fetching a new connection from the pool" under any concurrent
+   * request.
+   */
   async listForReview(filter: {
     status?: ReportStatus;
     limit: number;
     offset: number;
   }): Promise<{ items: RegistrationListItem[]; total: number }> {
-    const where = filter.status ? { status: filter.status as never } : {};
+    const statusFilter = filter.status
+      ? Prisma.sql`WHERE r.status = ${filter.status}::"ReportStatus"`
+      : Prisma.empty;
 
-    const [rows, total] = await Promise.all([
-      this.db.registration.findMany({
-        where,
-        include: {
-          citizen: { select: { id: true, firstName: true, lastName: true } },
-          properties: { select: { neighborhood: true } },
-          _count: { select: { properties: true } },
-        },
-        orderBy: { submittedAt: 'desc' },
-        take: filter.limit,
-        skip: filter.offset,
-      }),
-      this.db.registration.count({ where }),
-    ]);
+    const rows = await withConnectionRetry(() =>
+      this.db.$queryRaw<
+        Array<{
+          id: string;
+          referenceNumber: string;
+          status: string;
+          submittedAt: Date;
+          citizenId: string;
+          citizenName: string;
+          propertyCount: number;
+          neighborhoods: string[];
+          total: number;
+        }>
+      >`
+        SELECT
+          r.id,
+          r."referenceNumber",
+          r.status,
+          r."submittedAt",
+          r."citizenId",
+          u."firstName" || ' ' || u."lastName" AS "citizenName",
+          (SELECT count(*)::int FROM property_entries pe WHERE pe."registrationId" = r.id) AS "propertyCount",
+          COALESCE(
+            (SELECT array_agg(DISTINCT pe.neighborhood) FROM property_entries pe WHERE pe."registrationId" = r.id),
+            ARRAY[]::text[]
+          ) AS neighborhoods,
+          count(*) OVER()::int AS total
+        FROM registrations r
+        JOIN users u ON u.id = r."citizenId"
+        ${statusFilter}
+        ORDER BY r."submittedAt" DESC
+        LIMIT ${filter.limit} OFFSET ${filter.offset}
+      `,
+    );
 
     return {
       items: rows.map((row) => ({
@@ -203,12 +236,12 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
         referenceNumber: row.referenceNumber,
         status: row.status as ReportStatus,
         submittedAt: row.submittedAt,
-        citizenId: row.citizen.id,
-      citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
-        propertyCount: row._count.properties,
-        neighborhoods: distinctNeighborhoods(row.properties),
+        citizenId: row.citizenId,
+        citizenName: row.citizenName,
+        propertyCount: row.propertyCount,
+        neighborhoods: row.neighborhoods,
       })),
-      total,
+      total: rows[0]?.total ?? 0,
     };
   }
 
