@@ -63,11 +63,25 @@ let backendReady = false;
 let frontendLocalShown = false;
 let frontendNetworkShown = false;
 
+// Once an error/warning line matches, keep printing the lines right after it
+// unfiltered too — that's where the actual stack trace lives, and dropping it
+// (as this filter used to) means a real failure looks identical to silence.
+let errorTailLinesRemaining = 0;
+const ERROR_TAIL_LINES = 30;
+
 // Default-deny: only our own "running on" lines and genuine problems get
 // through. Everything else (dependency graphs, route tables, pnpm banners)
 // is routine noise and is dropped.
 function handleLine(rawLine) {
   const line = rawLine.replace(ANSI_RE, '').trim();
+
+  if (errorTailLinesRemaining > 0) {
+    errorTailLinesRemaining -= 1;
+    if (!line) return; // blank line ends the trace early
+    console.log(line);
+    return;
+  }
+
   if (!line) return;
 
   if (!backendReady && /API listening on/.test(line)) {
@@ -93,6 +107,7 @@ function handleLine(rawLine) {
   }
   if (/\bERROR\b|\bWARN\b|Error:|EADDRINUSE|Cannot find module|Failed to compile|Failed to start/.test(line)) {
     console.log(line);
+    errorTailLinesRemaining = ERROR_TAIL_LINES;
   }
 }
 
