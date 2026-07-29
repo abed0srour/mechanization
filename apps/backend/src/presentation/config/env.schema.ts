@@ -39,6 +39,19 @@ export const envSchema = z
      */
     REDIS_URL: z.string().url().optional(),
     DASHBOARD_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+    /**
+     * Tenant registry rows change only at onboarding time, but resolving one is
+     * on the hot path of every tenant-scoped request (TenantMiddleware runs it
+     * first) — so this is cached far longer than the dashboard data.
+     */
+    TENANT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+    /**
+     * Short on purpose: the audit trail is appended to on nearly every action in
+     * the system (every login included), so this exists to absorb repeated reads
+     * of the same page within a few seconds — not to survive writes without
+     * looking stale, which a historical log tolerates fine.
+     */
+    AUDIT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(20),
 
     CORS_ORIGINS: z
       .string()

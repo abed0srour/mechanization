@@ -12,7 +12,6 @@ import { existsSync } from 'node:fs';
 
 const DOCKER_DESKTOP_PATH = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
 const BACKEND_URL = 'http://localhost:4000/api/v1';
-const FRONTEND_URL = 'http://localhost:3000';
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 function dockerAvailable() {
@@ -61,7 +60,8 @@ if (await ensureDockerRunning()) {
 }
 
 let backendReady = false;
-let frontendReady = false;
+let frontendLocalShown = false;
+let frontendNetworkShown = false;
 
 // Default-deny: only our own "running on" lines and genuine problems get
 // through. Everything else (dependency graphs, route tables, pnpm banners)
@@ -75,9 +75,20 @@ function handleLine(rawLine) {
     console.log(`> backend   running on ${BACKEND_URL}`);
     return;
   }
-  if (!frontendReady && /-\s*Local:\s*http/.test(line)) {
-    frontendReady = true;
-    console.log(`> frontend  running on ${FRONTEND_URL}`);
+  const localMatch = !frontendLocalShown && line.match(/-\s*Local:\s*(\S+)/);
+  if (localMatch) {
+    frontendLocalShown = true;
+    const base = localMatch[1];
+    console.log(`> frontend  running on ${base} (local)`);
+    // Matches the seeded albazourieh tenant (seed.ts) — dev convenience only.
+    console.log(`> admin     login page at ${base}/albazourieh/ar/admin-portal-a91f/login`);
+    console.log(`> citizens  page at ${base}/albazourieh/ar/admin-portal-a91f/citizens/{id}`);
+    return;
+  }
+  const networkMatch = !frontendNetworkShown && line.match(/-\s*Network:\s*(\S+)/);
+  if (networkMatch) {
+    frontendNetworkShown = true;
+    console.log(`> frontend  running on ${networkMatch[1]} (network)`);
     return;
   }
   if (/\bERROR\b|\bWARN\b|Error:|EADDRINUSE|Cannot find module|Failed to compile|Failed to start/.test(line)) {

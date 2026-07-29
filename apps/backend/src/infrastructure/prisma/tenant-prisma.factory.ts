@@ -53,7 +53,7 @@ export class TenantPrismaFactory implements OnModuleDestroy {
   /**
    * Rewrites the base DATABASE_URL's `schema` parameter. Built with the URL API
    * rather than string concatenation because the pooled Supabase URL already
-   * carries `?pgbouncer=true&connection_limit=1`, and appending a second `?`
+   * carries `?pgbouncer=true&connection_limit=N`, and appending a second `?`
    * would produce a connection string that fails only under load.
    */
   private connectionUrlFor(schemaName: string): string {
