@@ -6,6 +6,7 @@ import { PARCEL_REPOSITORY } from '../../../domain/interfaces/base-repository.in
 import type { ParcelRepository } from '../../../domain/interfaces/parcel-repository.interface';
 import { ValidationError } from '../../common/exceptions';
 import { APP_CONFIG } from '../../../presentation/config/app.config';
+import { buildCadastreGeometryAssets } from '../../../infrastructure/cadastre/parcel-geometry';
 
 /** Six decimal places is ~0.11m at this latitude — finer than any survey's own
  * accuracy, and it keeps the static file a fraction of the raw upload's size. */
@@ -26,6 +27,9 @@ export interface CadastreImportResult {
   parcelsImported: number;
   parcelsSkipped: number;
   linesImported: number;
+  /** Parcels a polygon could be traced for — the rest stay point-only. */
+  shapesTraced: number;
+  boundaryDerived: boolean;
 }
 
 /**
@@ -77,6 +81,19 @@ export class CadastreImportService {
       this.writeAsset(join(outDir, 'cadastre.geojson'), this.cadastreGeoJson(lines));
     }
 
+    // The upload carries lines and labels but no shapes; the zone editor needs
+    // parcels it can click and an outline to draw, so both are reconstructed here.
+    const geometry = buildCadastreGeometryAssets(
+      lines.map((line) => ({ kind: line.layer, coordinates: line.coordinates })),
+      parcels,
+    );
+    if (geometry.parcelPolygonsGeoJson) {
+      this.writeAsset(join(outDir, 'parcel-polygons.geojson'), geometry.parcelPolygonsGeoJson);
+    }
+    if (geometry.cityBoundaryGeoJson) {
+      this.writeAsset(join(outDir, 'city-boundary.geojson'), geometry.cityBoundaryGeoJson);
+    }
+
     this.events.emit('cadastre.imported', {
       tenantSlug: input.tenantSlug,
       actorId: input.actor.id,
@@ -86,7 +103,13 @@ export class CadastreImportService {
       linesImported: lines.length,
     });
 
-    return { parcelsImported: parcels.length, parcelsSkipped: skipped, linesImported: lines.length };
+    return {
+      parcelsImported: parcels.length,
+      parcelsSkipped: skipped,
+      linesImported: lines.length,
+      shapesTraced: geometry.shapeCount,
+      boundaryDerived: geometry.cityBoundaryGeoJson !== null,
+    };
   }
 
   private parse(buffer: Buffer): { type: string; features: unknown[] } {

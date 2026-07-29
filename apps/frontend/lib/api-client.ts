@@ -247,6 +247,79 @@ export function getRegisteredParcels(tenant: string, token: string) {
   return apiFetch<{ parcels: RegisteredParcel[] }>(tenant, '/dashboard/map/parcels', { token });
 }
 
+// ───────────────────────────  Zones (القطاعات)  ───────────────────────────
+
+/** A sector as the list and legend show it — membership summarised to a count. */
+export interface ZoneSummary {
+  id: string;
+  name: string;
+  code: string;
+  color: string;
+  description: string | null;
+  parcelCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A sector opened for editing, carrying the parcel numbers it owns. */
+export interface ZoneDetail extends ZoneSummary {
+  parcelNumbers: string[];
+}
+
+export interface ZoneWriteInput {
+  name: string;
+  code: string;
+  color: string;
+  description?: string;
+  parcelNumbers: string[];
+}
+
+export function getZones(tenant: string, token: string) {
+  return apiFetch<{ zones: ZoneSummary[] }>(tenant, '/zones', { token });
+}
+
+export function getZone(tenant: string, token: string, id: string) {
+  return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, { token });
+}
+
+export function createZone(tenant: string, token: string, input: ZoneWriteInput) {
+  return apiFetch<ZoneDetail>(tenant, '/zones', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateZone(
+  tenant: string,
+  token: string,
+  id: string,
+  input: Partial<ZoneWriteInput>,
+) {
+  return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, {
+    token,
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteZone(tenant: string, token: string, id: string) {
+  return apiFetch<{ deleted: boolean }>(tenant, `/zones/${encodeURIComponent(id)}`, {
+    token,
+    method: 'DELETE',
+  });
+}
+
+/**
+ * The zone overlay both maps draw, as dissolved polygons.
+ *
+ * Served from the API rather than as a static file like the cadastre layers,
+ * because zone membership changes whenever an admin saves the editor.
+ */
+export function getZonesGeoJson(tenant: string, token: string) {
+  return apiFetch<GeoJSON.FeatureCollection>(tenant, '/zones/geojson', { token });
+}
+
 export interface CitizenProfileProperty {
   id: string;
   neighborhood: string;
