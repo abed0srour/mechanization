@@ -1,8 +1,19 @@
 #!/usr/bin/env node
-// Starts Redis (if Docker is available) then runs backend + frontend together.
-// Redis is an optional cache: if Docker isn't running, we skip it and the app
-// falls through to Postgres — this script never blocks dev on Docker.
+// Starts Docker (if needed), then Redis, then runs backend + frontend together.
+// Redis is an optional cache: if Docker can't be reached, we skip it and the
+// app falls through to Postgres — this script never blocks dev on Docker.
+//
+// Nest/Next print hundreds of lines of routine startup noise (route mapping,
+// dependency init, pnpm banners). We filter the dev process's output down to
+// one "running on" line per service, and let real errors/warnings through
+// unfiltered so problems are never hidden.
 import { execSync, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+
+const DOCKER_DESKTOP_PATH = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
+const BACKEND_URL = 'http://localhost:4000/api/v1';
+const FRONTEND_URL = 'http://localhost:3000';
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
 function dockerAvailable() {
   try {
@@ -13,17 +24,80 @@ function dockerAvailable() {
   }
 }
 
-if (dockerAvailable()) {
-  console.log('> starting redis (docker compose up -d redis)');
+async function ensureDockerRunning() {
+  if (dockerAvailable()) {
+    console.log('> docker    running on Docker Desktop');
+    return true;
+  }
+
+  if (process.platform !== 'win32' || !existsSync(DOCKER_DESKTOP_PATH)) {
+    console.warn('! docker not running — skipping redis, app will fall through to Postgres');
+    return false;
+  }
+
+  spawn(DOCKER_DESKTOP_PATH, { detached: true, stdio: 'ignore' }).unref();
+
+  const timeoutMs = 90_000;
+  const intervalMs = 3_000;
+  for (let waited = 0; waited < timeoutMs; waited += intervalMs) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    if (dockerAvailable()) {
+      console.log('> docker    running on Docker Desktop');
+      return true;
+    }
+  }
+
+  console.warn('! docker took too long to start — skipping redis, app will fall through to Postgres');
+  return false;
+}
+
+if (await ensureDockerRunning()) {
   try {
-    execSync('docker compose up -d redis', { stdio: 'inherit' });
+    execSync('docker compose up -d redis', { stdio: 'ignore' });
+    console.log('> redis     running on redis://localhost:6379');
   } catch {
     console.warn('! failed to start redis — continuing without cache (falls through to Postgres)');
   }
-} else {
-  console.warn('! docker not running — skipping redis, app will fall through to Postgres');
 }
 
-console.log('> starting backend + frontend (pnpm dev)');
-const dev = spawn('pnpm dev', { stdio: 'inherit', shell: true });
+let backendReady = false;
+let frontendReady = false;
+
+// Default-deny: only our own "running on" lines and genuine problems get
+// through. Everything else (dependency graphs, route tables, pnpm banners)
+// is routine noise and is dropped.
+function handleLine(rawLine) {
+  const line = rawLine.replace(ANSI_RE, '').trim();
+  if (!line) return;
+
+  if (!backendReady && /API listening on/.test(line)) {
+    backendReady = true;
+    console.log(`> backend   running on ${BACKEND_URL}`);
+    return;
+  }
+  if (!frontendReady && /-\s*Local:\s*http/.test(line)) {
+    frontendReady = true;
+    console.log(`> frontend  running on ${FRONTEND_URL}`);
+    return;
+  }
+  if (/\bERROR\b|\bWARN\b|Error:|EADDRINUSE|Cannot find module|Failed to compile|Failed to start/.test(line)) {
+    console.log(line);
+  }
+}
+
+function pipeLines(stream) {
+  let buffer = '';
+  stream.on('data', (chunk) => {
+    buffer += chunk.toString();
+    let idx;
+    while ((idx = buffer.indexOf('\n')) !== -1) {
+      handleLine(buffer.slice(0, idx));
+      buffer = buffer.slice(idx + 1);
+    }
+  });
+}
+
+const dev = spawn('pnpm dev', { stdio: ['inherit', 'pipe', 'pipe'], shell: true });
+pipeLines(dev.stdout);
+pipeLines(dev.stderr);
 dev.on('exit', (code) => process.exit(code ?? 0));
