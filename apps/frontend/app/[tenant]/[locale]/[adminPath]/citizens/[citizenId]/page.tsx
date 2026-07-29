@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, ExternalLink, FileText, Loader2, MapPin, Phone } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
-import { ApiRequestError, getCitizenProfile, getDocumentViewUrl } from '@/lib/api-client';
+import { ApiRequestError, getCitizenProfile, getDocumentViewUrl, logApiError } from '@/lib/api-client';
 import type { CitizenProfile } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
@@ -48,6 +48,7 @@ export default function CitizenProfilePage({
     getCitizenProfile(tenant, session.accessToken, citizenId)
       .then(setCitizen)
       .catch((caught: unknown) => {
+        logApiError(caught);
         if (caught instanceof ApiRequestError && caught.status === 401) {
           clearSession(tenant);
           router.replace(`${base}/login`);
@@ -95,6 +96,7 @@ export default function CitizenProfilePage({
       const { url } = await getDocumentViewUrl(tenant, token, documentId);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (caught) {
+      logApiError(caught);
       if (caught instanceof ApiRequestError && caught.status === 401) {
         clearSession(tenant);
         router.replace(`${base}/login`);

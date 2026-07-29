@@ -2,7 +2,7 @@
 
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiRequestError, loginStaff } from '@/lib/api-client';
+import { ApiRequestError, loginStaff, logApiError } from '@/lib/api-client';
 import { saveSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -56,6 +56,7 @@ export default function StaffLogin({
       saveSession(tenant, result);
       router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
     } catch (caught) {
+      logApiError(caught);
       setError(
         caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدخول.',
       );

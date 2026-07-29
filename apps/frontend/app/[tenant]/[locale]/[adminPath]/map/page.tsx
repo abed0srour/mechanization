@@ -9,6 +9,7 @@ import {
   ApiRequestError,
   getRegisteredParcels,
   importCadastre,
+  logApiError,
   type CadastreImportResult,
 } from '@/lib/api-client';
 import type { RegisteredParcel, Session } from '@/lib/api-client';
@@ -86,6 +87,7 @@ export default function FullscreenMapPage({
       setRefreshToken((n) => n + 1);
       getRegisteredParcels(tenant, token).then((response) => setParcels(response.parcels));
     } catch (caught) {
+      logApiError(caught);
       setUploadError(
         caught instanceof ApiRequestError ? caught.payload.message : 'تعذّر رفع الملف.',
       );
@@ -105,6 +107,7 @@ export default function FullscreenMapPage({
       })
       .catch((caught: unknown) => {
         if (cancelled) return;
+        logApiError(caught);
         if (caught instanceof ApiRequestError && caught.status === 401) {
           clearSession(tenant);
           router.replace(`${base}/login`);

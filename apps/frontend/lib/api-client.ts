@@ -13,6 +13,12 @@ export class ApiRequestError extends Error {
     readonly payload: ApiError,
   ) {
     super(payload.message);
+    // `.message` stays the plain, citizen/staff-facing text shown in the UI —
+    // `.name` is what Error's own `toString()` (and every console.error /
+    // uncaught-exception overlay) prefixes it with, so logging this anywhere
+    // reads as "error (404): <message>" without a second formatted string to
+    // keep in sync.
+    this.name = status === 0 ? 'error (network)' : `error (${status})`;
   }
 
   /** Field-level messages, keyed by path, for highlighting the offending input. */
@@ -21,6 +27,19 @@ export class ApiRequestError extends Error {
       (this.payload.details ?? []).map((detail) => [detail.path, detail.message]),
     );
   }
+}
+
+/**
+ * Console-log any caught error in a consistent, scannable shape —
+ * `error (404): <message>` for a failed request, or the error as-is for
+ * anything that isn't an `ApiRequestError`. Call this at the top of every
+ * catch block around a `getX`/`postX`/`deleteX` call: today those are caught
+ * and turned straight into a UI banner with nothing printed anywhere, so a
+ * failing request is invisible to whoever is debugging it unless they
+ * reproduce it by hand.
+ */
+export function logApiError(caught: unknown): void {
+  console.error(caught);
 }
 
 /**

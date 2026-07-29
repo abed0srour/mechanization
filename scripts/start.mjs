@@ -63,7 +63,7 @@ async function ensureDockerRunning() {
     }
   }
 
-  console.warn('! docker took too long to start — skipping redis, app will fall through to Postgres');
+  console.warn(colorize('! docker took too long to start — skipping redis, app will fall through to Postgres', YELLOW));
   return false;
 }
 
@@ -72,7 +72,7 @@ if (await ensureDockerRunning()) {
     execSync('docker compose up -d redis', { stdio: 'ignore' });
     console.log(statusLine('redis', 'running on', 'redis://localhost:6379'));
   } catch {
-    console.warn('! failed to start redis — continuing without cache (falls through to Postgres)');
+    console.warn(colorize('! failed to start redis — continuing without cache (falls through to Postgres)', YELLOW));
   }
 }
 
@@ -86,8 +86,10 @@ let errorTailLinesRemaining = 0;
 const ERROR_TAIL_LINES = 30;
 const ERROR_PATTERN = /\bERROR\b|Error:|EADDRINUSE|Cannot find module|Failed to compile|Failed to start/;
 const WARN_PATTERN = /\bWARN\b/;
+const RESTART_TRIGGER_PATTERN = /Starting compilation in watch mode|File change detected|Starting incremental compilation/;
+const COMPILE_RESULT_PATTERN = /Found (\d+) errors?\. Watching for file changes\./;
 
-let backendReady = false;
+let backendBootedOnce = false;
 let frontendLocalShown = false;
 let frontendNetworkShown = false;
 
@@ -100,14 +102,39 @@ function handleLine(rawLine) {
   if (errorTailLinesRemaining > 0) {
     errorTailLinesRemaining -= 1;
     if (!line) return; // blank line ends the trace early
-    console.log(line);
+    console.log(colorize(line, RED));
     return;
   }
 
   if (!line) return;
 
-  if (!backendReady && /API listening on/.test(line)) {
-    backendReady = true;
+  // Nodemon-style feedback for the backend: every save that recompiles gets a
+  // "restarting" line, and — since Nest silently keeps the last *working*
+  // build running if the new one fails to compile — a save with a type error
+  // gets a clear line saying so, rather than an editor looking like it did
+  // nothing.
+  if (RESTART_TRIGGER_PATTERN.test(line)) {
+    if (backendBootedOnce) {
+      console.log(colorize('> backend   restarting (files changed)...', YELLOW));
+    }
+    return;
+  }
+  const compileResult = line.match(COMPILE_RESULT_PATTERN);
+  if (compileResult) {
+    const errorCount = Number(compileResult[1]);
+    if (errorCount > 0) {
+      console.log(
+        colorize(
+          `> backend   ${errorCount} compile error(s) — still running the last working build`,
+          RED,
+        ),
+      );
+    }
+    return;
+  }
+
+  if (/API listening on/.test(line)) {
+    backendBootedOnce = true;
     console.log(statusLine('backend', 'running on', BACKEND_URL));
     return;
   }
@@ -128,12 +155,12 @@ function handleLine(rawLine) {
     return;
   }
   if (ERROR_PATTERN.test(line)) {
-    console.log(line);
+    console.log(colorize(line, RED));
     errorTailLinesRemaining = ERROR_TAIL_LINES;
     return;
   }
   if (WARN_PATTERN.test(line)) {
-    console.log(line);
+    console.log(colorize(line, YELLOW));
   }
 }
 
@@ -167,7 +194,7 @@ backend.on('exit', (code) => process.exit(code ?? 0));
 // ECONNREFUSED on every dev-server restart.
 await new Promise((resolve) => {
   const check = setInterval(() => {
-    if (backendReady) {
+    if (backendBootedOnce) {
       clearInterval(check);
       resolve();
     }

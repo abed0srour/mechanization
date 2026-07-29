@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import { ArrowRight, History, ShieldCheck } from 'lucide-react';
-import { ApiRequestError, getAuditLog } from '@/lib/api-client';
+import { ApiRequestError, getAuditLog, logApiError } from '@/lib/api-client';
 import type { AuditEntry, Session } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
@@ -101,6 +101,7 @@ export default function AuditTrailPage({
       setEntries(result.items);
       setError(null);
     } catch (caught) {
+      logApiError(caught);
       if (caught instanceof ApiRequestError && caught.status === 401) {
         clearSession(tenant);
         router.replace(`${base}/login`);

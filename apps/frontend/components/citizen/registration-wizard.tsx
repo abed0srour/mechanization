@@ -12,7 +12,7 @@ import {
 } from '@mechanization/shared-schemas';
 import type { PropertyType } from '@mechanization/shared-schemas';
 import type { PublicTenantConfig } from '@/lib/api-client';
-import { ApiRequestError, submitRegistration } from '@/lib/api-client';
+import { ApiRequestError, logApiError, submitRegistration } from '@/lib/api-client';
 import { clearDraft, loadDraft, saveDraft } from '@/lib/wizard-storage';
 import { scopeErrors } from '@/lib/utils';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -289,6 +289,7 @@ export function RegistrationWizard({
         propertyCount: response.propertyCount,
       });
     } catch (caught) {
+      logApiError(caught);
       if (caught instanceof ApiRequestError) {
         setError(caught.message);
         setFieldErrors(caught.fieldErrors);
