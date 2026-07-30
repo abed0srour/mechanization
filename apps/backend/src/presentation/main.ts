@@ -6,9 +6,13 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from '../app.module';
 import { APP_CONFIG } from './config/app.config';
+import { AppLogger } from './config/app-logger';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: false,
+    logger: new AppLogger(),
+  });
   const config = app.get(ConfigService);
 
   app.setGlobalPrefix(APP_CONFIG.apiPrefix);

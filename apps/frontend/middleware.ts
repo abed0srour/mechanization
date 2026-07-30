@@ -3,13 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 const LOCALES = ['ar', 'en'] as const;
 const DEFAULT_LOCALE = 'ar';
 
-/**
- * URL shape: /{municipality}/{locale}/...
- *
- * The municipality slug is the tenant. The staff portal lives on a per-tenant
- * unguessable segment, so the obvious /dashboard path is hard-404'd rather than
- * redirected — a redirect would confirm the portal exists.
- */
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 

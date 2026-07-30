@@ -84,7 +84,7 @@ if (await ensureDockerRunning()) {
 // dump through behind it.
 let errorTailLinesRemaining = 0;
 const ERROR_TAIL_LINES = 30;
-const ERROR_PATTERN = /\bERROR\b|Error:|EADDRINUSE|Cannot find module|Failed to compile|Failed to start/;
+const ERROR_PATTERN = /\bERROR\b|Error:|EADDRINUSE|EPERM|Cannot find module|Failed to compile|Failed to start/;
 const WARN_PATTERN = /\bWARN\b/;
 const RESTART_TRIGGER_PATTERN = /Starting compilation in watch mode|File change detected|Starting incremental compilation/;
 const COMPILE_RESULT_PATTERN = /Found (\d+) errors?\. Watching for file changes\./;
@@ -186,8 +186,33 @@ function runDevProcess(filterName) {
   return child;
 }
 
+/**
+ * A process dying is never allowed to just end the script silently — that's
+ * exactly what happened when a backend crash (EPERM from a stale file lock,
+ * in practice) didn't match the error filter: nothing printed, and `pnpm
+ * start` just returned to the prompt with no indication anything had gone
+ * wrong at all.
+ */
+function watchProcess(name, child, becameReady) {
+  child.on('error', (err) => {
+    console.log(colorize(`> ${name}   failed to start: ${err.message}`, RED));
+    process.exit(1);
+  });
+  child.on('exit', (code, signal) => {
+    if (!becameReady()) {
+      console.log(
+        colorize(
+          `> ${name}   exited before it finished starting (code ${code}, signal ${signal}) — see the error above, or a stale process from an earlier run may still be holding a file lock`,
+          RED,
+        ),
+      );
+    }
+    process.exit(code ?? 1);
+  });
+}
+
 const backend = runDevProcess('@mechanization/backend');
-backend.on('exit', (code) => process.exit(code ?? 0));
+watchProcess('backend', backend, () => backendBootedOnce);
 
 // Frontend's first render fetches from the API — start it only once the
 // backend is actually listening, rather than racing it and eating a burst of
@@ -202,4 +227,4 @@ await new Promise((resolve) => {
 });
 
 const frontend = runDevProcess('@mechanization/frontend');
-frontend.on('exit', (code) => process.exit(code ?? 0));
+watchProcess('frontend', frontend, () => frontendLocalShown);

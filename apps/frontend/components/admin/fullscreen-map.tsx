@@ -120,6 +120,9 @@ export function FullscreenMap({
   parcels,
   citizenHref,
   refreshToken,
+  focusParcelNumber,
+  focusLat,
+  focusLng,
 }: {
   tenant: string;
   /** Staff access token — the zone overlay is an authenticated endpoint. */
@@ -130,6 +133,15 @@ export function FullscreenMap({
    * GeoJSON layers to reload — otherwise they are fetched once and never
    * revisited for the lifetime of the map instance. */
   refreshToken?: number;
+  /** Arrived from a citizen's profile page. When this matches a registered
+   * parcel, that marker is highlighted in a distinct colour and its drawer
+   * opens automatically — same outcome as clicking it. */
+  focusParcelNumber?: string;
+  /** Fallback pin for a citizen's property when it isn't a registered
+   * parcel (or before `parcels` has loaded) — still shown, just not
+   * clickable into a drawer. */
+  focusLat?: number;
+  focusLng?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -148,10 +160,19 @@ export function FullscreenMap({
   const appliedBasemapRef = useRef<BasemapId>(DEFAULT_BASEMAP);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const searchMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const citizenPinRef = useRef<mapboxgl.Marker | null>(null);
+  const selectedPinRef = useRef<mapboxgl.Marker | null>(null);
+  /** Last `focusParcelNumber` handled — see the effect below. */
+  const focusMatchedRef = useRef<string | undefined>(undefined);
 
   const [basemap, setBasemap] = useState<BasemapId>(DEFAULT_BASEMAP);
   const [selected, setSelected] = useState<RegisteredParcel | null>(null);
   const [cadastreReady, setCadastreReady] = useState(false);
+
+  /** Read inside the marker effect without making it depend on the selection —
+   *  see the `fitBounds` guard there. */
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
 
   const [query, setQuery] = useState('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'not-found'>('idle');
@@ -567,6 +588,11 @@ export function FullscreenMap({
         element.classList.add('map-parcel-dot--many');
         element.textContent = String(parcel.registrants.length);
       }
+      // Arrived here from a citizen's profile: this is their parcel, marked in
+      // a colour no other dot on the map uses.
+      if (parcel.propertyNumber === focusParcelNumber) {
+        element.classList.add('map-parcel-dot--focus');
+      }
 
       element.addEventListener('click', (event) => {
         event.stopPropagation();
@@ -582,8 +608,89 @@ export function FullscreenMap({
       bounds.extend([parcel.longitude, parcel.latitude]);
     }
 
-    map.fitBounds(bounds, { padding: 96, maxZoom: 16, duration: 0 });
-  }, [parcels, openParcel, zoneParcelNumbers]);
+    // Framing every parcel is the right opening view, and the wrong thing to
+    // do to someone already looking at one: this effect re-runs whenever
+    // `parcels` is refetched, and an unguarded fit would throw the camera
+    // back out to the whole municipality mid-review. A deep-linked or
+    // currently-open parcel owns the camera instead.
+    if (!focusParcelNumber && !selectedRef.current) {
+      map.fitBounds(bounds, { padding: 96, maxZoom: 16, duration: 0 });
+    }
+  }, [parcels, openParcel, zoneParcelNumbers, focusParcelNumber]);
+
+  // ── Pin on the open parcel ─────────────────────────────────────────
+  /**
+   * A full-size pin on whichever parcel the drawer is describing, however it
+   * was opened — a marker click, the search box, or a deep link from a
+   * citizen's profile.
+   *
+   * The 16px dot alone was not enough to answer "which one is 1418?": at the
+   * zoom the drawer opens at, it is one small circle among the cadastre lines
+   * and the zone overlay, and nothing on the map tied it to the panel that
+   * had just appeared. This sits on top of that dot, anchored so its tip
+   * touches the parcel's coordinate.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selected) return;
+
+    const element = document.createElement('div');
+    element.className = 'map-selected-pin';
+    selectedPinRef.current?.remove();
+    selectedPinRef.current = new mapboxgl.Marker({ element, anchor: 'bottom' })
+      .setLngLat([selected.longitude, selected.latitude])
+      .addTo(map);
+
+    return () => {
+      selectedPinRef.current?.remove();
+      selectedPinRef.current = null;
+    };
+  }, [selected]);
+
+  // ── Citizen focus (arrived from a profile page's "عرض على الخريطة") ──
+  // Immediate fallback pin at the citizen's own coordinates, shown the moment
+  // the map exists — it does not wait on `parcels`, so there is no visible
+  // delay before something appears.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || focusLat == null || focusLng == null) return;
+
+    const element = document.createElement('div');
+    element.className = 'map-citizen-pin';
+    citizenPinRef.current?.remove();
+    citizenPinRef.current = new mapboxgl.Marker({ element })
+      .setLngLat([focusLng, focusLat])
+      .addTo(map);
+    map.flyTo({ center: [focusLng, focusLat], zoom: 17, duration: 900 });
+
+    return () => {
+      citizenPinRef.current?.remove();
+      citizenPinRef.current = null;
+    };
+    // Runs once the map exists and a target is known; not re-run on later
+    // renders of the same target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusLat, focusLng]);
+
+  // Upgrade path: once `parcels` has loaded and the citizen's property turns
+  // out to be a registered one, drop the plain fallback pin and hand off to
+  // the same fly-to-and-open-drawer flow a marker click gets — richer, but
+  // only available once the registered-parcel data is in.
+  //
+  // Tracks *which* parcel was last handled, not just whether one ever was:
+  // this component can outlive a single citizen's visit (the map route
+  // doesn't always remount between two "عرض على الخريطة" links in a row), so
+  // a plain boolean would silently ignore every citizen after the first.
+  useEffect(() => {
+    if (!focusParcelNumber || focusMatchedRef.current === focusParcelNumber) return;
+    const matched = parcels.find((parcel) => parcel.propertyNumber === focusParcelNumber);
+    if (!matched) return;
+
+    focusMatchedRef.current = focusParcelNumber;
+    citizenPinRef.current?.remove();
+    citizenPinRef.current = null;
+    openParcel(matched);
+  }, [parcels, focusParcelNumber, openParcel]);
 
   // ── Search by رقم العقار ────────────────────────────────────────────
   /** Takes an explicit number when the search is re-run from a suggestion. */
@@ -776,6 +883,77 @@ export function FullscreenMap({
           outline-offset: 2px;
         }
         .map-parcel-dot--many { width: 24px; height: 24px; }
+
+        /* The parcel a citizen's profile page linked in on — amber rather
+           than the default primary blue, so it reads as "this one" against
+           every ordinary marker on screen, plus a pulsing ring so it is
+           findable even before the eye settles on the exact dot. */
+        .map-parcel-dot--focus {
+          position: relative;
+          background: hsl(var(--warning));
+        }
+        .map-parcel-dot--focus::after {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 9999px;
+          border: 2px solid hsl(var(--warning));
+          animation: map-search-pulse 1.6s ease-out infinite;
+        }
+
+        /* The parcel the drawer is currently describing.
+
+           A teardrop rather than another circle: every other mark on this map
+           is round, so the one that says "this is the one you opened" is the
+           one shape that is not. The marker is anchored bottom, so the tip
+           sits on the coordinate and points at the parcel rather than
+           covering it. */
+        .map-selected-pin {
+          position: relative;
+          width: 28px; height: 28px;
+          border-radius: 50% 50% 50% 0;
+          transform: rotate(-45deg);
+          background: hsl(var(--warning));
+          border: 3px solid #fff;
+          box-shadow: 0 2px 10px rgba(15, 23, 42, 0.55);
+        }
+        /* Counter-rotated so the hole reads as a circle, not an egg. */
+        .map-selected-pin::before {
+          content: '';
+          position: absolute;
+          inset: 6px;
+          border-radius: 9999px;
+          background: #fff;
+        }
+        .map-selected-pin::after {
+          content: '';
+          position: absolute;
+          inset: -10px;
+          border-radius: 9999px;
+          border: 2px solid hsl(var(--warning));
+          animation: map-search-pulse 1.8s ease-out 3;
+        }
+
+        /* Fallback pin for a citizen's property when it isn't a registered
+           parcel — filled (unlike the empty search ring below) since this is
+           a known location, not "nothing found here yet". Same amber as the
+           focused dot above so the two read as the same concept. */
+        .map-citizen-pin {
+          position: relative;
+          width: 20px; height: 20px;
+          border-radius: 9999px;
+          background: hsl(var(--warning));
+          border: 3px solid #fff;
+          box-shadow: 0 1px 6px rgba(15, 23, 42, 0.6);
+        }
+        .map-citizen-pin::after {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 9999px;
+          border: 2px solid hsl(var(--warning));
+          animation: map-search-pulse 1.6s ease-out infinite;
+        }
 
         /* Search result on a parcel with no citizen registrations yet — a
            ring rather than a filled dot, so it never reads as "clickable to

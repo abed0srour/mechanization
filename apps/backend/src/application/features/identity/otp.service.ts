@@ -80,8 +80,29 @@ export class OtpService {
           error instanceof Error ? error.message : error
         }`,
       );
-      throw new ConflictError(
-        'تعذّر إرسال الرمز حالياً. يرجى إعادة المحاولة، أو مراجعة البلدية لتسجيل طلبك.',
+
+      /**
+       * Outside production, a delivery failure is the *expected* state rather
+       * than an incident: no provider has been chosen yet, so
+       * `SmsProviderService.deliver()` throws by design (see
+       * docs/open-decisions.md #2). Rethrowing here made citizen login
+       * impossible to exercise locally — every request died on this line, and
+       * the `devCode` returned below, which exists precisely so a developer
+       * without SMS credentials can finish signing in, was unreachable.
+       *
+       * The challenge row is already written, so the code returned below is a
+       * real, verifiable one. Production still fails loudly: there, a code
+       * nobody received is a citizen locked out, not a convenience.
+       */
+      if (process.env.NODE_ENV === 'production') {
+        throw new ConflictError(
+          'تعذّر إرسال الرمز حالياً. يرجى إعادة المحاولة، أو مراجعة البلدية لتسجيل طلبك.',
+        );
+      }
+
+      this.logger.warn(
+        `Continuing without SMS delivery (NODE_ENV=${process.env.NODE_ENV ?? 'development'}) — ` +
+          'the code is returned in the response as devCode.',
       );
     }
 

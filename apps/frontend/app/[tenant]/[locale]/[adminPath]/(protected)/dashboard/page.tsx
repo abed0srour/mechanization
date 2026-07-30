@@ -9,9 +9,9 @@ import {
   Clock,
   Download,
   FileSpreadsheet,
-  Map as MapIcon,
+  Loader2,
+  MapPin,
   RefreshCw,
-  ShieldCheck,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -19,13 +19,17 @@ import { ar } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   changeRegistrationStatus,
+  getCitizenProfile,
   getDashboardCounters,
   listForReview,
   logApiError,
 } from '@/lib/api-client';
 import type { DashboardCounters, RegistrationListItem } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
-import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
+import { findLocatedProperty, mapHref } from '@/lib/map-link';
+import { nextStatusesFor } from '@/lib/registration-status';
+import { Badge, STATUS_ICON, StatusBadge } from '@/components/ui/badge';
+import { ActionTooltip } from '@/components/ui/tooltip';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
@@ -80,6 +84,8 @@ export default function StaffDashboard({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** citizenId currently being located for the "عرض على الخريطة" row action. */
+  const [locatingId, setLocatingId] = useState<string | null>(null);
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -127,15 +133,8 @@ export default function StaffDashboard({
   const transition = useCallback(
     async (id: string, status: string) => {
       if (!token) return;
-
-      // Rejection must carry a reason — the domain refuses one without it, so
-      // asking here avoids a round-trip that can only fail.
-      const reason =
-        status === 'REJECTED' ? (prompt('سبب الرفض (إلزامي):') ?? '').trim() : undefined;
-      if (status === 'REJECTED' && !reason) return;
-
       try {
-        await changeRegistrationStatus(tenant, token, id, { status, reason });
+        await changeRegistrationStatus(tenant, token, id, { status });
         await load();
       } catch (caught) {
         logApiError(caught);
@@ -145,13 +144,45 @@ export default function StaffDashboard({
     [tenant, token, load],
   );
 
+  /**
+   * "عرض على الخريطة" for an accepted row: the list endpoint only carries
+   * counters (`propertyCount`), not coordinates, so this fetches the
+   * citizen's full profile just long enough to find a located property, then
+   * hands off to the same map deep-link the citizen page's button uses.
+   */
+  const showOnMap = useCallback(
+    async (citizenIdToLocate: string) => {
+      if (!token) return;
+      setLocatingId(citizenIdToLocate);
+      try {
+        const profile = await getCitizenProfile(tenant, token, citizenIdToLocate);
+        const located = findLocatedProperty(
+          profile.registrations.flatMap((registration) => registration.properties),
+        );
+        router.push(located ? mapHref(base, located) : `${base}/map`);
+      } catch (caught) {
+        logApiError(caught);
+        if (caught instanceof ApiRequestError && caught.status === 401) {
+          signOut();
+          return;
+        }
+        alert('تعذّر تحديد موقع المواطن.');
+      } finally {
+        setLocatingId(null);
+      }
+    },
+    [tenant, token, base, router, signOut],
+  );
+
   const columns = useMemo<ColumnDef<RegistrationListItem>[]>(
     () => [
       {
         accessorKey: 'referenceNumber',
         header: 'الرقم المرجعي',
         cell: ({ row }) => (
-          <span className="font-medium" dir="ltr">
+          // Monospaced: a reference number is compared character-by-character
+          // against a printed slip far more often than it is read as a word.
+          <span className="font-mono text-xs font-medium" dir="ltr">
             {row.original.referenceNumber}
           </span>
         ),
@@ -159,14 +190,25 @@ export default function StaffDashboard({
       {
         accessorKey: 'citizenName',
         header: 'مقدّم الطلب',
+        cell: ({ row }) => <span className="font-medium">{row.original.citizenName}</span>,
       },
       {
-        accessorKey: 'neighborhoods',
-        header: 'الحي',
-        // A registration usually names one حي; a landlord filing several
-        // properties at once can span more than one, so every value the
-        // claim actually touches is shown rather than just the first.
-        cell: ({ row }) => row.original.neighborhoods.join('، ') || '—',
+        accessorKey: 'citizenPhone',
+        header: 'رقم الهاتف',
+        // Click-to-call: the first move on a questionable claim is to phone
+        // whoever filed it, and this is the column that exists to enable that.
+        cell: ({ row }) =>
+          row.original.citizenPhone ? (
+            <a
+              href={`tel:${row.original.citizenPhone}`}
+              dir="ltr"
+              className="font-medium text-primary hover:underline"
+            >
+              {row.original.citizenPhone}
+            </a>
+          ) : (
+            '—'
+          ),
       },
       {
         accessorKey: 'submittedAt',
@@ -176,15 +218,18 @@ export default function StaffDashboard({
       {
         accessorKey: 'propertyCount',
         header: 'العقارات',
-        meta: { headerClassName: 'w-24' },
+        // `tabular-nums` so a column of counts aligns on its digits instead
+        // of drifting with the proportional figures the body font ships.
+        meta: { headerClassName: 'w-24', cellClassName: 'tabular-nums' },
       },
       {
         accessorKey: 'status',
         header: 'الحالة',
         cell: ({ row }) => (
-          <Badge variant={STATUS_BADGE_VARIANT[row.original.status] ?? 'secondary'}>
-            {ar.reportStatus[row.original.status as never] ?? row.original.status}
-          </Badge>
+          <StatusBadge
+            status={row.original.status}
+            label={ar.reportStatus[row.original.status as never] ?? row.original.status}
+          />
         ),
       },
       {
@@ -192,32 +237,73 @@ export default function StaffDashboard({
         header: 'إجراء',
         enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex flex-wrap items-center gap-2">
+          // Deliberately not `flex-wrap`: an approved row carries four
+          // buttons, and wrapping them makes that one row twice the height of
+          // its neighbours. The table's own `overflow-x` absorbs the width
+          // instead, keeping every row the same height.
+          <div className="flex items-center gap-1.5">
             {/* Always first, and always present: reviewing a claim starts with
                 reading who filed it, whatever state the claim is in. */}
-            <Link
-              href={`${base}/citizens/${row.original.citizenId}`}
-              className={buttonVariants({ variant: 'secondary', size: 'sm' })}
-            >
-              <UserRound className="size-3.5" aria-hidden />
-              عرض التفاصيل
-            </Link>
-
-            {nextStatusesFor(row.original.status).map((next) => (
-              <Button
-                key={next}
-                variant="outline"
-                size="sm"
-                onClick={() => void transition(row.original.id, next)}
+            <ActionTooltip label="عرض التفاصيل">
+              <Link
+                href={`${base}/citizens/${row.original.citizenId}`}
+                aria-label="عرض التفاصيل"
+                className={buttonVariants({ variant: 'secondary', size: 'icon-sm' })}
               >
-                {ar.reportStatus[next as never] ?? next}
-              </Button>
-            ))}
+                <UserRound className="size-4" aria-hidden />
+              </Link>
+            </ActionTooltip>
+
+            {/* Only once a claim is accepted — before that, the location on
+                file hasn't been confirmed as the one worth acting on yet. */}
+            {row.original.status === 'APPROVED' ? (
+              <ActionTooltip label="عرض على الخريطة">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="عرض على الخريطة"
+                  disabled={locatingId === row.original.citizenId}
+                  onClick={() => void showOnMap(row.original.citizenId)}
+                >
+                  {locatingId === row.original.citizenId ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <MapPin className="size-4" aria-hidden />
+                  )}
+                </Button>
+              </ActionTooltip>
+            ) : null}
+
+            {/*
+              Forward moves only. Rejection now lives on the review screen
+              (عرض التفاصيل), because refusing a claim means naming the fields
+              at fault — and those fields are only on screen there. A reject
+              button here could collect a note but never a field, which is
+              what made the old dialog a worse version of the same job.
+            */}
+            {nextStatusesFor(row.original.status)
+              .filter((next) => next !== 'REJECTED')
+              .map((next) => {
+                const label = ar.reportStatus[next as never] ?? next;
+                const Icon = STATUS_ICON[next] ?? CheckCircle2;
+                return (
+                  <ActionTooltip key={next} label={`نقل إلى: ${label}`}>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={`نقل إلى: ${label}`}
+                      onClick={() => void transition(row.original.id, next)}
+                    >
+                      <Icon className="size-4" aria-hidden />
+                    </Button>
+                  </ActionTooltip>
+                );
+              })}
           </div>
         ),
       },
     ],
-    [base, transition],
+    [base, transition, locatingId, showOnMap],
   );
 
   if (!token) return null;
@@ -235,37 +321,20 @@ export default function StaffDashboard({
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button asChild variant="outline">
-            <Link href={`${base}/map`}>
-              <MapIcon className="size-4" aria-hidden />
-              الخريطة
-            </Link>
-          </Button>
-          {/* Both are SUPER_ADMIN/AUDITOR only server-side; hidden here too so
-              neither is offered to a role that will only get refused. */}
+          {/* SUPER_ADMIN/AUDITOR only server-side; hidden here too so it is
+              not offered to a role that will only get refused. */}
           {role === 'SUPER_ADMIN' || role === 'AUDITOR' ? (
-            <>
-              <Button asChild variant="outline">
-                <Link href={`${base}/audit`}>
-                  <ShieldCheck className="size-4" aria-hidden />
-                  سجل النشاطات
-                </Link>
-              </Button>
-              <a
-                href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/t/${tenant}/dashboard/export.csv${filter ? `?status=${filter}` : ''}`}
-                className={buttonVariants({ variant: 'outline' })}
-              >
-                <Download className="size-4" aria-hidden />
-                تصدير CSV
-              </a>
-            </>
+            <a
+              href={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'}/t/${tenant}/dashboard/export.csv${filter ? `?status=${filter}` : ''}`}
+              className={buttonVariants({ variant: 'outline' })}
+            >
+              <Download className="size-4" aria-hidden />
+              تصدير CSV
+            </a>
           ) : null}
           <Button variant="outline" onClick={() => void load()} disabled={refreshing} title="تحديث البيانات">
             <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} aria-hidden />
             تحديث
-          </Button>
-          <Button variant="ghost" onClick={signOut}>
-            خروج
           </Button>
         </div>
       </div>
@@ -349,6 +418,7 @@ export default function StaffDashboard({
           />
         </CardContent>
       </Card>
+
     </div>
   );
 }
@@ -380,20 +450,3 @@ function MetricCard({
   );
 }
 
-/**
- * Mirrors the aggregate's ALLOWED_TRANSITIONS. Duplicated here only to avoid
- * offering a button the server will refuse — the server remains the authority,
- * and a mismatch shows up as a rejected click rather than a bad write.
- */
-function nextStatusesFor(status: string): string[] {
-  switch (status) {
-    case 'PENDING':
-      return ['UNDER_REVIEW', 'REJECTED'];
-    case 'UNDER_REVIEW':
-      return ['VERIFIED', 'REJECTED'];
-    case 'VERIFIED':
-      return ['APPROVED', 'REJECTED'];
-    default:
-      return [];
-  }
-}

@@ -1,15 +1,14 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowRight, History, ShieldCheck } from 'lucide-react';
+import { History, ShieldCheck } from 'lucide-react';
 import { ApiRequestError, getAuditLog, logApiError } from '@/lib/api-client';
 import type { AuditEntry, Session } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import {
@@ -173,20 +172,14 @@ export default function AuditTrailPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-            <ShieldCheck className="size-7 text-primary" aria-hidden />
-            سجل النشاطات
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            كل إجراء إداري في النظام: الفعل، القائم به، وتوقيته
-          </p>
-        </div>
-        <Link href={`${base}/dashboard`} className={buttonVariants({ variant: 'outline' })}>
-          <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-          رجوع إلى اللوحة
-        </Link>
+      <div className="border-b pb-6">
+        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
+          <ShieldCheck className="size-7 text-primary" aria-hidden />
+          سجل النشاطات
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          كل إجراء إداري في النظام: الفعل، القائم به، وتوقيته
+        </p>
       </div>
 
       {error ? (

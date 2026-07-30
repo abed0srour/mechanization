@@ -72,8 +72,16 @@ export function PersonalStep({
     } else if (value.identityDocType !== 'PASSPORT') {
       set({ identityDocType: 'PASSPORT' });
     }
+    // Watches the derived values themselves, not just the toggle that
+    // normally changes them. Keyed on `[isLebanese]` alone this ran once on
+    // mount and then never again — so when the wizard restored a saved draft
+    // (a parent effect, which React runs *after* this child one) and replaced
+    // `personal` wholesale, a draft missing `nationality` never got it back.
+    // For a Lebanese citizen that field is not rendered at all, so the
+    // resulting failure was invisible: "الجنسية مطلوبة" against an input
+    // nobody could see, reported only as the generic banner on التالي.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLebanese]);
+  }, [isLebanese, value.nationality, value.residentStatus, value.identityDocType]);
 
   const identityDocNumberLabel =
     ar.identityDocNumberLabel[value.identityDocType as never] ?? 'رقم الوثيقة';

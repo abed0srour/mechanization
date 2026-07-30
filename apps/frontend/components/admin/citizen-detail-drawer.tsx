@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Phone, User, Users, X } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import type { RegisteredParcel } from '@/lib/api-client';
-import { Badge, STATUS_BADGE_VARIANT } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -102,9 +102,10 @@ export function CitizenDetailDrawer({
                       </div>
                     </div>
 
-                    <Badge variant={STATUS_BADGE_VARIANT[registrant.status] ?? 'secondary'}>
-                      {ar.reportStatus[registrant.status as never] ?? registrant.status}
-                    </Badge>
+                    <StatusBadge
+                      status={registrant.status}
+                      label={ar.reportStatus[registrant.status as never] ?? registrant.status}
+                    />
                   </div>
 
                   <dl className="space-y-1 border-t pt-3 text-sm">

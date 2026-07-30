@@ -4,6 +4,7 @@ import { PropertyEntry } from '../../domain/entities/property-entry.entity';
 import { Registration, ReportStatus } from '../../domain/entities/registration.entity';
 import { ConflictError } from '../../domain/errors/domain-error';
 import {
+  CorrectionContext,
   RegistrationListItem,
   RegistrationRepository,
   SubmitRegistrationInput,
@@ -157,8 +158,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     const rows = await this.db.registration.findMany({
       where: { citizenId },
       include: {
-        citizen: { select: { id: true, firstName: true, lastName: true } },
-        properties: { select: { neighborhood: true } },
+        citizen: { select: { id: true, firstName: true, lastName: true, phone: true } },
         _count: { select: { properties: true } },
       },
       orderBy: { submittedAt: 'desc' },
@@ -172,7 +172,11 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       propertyCount: row._count.properties,
-      neighborhoods: distinctNeighborhoods(row.properties),
+      citizenPhone: row.citizen.phone,
+      rejectionReason: row.rejectionReason,
+      rejectedFields: row.rejectedFields,
+      citizenCanCorrect: row.citizenCanCorrect,
+      revisitAt: row.revisitAt?.toISOString() ?? null,
     }));
   }
 
@@ -205,7 +209,11 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
           citizenId: string;
           citizenName: string;
           propertyCount: number;
-          neighborhoods: string[];
+          citizenPhone: string | null;
+          rejectionReason: string | null;
+          rejectedFields: string[];
+          citizenCanCorrect: boolean;
+          revisitAt: Date | null;
           total: number;
         }>
       >`
@@ -215,12 +223,13 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
           r.status,
           r."submittedAt",
           r."citizenId",
+          r."rejectionReason",
+          r."rejectedFields",
+          r."citizenCanCorrect",
+          r."revisitAt",
           u."firstName" || ' ' || u."lastName" AS "citizenName",
+          u.phone AS "citizenPhone",
           (SELECT count(*)::int FROM property_entries pe WHERE pe."registrationId" = r.id) AS "propertyCount",
-          COALESCE(
-            (SELECT array_agg(DISTINCT pe.neighborhood) FROM property_entries pe WHERE pe."registrationId" = r.id),
-            ARRAY[]::text[]
-          ) AS neighborhoods,
           count(*) OVER()::int AS total
         FROM registrations r
         JOIN users u ON u.id = r."citizenId"
@@ -239,23 +248,155 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
         citizenId: row.citizenId,
         citizenName: row.citizenName,
         propertyCount: row.propertyCount,
-        neighborhoods: row.neighborhoods,
+        citizenPhone: row.citizenPhone,
+        rejectionReason: row.rejectionReason,
+        rejectedFields: row.rejectedFields,
+        citizenCanCorrect: row.citizenCanCorrect,
+        revisitAt: row.revisitAt?.toISOString() ?? null,
       })),
       total: rows[0]?.total ?? 0,
     };
+  }
+
+  /**
+   * Scoped by `citizenId` in the WHERE clause, not checked after the read: a
+   * citizen asking for someone else's registration must get "not found", and
+   * the cheapest way to guarantee that is never to load the row at all.
+   */
+  async findCorrectionContext(input: {
+    registrationId: string;
+    citizenId: string;
+  }): Promise<CorrectionContext | null> {
+    const row = await withConnectionRetry(() =>
+      this.db.registration.findFirst({
+        where: { id: input.registrationId, citizenId: input.citizenId },
+        select: {
+          id: true,
+          referenceNumber: true,
+          status: true,
+          rejectionReason: true,
+          rejectedFields: true,
+          citizenCanCorrect: true,
+          revisitAt: true,
+          citizen: {
+            select: {
+              firstName: true,
+              middleName: true,
+              lastName: true,
+              gender: true,
+              nationality: true,
+              residentStatus: true,
+              identityDocType: true,
+              identityDocNumber: true,
+              civilRecordNumber: true,
+              residencyNumber: true,
+              phone: true,
+              whatsapp: true,
+              maritalStatus: true,
+              familySize: true,
+            },
+          },
+          properties: {
+            select: {
+              id: true,
+              neighborhood: true,
+              propertyNumber: true,
+              buildingName: true,
+              unitArea: true,
+              landlordName: true,
+              landlordPhone: true,
+            },
+          },
+        },
+      }),
+    );
+
+    if (!row) return null;
+
+    const { phone, whatsapp, maritalStatus, familySize, ...personal } = row.citizen;
+
+    return {
+      registrationId: row.id,
+      referenceNumber: row.referenceNumber,
+      status: row.status,
+      rejectionReason: row.rejectionReason,
+      rejectedFields: row.rejectedFields,
+      citizenCanCorrect: row.citizenCanCorrect,
+      revisitAt: row.revisitAt?.toISOString() ?? null,
+      personal,
+      contact: { phone, whatsapp, maritalStatus, familySize },
+      properties: row.properties.map((property) => ({
+        ...property,
+        // Decimal → number at the edge, as everywhere else.
+        unitArea: property.unitArea == null ? null : Number(property.unitArea),
+      })),
+    };
+  }
+
+  async applyCorrection(input: {
+    registrationId: string;
+    citizenId: string;
+    personal: Record<string, unknown>;
+    contact: Record<string, unknown>;
+    properties: Array<{ id: string } & Record<string, unknown>>;
+  }): Promise<void> {
+    const citizenPatch = { ...input.personal, ...input.contact };
+
+    await this.db.$transaction([
+      ...(Object.keys(citizenPatch).length > 0
+        ? [
+            this.db.user.update({
+              where: { id: input.citizenId },
+              data: citizenPatch as never,
+            }),
+          ]
+        : []),
+      ...input.properties.map(({ id, ...patch }) =>
+        // Scoped by registration as well as id, so a property id belonging to
+        // another claim cannot be steered into this one's correction.
+        this.db.propertyEntry.updateMany({
+          where: { id, registrationId: input.registrationId },
+          data: patch as never,
+        }),
+      ),
+      this.db.registration.update({
+        where: { id: input.registrationId },
+        data: {
+          status: 'PENDING',
+          // The complaint is answered; leaving it would show the citizen
+          // their own corrected fields still flagged as wrong.
+          rejectionReason: null,
+          rejectedFields: [],
+          reviewedById: null,
+          reviewedAt: null,
+        },
+      }),
+    ]);
   }
 
   async persistStatusChange(input: {
     registrationId: string;
     status: ReportStatus;
     reason?: string;
+    rejectedFields?: string[];
+    allowCitizenCorrection?: boolean;
+    revisitAt?: string;
     reviewedById: string;
   }): Promise<void> {
+    const rejected = input.status === 'REJECTED';
     await this.db.registration.update({
       where: { id: input.registrationId },
       data: {
         status: input.status as never,
         rejectionReason: input.reason ?? null,
+        // Reset to the permissive default on any non-rejection: these two
+        // only describe how a refusal is to be answered.
+        citizenCanCorrect: rejected ? (input.allowCitizenCorrection ?? true) : true,
+        revisitAt: rejected && input.revisitAt ? new Date(input.revisitAt) : null,
+        // Cleared on any non-rejection, so a claim that was refused and later
+        // moved on does not keep showing the applicant flags against fields
+        // nobody is disputing any more.
+        rejectedFields: input.status === 'REJECTED' ? (input.rejectedFields ?? []) : [],
         reviewedById: input.reviewedById,
         reviewedAt: new Date(),
       },
@@ -347,12 +488,3 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
   }
 }
 
-/**
- * A registration is usually one property, but a landlord filing several at
- * once can span more than one حي — deduping rather than just taking the first
- * is what keeps the dashboard row honest about that instead of silently
- * showing only part of the claim.
- */
-function distinctNeighborhoods(properties: Array<{ neighborhood: string }>): string[] {
-  return [...new Set(properties.map((p) => p.neighborhood))];
-}

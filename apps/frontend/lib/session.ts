@@ -11,14 +11,22 @@ import type { Session } from './api-client';
  * it was not issued for — the backend rejects that anyway, but not sending it is
  * better than being rejected.
  *
- * `sessionStorage`, not `localStorage`: these tokens open citizen records, and
- * municipality computers are shared. Closing the tab ends the session.
+ * `sessionStorage` by default — these tokens open citizen records, and
+ * municipality computers are shared, so closing the tab ends the session.
+ * "Remember me" is an explicit opt-in to `localStorage` instead, for a staff
+ * member on their own machine who would rather not sign in every session; the
+ * safer default is unaffected for everyone who doesn't check it.
  */
 const key = (tenant: string) => `mechanization.session.${tenant}`;
 
-export function saveSession(tenant: string, session: Session): void {
+export function saveSession(tenant: string, session: Session, remember = false): void {
+  const store = remember ? localStorage : sessionStorage;
+  const other = remember ? sessionStorage : localStorage;
   try {
-    sessionStorage.setItem(key(tenant), JSON.stringify(session));
+    store.setItem(key(tenant), JSON.stringify(session));
+    // Clears a copy left in the other storage by an earlier sign-in with the
+    // opposite choice — otherwise loadSession could resurrect it later.
+    other.removeItem(key(tenant));
   } catch {
     // Private-browsing modes reject writes. The session still works for this
     // page load; the user simply signs in again after a reload.
@@ -27,7 +35,7 @@ export function saveSession(tenant: string, session: Session): void {
 
 export function loadSession(tenant: string): Session | null {
   try {
-    const raw = sessionStorage.getItem(key(tenant));
+    const raw = sessionStorage.getItem(key(tenant)) ?? localStorage.getItem(key(tenant));
     return raw ? (JSON.parse(raw) as Session) : null;
   } catch {
     return null;
@@ -37,6 +45,7 @@ export function loadSession(tenant: string): Session | null {
 export function clearSession(tenant: string): void {
   try {
     sessionStorage.removeItem(key(tenant));
+    localStorage.removeItem(key(tenant));
   } catch {
     /* nothing to clean up */
   }

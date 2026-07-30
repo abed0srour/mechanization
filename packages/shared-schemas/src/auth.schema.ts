@@ -24,6 +24,8 @@ export const staffLoginSchema = z.object({
     .trim()
     .regex(/^\d{6}$/, 'رمز التحقق مكوّن من 6 أرقام')
     .optional(),
+  /** "تذكّرني على هذا الجهاز" — extends the issued token's lifetime; see JWT_STAFF_REMEMBER_TTL. */
+  remember: z.boolean().optional(),
 });
 export type StaffLogin = z.infer<typeof staffLoginSchema>;
 

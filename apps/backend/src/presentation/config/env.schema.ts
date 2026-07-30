@@ -26,6 +26,8 @@ export const envSchema = z
      */
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
     JWT_STAFF_TTL: z.string().default('12h'),
+    /** Issued instead of JWT_STAFF_TTL when a staff member checks "تذكّرني على هذا الجهاز". */
+    JWT_STAFF_REMEMBER_TTL: z.string().default('30d'),
     JWT_CITIZEN_TTL: z.string().default('7d'),
 
     SMS_PROVIDER_API_KEY: z.string().optional(),

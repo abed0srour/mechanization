@@ -188,6 +188,11 @@ export class RegistrationService {
     registrationId: string;
     status: ReportStatus;
     reason?: string;
+    /** Specific fields at fault, for the applicant's correction view. */
+    rejectedFields?: string[];
+    /** False routes the citizen to the counter instead of the online form. */
+    allowCitizenCorrection?: boolean;
+    revisitAt?: string;
     actor: { id: string; role: string };
   }): Promise<{ from: ReportStatus; to: ReportStatus }> {
     const registration = await this.registrations.findById(input.registrationId);
@@ -207,7 +212,120 @@ export class RegistrationService {
       registrationId: registration.id,
       status: transition.to,
       reason: input.reason,
+      rejectedFields: input.rejectedFields,
+      allowCitizenCorrection: input.allowCitizenCorrection,
+      revisitAt: input.revisitAt,
       reviewedById: input.actor.id,
+    });
+
+    for (const event of registration.pullEvents()) {
+      this.events.emit(event.name, { ...event.payload, tenantSlug: input.tenantSlug });
+    }
+
+    return transition;
+  }
+
+  /** The rejected claim as its own citizen sees it, for the correction form. */
+  async getCorrectionContext(registrationId: string, citizenId: string) {
+    const context = await this.registrations.findCorrectionContext({
+      registrationId,
+      citizenId,
+    });
+    if (!context) throw new NotFoundError('Registration', registrationId);
+    return context;
+  }
+
+  /**
+   * A citizen's corrections to their own refused claim.
+   *
+   * The submitted values are filtered against `rejectedFields` before anything
+   * is written. That filter is the security boundary of this endpoint, not a
+   * convenience: the payload arrives from a browser, so without it "fix your
+   * الحي" would double as permission to rewrite an identity document number on
+   * a submission a reviewer has already inspected. What was never flagged is
+   * silently dropped rather than rejected — a stale form from before a partial
+   * re-review should not fail wholesale.
+   */
+  async applyCorrection(input: {
+    tenantSlug: string;
+    registrationId: string;
+    citizenId: string;
+    personal: Record<string, unknown>;
+    contact: Record<string, unknown>;
+    properties: Array<{ id: string } & Record<string, unknown>>;
+  }): Promise<{ from: string; to: string }> {
+    const context = await this.registrations.findCorrectionContext({
+      registrationId: input.registrationId,
+      citizenId: input.citizenId,
+    });
+    if (!context) throw new NotFoundError('Registration', input.registrationId);
+
+    // The municipality can require this claim be fixed in person — an original
+    // document to inspect, an identity to confirm at the counter. Enforced
+    // here and not only by hiding the form: the endpoint is reachable
+    // regardless of what the page chose to render.
+    if (!context.citizenCanCorrect) {
+      throw new ForbiddenError('يجب مراجعة البلدية لتصحيح هذا الطلب');
+    }
+
+    const registration = await this.registrations.findById(input.registrationId);
+    if (!registration) throw new NotFoundError('Registration', input.registrationId);
+
+    const flags = new Set(context.rejectedFields);
+    const allowed = <T extends Record<string, unknown>>(
+      values: T,
+      permittedBy: Record<string, string>,
+    ): Record<string, unknown> =>
+      Object.fromEntries(
+        Object.entries(values).filter(
+          ([key]) => permittedBy[key] && flags.has(permittedBy[key]),
+        ),
+      );
+
+    const personal = allowed(input.personal, {
+      firstName: 'personal.name',
+      middleName: 'personal.name',
+      lastName: 'personal.name',
+      gender: 'personal.gender',
+      nationality: 'personal.nationality',
+      residentStatus: 'personal.residentStatus',
+      identityDocType: 'personal.identityDocType',
+      identityDocNumber: 'personal.identityDocNumber',
+      civilRecordNumber: 'personal.civilRecordNumber',
+      residencyNumber: 'personal.residencyNumber',
+    });
+
+    const contact = allowed(input.contact, {
+      phone: 'contact.phone',
+      whatsapp: 'contact.whatsapp',
+      maritalStatus: 'contact.maritalStatus',
+      familySize: 'contact.familySize',
+    });
+
+    const properties = input.properties
+      .map(({ id, ...values }) => ({
+        id,
+        ...allowed(values, {
+          neighborhood: 'property.neighborhood',
+          propertyNumber: 'property.propertyNumber',
+          buildingName: 'property.buildingName',
+          unitArea: 'property.unitArea',
+          landlordName: 'property.landlord',
+          landlordPhone: 'property.landlord',
+        }),
+      }))
+      .filter((property) => Object.keys(property).length > 1);
+
+    // Refuses the resubmission unless the claim is actually REJECTED — the
+    // aggregate owns that rule, not this method.
+    const transition = registration.resubmit(context.rejectedFields);
+
+    await this.registrations.applyCorrection({
+      registrationId: input.registrationId,
+      citizenId: input.citizenId,
+      personal,
+      contact,
+      properties,
     });
 
     for (const event of registration.pullEvents()) {

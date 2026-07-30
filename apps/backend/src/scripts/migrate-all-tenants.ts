@@ -12,8 +12,8 @@
  * part-way through should stop rather than race ahead into the next schema.
  */
 import { Client } from 'pg';
-import { PrismaClient as RegistryPrismaClient } from '../../generated/registry-client';
-import { migrateTenantSchema } from './tenant-migrator';
+import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
+import { migrateTenantSchema } from '../infrastructure/prisma/tenant-migrator';
 
 export async function migrateAllTenants(): Promise<void> {
   const registry = new RegistryPrismaClient();
