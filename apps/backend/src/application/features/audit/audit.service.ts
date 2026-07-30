@@ -73,6 +73,90 @@ export class AuditService {
     });
   }
 
+  /**
+   * Every change to a staff account, under one subscriber.
+   *
+   * One event carrying its own `action` rather than five event names matched
+   * by a wildcard: `EventEmitterModule.forRoot` here does not enable
+   * wildcards, so `staff.*` would register a listener that never fires — and
+   * an audit subscriber that silently records nothing is worse than none.
+   *
+   * Nothing about the credential itself is recorded: `changed` names which
+   * fields moved, never their values.
+   */
+  @OnEvent('staff.changed')
+  async onStaffChanged(payload: {
+    staffId: string;
+    action: string;
+    email?: string;
+    role?: string;
+    changed?: string[];
+    actorId: string;
+    actorRole: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: payload.action,
+      entityType: 'User',
+      entityId: payload.staffId,
+      after: {
+        ...(payload.email ? { email: payload.email } : {}),
+        ...(payload.role ? { role: payload.role } : {}),
+        ...(payload.changed ? { changed: payload.changed } : {}),
+      },
+    });
+  }
+
+  /**
+   * A citizen answering a rejection with corrected values.
+   *
+   * The counterpart to `STATUS_CHANGE` — a claim moving back to PENDING with
+   * no reviewer behind it is otherwise an unexplained gap in the sequence.
+   */
+  @OnEvent('registration.resubmitted')
+  async onResubmitted(payload: {
+    registrationId: string;
+    citizenId: string;
+    referenceNumber: string;
+    correctedFields: string[];
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.citizenId,
+      actorType: 'CITIZEN',
+      action: 'REGISTRATION_RESUBMITTED',
+      entityType: 'Registration',
+      entityId: payload.registrationId,
+      after: {
+        referenceNumber: payload.referenceNumber,
+        correctedFields: payload.correctedFields,
+      },
+    });
+  }
+
+  /** Sector writes — who redrew which sector, and how its membership moved. */
+  @OnEvent('zone.changed')
+  async onZoneChanged(payload: {
+    zoneId: string;
+    action: string;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    actorId: string;
+    actorRole: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: payload.action,
+      entityType: 'Zone',
+      entityId: payload.zoneId,
+      before: payload.before,
+      after: payload.after,
+    });
+  }
+
   @OnEvent('user.logged-in')
   async onLogin(payload: {
     userId: string;

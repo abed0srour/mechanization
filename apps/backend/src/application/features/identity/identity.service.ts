@@ -131,6 +131,17 @@ export class IdentityService {
     const secret = this.totp.generateSecret();
     await this.users.saveTotpSecret(user.id, secret);
 
+    // Recorded because issuing a new second factor is exactly the step an
+    // account takeover needs, and the trail is the only place that would show
+    // it happening. The secret itself is never part of the payload.
+    this.events.emit('staff.changed', {
+      action: 'TOTP_ENROLLED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+
     return {
       secret,
       keyUri: this.totp.keyUri(secret, user.email ?? user.id, `Baladiya ${tenantSlug}`),
@@ -148,6 +159,14 @@ export class IdentityService {
     }
 
     await this.users.confirmTotp(user.id);
+
+    this.events.emit('staff.changed', {
+      action: 'TOTP_CONFIRMED',
+      tenantSlug: user.tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
   }
 
   // ───────────────────────────  Citizens  ───────────────────────────

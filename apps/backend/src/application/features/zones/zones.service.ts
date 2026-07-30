@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as turf from '@turf/turf';
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
 import type { CreateZoneInput, UpdateZoneInput } from '@mechanization/shared-schemas';
@@ -43,7 +44,32 @@ export class ZonesService {
     @Inject(ZONE_REPOSITORY) private readonly zones: ZoneRepository,
     @Inject(PARCEL_REPOSITORY) private readonly parcels: ParcelRepository,
     private readonly assets: CadastreAssetsService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  /**
+   * Redrawing a sector decides which inspector is accountable for which
+   * parcels, so every write here lands in the audit trail alongside the
+   * registration decisions it goes on to shape.
+   */
+  private recordChange(input: {
+    tenantSlug: string;
+    action: 'ZONE_CREATED' | 'ZONE_UPDATED' | 'ZONE_DELETED';
+    zoneId: string;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    actor: { id: string; role: string };
+  }): void {
+    this.events.emit('zone.changed', {
+      tenantSlug: input.tenantSlug,
+      action: input.action,
+      zoneId: input.zoneId,
+      before: input.before,
+      after: input.after,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+    });
+  }
 
   async list(): Promise<ZoneSummary[]> {
     const rows = await this.zones.findAll();
@@ -56,7 +82,11 @@ export class ZonesService {
     return { ...toSummary(zone), parcelNumbers: zone.parcelNumbers };
   }
 
-  async create(tenantSlug: string, input: CreateZoneInput): Promise<ZoneDetail> {
+  async create(
+    tenantSlug: string,
+    input: CreateZoneInput,
+    actor: { id: string; role: string },
+  ): Promise<ZoneDetail> {
     const existing = await this.zones.findByCode(input.code);
     if (existing) throw new ConflictError(`رمز القطاع "${input.code}" مستخدم بالفعل`);
 
@@ -69,10 +99,24 @@ export class ZonesService {
       description: input.description,
       parcelNumbers: input.parcelNumbers,
     });
+
+    this.recordChange({
+      tenantSlug,
+      action: 'ZONE_CREATED',
+      zoneId: zone.id,
+      after: { name: zone.name, code: zone.code, parcelCount: zone.parcelNumbers.length },
+      actor,
+    });
+
     return { ...toSummary(zone), parcelNumbers: zone.parcelNumbers };
   }
 
-  async update(tenantSlug: string, id: string, input: UpdateZoneInput): Promise<ZoneDetail> {
+  async update(
+    tenantSlug: string,
+    id: string,
+    input: UpdateZoneInput,
+    actor: { id: string; role: string },
+  ): Promise<ZoneDetail> {
     const zone = await this.zones.findById(id);
     if (!zone) throw new NotFoundError('القطاع غير موجود');
 
@@ -87,10 +131,30 @@ export class ZonesService {
 
     const updated = await this.zones.update(id, input);
     this.outlineCache.delete(updated.id);
+
+    // Membership counts on both sides: "who moved forty parcels out of this
+    // sector" is the question this trail gets asked.
+    this.recordChange({
+      tenantSlug,
+      action: 'ZONE_UPDATED',
+      zoneId: updated.id,
+      before: { name: zone.name, code: zone.code, parcelCount: zone.parcelNumbers.length },
+      after: {
+        name: updated.name,
+        code: updated.code,
+        parcelCount: updated.parcelNumbers.length,
+      },
+      actor,
+    });
+
     return { ...toSummary(updated), parcelNumbers: updated.parcelNumbers };
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(
+    tenantSlug: string,
+    id: string,
+    actor: { id: string; role: string },
+  ): Promise<void> {
     const zone = await this.zones.findById(id);
     if (!zone) throw new NotFoundError('القطاع غير موجود');
 
@@ -98,6 +162,20 @@ export class ZonesService {
     // lives on the zone row, so the parcels are unassigned the moment it is gone.
     await this.zones.delete(id);
     this.outlineCache.delete(id);
+
+    // `before` is the whole record here — after this there is no row left to
+    // describe what was deleted.
+    this.recordChange({
+      tenantSlug,
+      action: 'ZONE_DELETED',
+      zoneId: id,
+      before: {
+        name: zone.name,
+        code: zone.code,
+        parcelCount: zone.parcelNumbers.length,
+      },
+      actor,
+    });
   }
 
   /**

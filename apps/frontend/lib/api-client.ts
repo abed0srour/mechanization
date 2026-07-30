@@ -435,6 +435,80 @@ export function getDocumentViewUrl(tenant: string, token: string, documentId: st
   );
 }
 
+// ───────────────────────────  Staff accounts  ───────────────────────────
+
+export interface StaffSummary {
+  id: string;
+  email: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  isActive: boolean;
+  /** Audit entries + reviewed registrations. A permanent delete needs zero. */
+  historyCount: number;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export function getStaff(tenant: string, token: string) {
+  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token });
+}
+
+export function createStaff(
+  tenant: string,
+  token: string,
+  input: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+  },
+) {
+  return apiFetch<{ id: string }>(tenant, '/staff', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateStaff(
+  tenant: string,
+  token: string,
+  id: string,
+  input: {
+    email?: string;
+    password?: string;
+    firstName?: string;
+    lastName?: string;
+    role?: string;
+  },
+) {
+  return apiFetch<{ updated: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Soft delete and its undo. */
+export function setStaffActive(tenant: string, token: string, id: string, isActive: boolean) {
+  return apiFetch<{ isActive: boolean }>(tenant, `/staff/${encodeURIComponent(id)}/active`, {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify({ isActive }),
+  });
+}
+
+/** Permanent — the server refuses it for any account that has already acted. */
+export function deleteStaff(tenant: string, token: string, id: string) {
+  return apiFetch<{ deleted: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
+    token,
+    method: 'DELETE',
+  });
+}
+
 export interface AuditEntry {
   id: string;
   actorId: string | null;

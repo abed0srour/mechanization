@@ -14,6 +14,7 @@ import {
   Moon,
   Sun,
   Languages,
+  UsersRound,
 } from 'lucide-react';
 import { clearSession, loadSession } from '@/lib/session';
 import { isDarkModeActive, setDarkMode } from '@/lib/theme';
@@ -114,6 +115,15 @@ export function AdminSidebar({
       label: 'سجل النشاطات',
       icon: ShieldCheck,
       roles: ['SUPER_ADMIN', 'AUDITOR'],
+    },
+    {
+      href: `${base}/staff`,
+      label: 'الموظفون',
+      icon: UsersRound,
+      // Creating accounts is the privilege-escalation path in this system —
+      // every /staff route is SUPER_ADMIN-guarded server-side, and this keeps
+      // a page that can only refuse an auditor out of their sidebar.
+      roles: ['SUPER_ADMIN'],
     },
   ];
 

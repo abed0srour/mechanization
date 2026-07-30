@@ -5,6 +5,7 @@ import { ConflictError } from '../../domain/errors/domain-error';
 import {
   CitizenChoice,
   CitizenIdentityInput,
+  StaffSummary,
   UserRepository,
 } from '../../domain/interfaces/user-repository.interface';
 import { TenantContextService } from '../context/tenant-context.service';
@@ -169,9 +170,7 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
-  async listStaff(): Promise<
-    Array<{ id: string; email: string; fullName: string; role: StaffRole; isActive: boolean }>
-  > {
+  async listStaff(): Promise<StaffSummary[]> {
     const rows = await this.db.user.findMany({
       where: { kind: 'STAFF' },
       select: {
@@ -181,17 +180,120 @@ export class PrismaUserRepository implements UserRepository {
         lastName: true,
         role: true,
         isActive: true,
+        createdAt: true,
+        lastLoginAt: true,
+        // Counted in the same query rather than per row: the alternative is
+        // a history lookup per staff member, and this list is rendered in
+        // full on every visit to the page.
+        _count: { select: { reviewedRegistrations: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    // Audit entries carry `actorId` as a plain column with no relation to
+    // join against, so they are counted in one grouped pass.
+    const auditCounts = await this.db.auditLogEntry.groupBy({
+      by: ['actorId'],
+      where: { actorId: { in: rows.map((row) => row.id) } },
+      _count: { _all: true },
+    });
+    const auditByActor = new Map(
+      auditCounts.map((entry) => [entry.actorId, entry._count._all]),
+    );
 
     return rows.map((row) => ({
       id: row.id,
       email: row.email ?? '',
       fullName: `${row.firstName} ${row.lastName}`,
+      firstName: row.firstName,
+      lastName: row.lastName,
       role: row.role as StaffRole,
       isActive: row.isActive,
+      historyCount:
+        row._count.reviewedRegistrations + (auditByActor.get(row.id) ?? 0),
+      createdAt: row.createdAt.toISOString(),
+      lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
     }));
+  }
+
+  async createStaff(input: {
+    tenantSlug: string;
+    email: string;
+    passwordHash: string;
+    firstName: string;
+    lastName: string;
+    role: StaffRole;
+  }): Promise<string> {
+    const existing = await this.db.user.findFirst({
+      where: { email: input.email.toLowerCase(), kind: 'STAFF' },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictError('هذا البريد الإلكتروني مستخدم بالفعل');
+    }
+
+    const row = await this.db.user.create({
+      data: {
+        kind: 'STAFF',
+        tenantSlug: input.tenantSlug,
+        email: input.email.toLowerCase(),
+        passwordHash: input.passwordHash,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        role: input.role as never,
+      },
+      select: { id: true },
+    });
+
+    return row.id;
+  }
+
+  async updateStaff(
+    id: string,
+    patch: {
+      email?: string;
+      passwordHash?: string;
+      firstName?: string;
+      lastName?: string;
+      role?: StaffRole;
+    },
+  ): Promise<void> {
+    if (patch.email) {
+      const clash = await this.db.user.findFirst({
+        where: { email: patch.email.toLowerCase(), kind: 'STAFF', id: { not: id } },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new ConflictError('هذا البريد الإلكتروني مستخدم بالفعل');
+      }
+    }
+
+    await this.db.user.update({
+      where: { id },
+      data: {
+        ...(patch.email ? { email: patch.email.toLowerCase() } : {}),
+        ...(patch.passwordHash ? { passwordHash: patch.passwordHash } : {}),
+        ...(patch.firstName ? { firstName: patch.firstName } : {}),
+        ...(patch.lastName ? { lastName: patch.lastName } : {}),
+        ...(patch.role ? { role: patch.role as never } : {}),
+      },
+    });
+  }
+
+  async setStaffActive(id: string, isActive: boolean): Promise<void> {
+    await this.db.user.update({ where: { id }, data: { isActive } });
+  }
+
+  async hardDeleteStaff(id: string): Promise<void> {
+    await this.db.user.delete({ where: { id } });
+  }
+
+  async countStaffHistory(id: string): Promise<number> {
+    const [reviewed, audited] = await Promise.all([
+      this.db.registration.count({ where: { reviewedById: id } }),
+      this.db.auditLogEntry.count({ where: { actorId: id } }),
+    ]);
+    return reviewed + audited;
   }
 
   /** Prisma error codes stop here — no layer above this one sees them. */

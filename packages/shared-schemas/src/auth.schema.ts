@@ -84,10 +84,47 @@ export const totpRequiredSchema = z.object({ status: z.literal('TOTP_REQUIRED') 
 export const staffLoginResponseSchema = z.union([sessionSchema, totpRequiredSchema]);
 export const verifyOtpResponseSchema = z.union([sessionSchema, disambiguationSchema]);
 
+const staffPassword = z
+  .string()
+  .min(10, 'استخدم 10 أحرف على الأقل لحسابات الموظفين')
+  .max(200);
+
 export const createStaffUserSchema = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(10, 'استخدم 10 أحرف على الأقل لحسابات الموظفين'),
-  firstName: z.string().trim().min(2),
-  lastName: z.string().trim().min(2),
+  email: z.string().trim().toLowerCase().email('البريد الإلكتروني غير صالح'),
+  password: staffPassword,
+  firstName: z.string().trim().min(2, 'الاسم قصير جداً').max(60),
+  lastName: z.string().trim().min(2, 'الشهرة قصيرة جداً').max(60),
   role: staffRoleSchema,
 });
+
+/**
+ * Editing an existing account. Every field optional — a rename should not
+ * require re-entering a password, and `password` absent means "leave the
+ * current one alone" rather than "clear it".
+ */
+export const updateStaffUserSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email('البريد الإلكتروني غير صالح').optional(),
+    password: staffPassword.optional(),
+    firstName: z.string().trim().min(2, 'الاسم قصير جداً').max(60).optional(),
+    lastName: z.string().trim().min(2, 'الشهرة قصيرة جداً').max(60).optional(),
+    role: staffRoleSchema.optional(),
+  })
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: 'لا يوجد ما يتم تحديثه',
+  });
+
+/**
+ * The confirm-password check, shared so the form and any future server-side
+ * form handler agree on it. Deliberately *not* part of the wire schemas above:
+ * a confirmation field is a typo guard for whoever is typing, and sending it
+ * to the server would only ask the server to trust the same value twice.
+ */
+export const staffPasswordPairSchema = z
+  .object({ password: staffPassword, confirmPassword: z.string() })
+  .refine((data) => data.password === data.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'كلمتا المرور غير متطابقتين',
+  });
+
+export const staffActiveSchema = z.object({ isActive: z.boolean() });

@@ -8,12 +8,20 @@ import type {
   PropertyType,
   ReportStatus,
   ResidentStatus,
+  StaffRole,
   UnitType,
 } from './enums';
 
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
   gender: { MALE: 'ذكر', FEMALE: 'أنثى' } satisfies Record<Gender, string>,
+
+  /** Staff roles as the municipality names them, not as the enum spells them. */
+  staffRole: {
+    SUPER_ADMIN: 'مدير النظام',
+    AUDITOR: 'مدقّق',
+    FIELD_INSPECTOR: 'مفتّش ميداني',
+  } satisfies Record<StaffRole, string>,
 
   residentStatus: {
     REFUGEE: 'لاجئ',
