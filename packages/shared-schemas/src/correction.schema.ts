@@ -64,6 +64,7 @@ export const CORRECTABLE_FIELDS = [
 
 export type CorrectableField = (typeof CORRECTABLE_FIELDS)[number];
 
+/** Whether a flagged field can be repaired from the correction form at all. */
 export function isCorrectable(field: string): field is CorrectableField {
   return (CORRECTABLE_FIELDS as readonly string[]).includes(field);
 }

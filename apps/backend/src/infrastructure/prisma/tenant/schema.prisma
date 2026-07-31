@@ -110,6 +110,10 @@ model User {
 
   registrations         Registration[]
   reviewedRegistrations Registration[] @relation("ReviewedBy")
+  payments              CitizenPayment[]
+  reviewedPayments      CitizenPayment[] @relation("PaymentReviewedBy")
+  targetedFeeNotices    FeeNotice[]      @relation("FeeTargetCitizen")
+  issuedFeeNotices      FeeNotice[]      @relation("FeeIssuedBy")
 
   /// Staff email is unique within the municipality (i.e. within this schema).
   @@unique([email])
@@ -429,4 +433,148 @@ model AuditLogEntry {
   @@index([actorId])
   @@index([entityType, entityId])
   @@map("audit_log_entries")
+}
+
+// ──────────────────────────  Fees & payments  ──────────────────────────
+
+/// Municipality-wide configuration a clerk can change without a deploy.
+///
+/// A single row per tenant, enforced by `singleton` rather than by convention:
+/// two rows would mean two Whish numbers, and the citizen portal would have no
+/// way to know which one to print on the payment instructions.
+model SystemSettings {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Guaranteed unique, so `upsert` always targets the same row.
+  singleton Boolean @unique @default(true)
+
+  /// The number citizens transfer to. Nullable because a municipality that has
+  /// not set one yet must not have the portal invent a plausible-looking one —
+  /// the Whish option is hidden instead.
+  whishMoneyNumber String?
+
+  /// Shown beside the "pay at the municipality" option. Free text: opening
+  /// hours are a local arrangement, not something to model.
+  cashOfficeHours   String?
+  cashOfficeAddress String?
+
+  updatedAt   DateTime @updatedAt
+  updatedById String?  @db.Uuid
+
+  @@map("system_settings")
+}
+
+enum FeeFrequency {
+  ONCE
+  MONTHLY
+  HALF_YEARLY
+  ANNUALLY
+}
+
+enum FeeTargetType {
+  ALL_CITIZENS
+  BUILDING_CATEGORY
+  INDIVIDUAL_CITIZEN
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING_REVIEW
+  PAID
+  OVERDUE
+}
+
+enum PaymentMethod {
+  CASH
+  WHISH_MONEY
+}
+
+/// The rule an administrator writes once: "500,000 LBP of رسم النفايات, every
+/// month, for every resident". Issuing it fans out into one `CitizenPayment`
+/// per matching citizen — this row is the template, never the debt.
+model FeeNotice {
+  id       String  @id @default(uuid()) @db.Uuid
+  title    String
+  amount   Decimal @db.Decimal(14, 2)
+  currency String  @default("LBP")
+
+  frequency  FeeFrequency
+  targetType FeeTargetType
+
+  /// For BUILDING_CATEGORY: a `PropertyType` or `UnitType` value, kept as text
+  /// because it spans two enums and neither owns the other.
+  targetCategory  String?
+  targetCitizenId String? @db.Uuid
+  targetCitizen   User?   @relation("FeeTargetCitizen", fields: [targetCitizenId], references: [id])
+
+  dueDate DateTime
+  /// Shown to the citizen above the payment options.
+  instructions String?
+
+  /// Whether the recurring biller still re-issues this notice each period.
+  /// A recurring charge with no off switch would bill a municipality's
+  /// residents forever; stopping it leaves every invoice already raised
+  /// exactly as it stands.
+  isActive Boolean @default(true)
+
+  issuedById String? @db.Uuid
+  issuedBy   User?   @relation("FeeIssuedBy", fields: [issuedById], references: [id])
+
+  createdAt DateTime         @default(now())
+  payments  CitizenPayment[]
+
+  @@index([targetType])
+  @@map("fee_notices")
+}
+
+/// One citizen's debt. Denormalises `title`/`amount` off the notice on purpose:
+/// a clerk correcting next month's fee must not silently rewrite what someone
+/// already paid last month.
+model CitizenPayment {
+  id        String @id @default(uuid()) @db.Uuid
+  citizenId String @db.Uuid
+  citizen   User   @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+
+  /// Null for a one-off charge raised directly against a citizen.
+  feeNoticeId String?    @db.Uuid
+  feeNotice   FeeNotice? @relation(fields: [feeNoticeId], references: [id], onDelete: SetNull)
+
+  title    String
+  amount   Decimal  @db.Decimal(14, 2)
+  currency String   @default("LBP")
+  dueDate  DateTime
+
+  paymentStatus PaymentStatus  @default(UNPAID)
+  paymentMethod PaymentMethod?
+
+  /// What the citizen typed off their Whish receipt. Not verified by us — a
+  /// clerk confirms it against the municipality's own account, which is the
+  /// whole reason PENDING_REVIEW exists between UNPAID and PAID.
+  whishTransactionRef String?
+  receiptPath         String?
+
+  paidAt       DateTime?
+  reviewedById String?   @db.Uuid
+  reviewedBy   User?     @relation("PaymentReviewedBy", fields: [reviewedById], references: [id])
+  /// Why a clerk sent a claimed payment back to UNPAID.
+  reviewNote String?
+
+  /// Which billing period this invoice covers: `2026-07`, `2026-H2`, `2026`,
+  /// or `ONCE`. Written rather than derived so the uniqueness below is a
+  /// database guarantee — the recurring job's safety against double-billing
+  /// cannot depend on it remembering to check first.
+  periodKey String @default("ONCE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The portal's main read: this citizen's outstanding balance.
+  @@index([citizenId, paymentStatus])
+  /// The admin queue: what is awaiting verification, oldest first.
+  @@index([paymentStatus, dueDate])
+  /// One invoice per citizen, per notice, **per period**. Re-running July's
+  /// billing is a no-op; August's is a new row. Without the period the
+  /// monthly fee could only ever be charged once.
+  @@unique([citizenId, feeNoticeId, periodKey])
+  @@map("citizen_payments")
 }

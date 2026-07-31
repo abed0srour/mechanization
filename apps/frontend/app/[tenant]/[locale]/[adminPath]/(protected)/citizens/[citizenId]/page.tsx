@@ -817,6 +817,7 @@ function FactSection({
   );
 }
 
+/** Small icon + label heading used inside a property or attachment block. */
 function SubHeading({
   icon: Icon,
   children,
@@ -832,6 +833,7 @@ function SubHeading({
   );
 }
 
+/** Click-to-call, kept LTR so the number is not mirrored in an RTL page. */
 function PhoneLink({ phone }: { phone: string }) {
   return (
     <a href={`tel:${phone}`} dir="ltr" className="font-medium text-primary hover:underline">

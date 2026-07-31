@@ -14,6 +14,7 @@ interface FieldReview {
 
 const FieldReviewContext = createContext<FieldReview | null>(null);
 
+/** Wrap the review screen in this to make its values flaggable. */
 export const FieldReviewProvider = FieldReviewContext.Provider;
 
 /**

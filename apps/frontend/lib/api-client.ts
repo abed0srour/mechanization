@@ -99,6 +99,10 @@ export interface PublicTenantConfig {
   supportPhone?: string;
 }
 
+/**
+ * The municipality's public branding and enabled property types.
+ * Unauthenticated — it renders the citizen wizard before anyone signs in.
+ */
 export function getTenantConfig(tenant: string) {
   return apiFetch<PublicTenantConfig>(tenant, '/tenant/config');
 }
@@ -157,9 +161,15 @@ export type VerifyOtpResponse =
   | Session
   | { status: 'CHOOSE_PROFILE'; phone: string; choices: CitizenChoice[] };
 
+/**
+ * Issues a login code. `attempt` is the resend counter: from the second
+ * the server switches SMS route rather than retrying the one that failed.
+ */
 export function requestOtp(tenant: string, phone: string, attempt: number) {
   return apiFetch<{
     sent: boolean;
+    /** False when the server has OTP switched off — skip straight to sign-in. */
+    otpRequired: boolean;
     channel: string;
     expiresAt: string;
     resendAvailableAt: string;
@@ -170,7 +180,14 @@ export function requestOtp(tenant: string, phone: string, attempt: number) {
   });
 }
 
-export function verifyOtp(tenant: string, input: { phone: string; code: string; citizenId?: string }) {
+/**
+ * Exchanges the code for a session, or for a profile choice when one
+ * phone belongs to several household members.
+ */
+export function verifyOtp(
+  tenant: string,
+  input: { phone: string; code?: string; citizenId?: string },
+) {
   return apiFetch<VerifyOtpResponse>(tenant, '/auth/citizen/otp/verify', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -179,6 +196,10 @@ export function verifyOtp(tenant: string, input: { phone: string; code: string; 
 
 export type StaffLoginResponse = Session | { status: 'TOTP_REQUIRED' };
 
+/**
+ * Staff sign-in. Comes back with `TOTP_REQUIRED` instead of a session
+ * when the account is a SUPER_ADMIN that has not sent its second factor.
+ */
 export function loginStaff(
   tenant: string,
   input: { email: string; password: string; totpToken?: string; remember?: boolean },
@@ -210,10 +231,12 @@ export interface RegistrationListItem {
   revisitAt: string | null;
 }
 
+/** The signed-in citizen's own submissions, for متابعة طلبي. */
 export function listMyRegistrations(tenant: string, token: string) {
   return apiFetch<{ items: RegistrationListItem[] }>(tenant, '/registrations/mine', { token });
 }
 
+/** The staff review queue, newest first. `status` narrows it to one state. */
 export function listForReview(
   tenant: string,
   token: string,
@@ -239,6 +262,7 @@ export interface DashboardCounters {
   submittedLast7Days: number;
 }
 
+/** Headline totals for the dashboard cards. Cached server-side. */
 export function getDashboardCounters(tenant: string, token: string) {
   return apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token });
 }
@@ -270,6 +294,10 @@ export interface RegisteredParcel {
   registrants: ParcelRegistrant[];
 }
 
+/**
+ * Parcels that have at least one registration, grouped for the map — one
+ * marker per cadastral number, with everyone registered on it.
+ */
 export function getRegisteredParcels(tenant: string, token: string) {
   return apiFetch<{ parcels: RegisteredParcel[] }>(tenant, '/dashboard/map/parcels', { token });
 }
@@ -301,14 +329,17 @@ export interface ZoneWriteInput {
   parcelNumbers: string[];
 }
 
+/** Every sector with its parcel count, for the list and the map legend. */
 export function getZones(tenant: string, token: string) {
   return apiFetch<{ zones: ZoneSummary[] }>(tenant, '/zones', { token });
 }
 
+/** One sector including the parcel numbers it owns, for the editor. */
 export function getZone(tenant: string, token: string, id: string) {
   return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, { token });
 }
 
+/** SUPER_ADMIN only, server-enforced. */
 export function createZone(tenant: string, token: string, input: ZoneWriteInput) {
   return apiFetch<ZoneDetail>(tenant, '/zones', {
     token,
@@ -317,6 +348,7 @@ export function createZone(tenant: string, token: string, input: ZoneWriteInput)
   });
 }
 
+/** SUPER_ADMIN only. Omitted fields are left as they are. */
 export function updateZone(
   tenant: string,
   token: string,
@@ -330,6 +362,7 @@ export function updateZone(
   });
 }
 
+/** SUPER_ADMIN only. Releases the sector's parcels rather than altering them. */
 export function deleteZone(tenant: string, token: string, id: string) {
   return apiFetch<{ deleted: boolean }>(tenant, `/zones/${encodeURIComponent(id)}`, {
     token,
@@ -422,6 +455,10 @@ export interface CitizenProfile {
   registrations: CitizenProfileRegistration[];
 }
 
+/**
+ * One citizen and everything they have filed. Staff-only: the response
+ * carries identity-document numbers and residency status.
+ */
 export function getCitizenProfile(tenant: string, token: string, citizenId: string) {
   return apiFetch<CitizenProfile>(tenant, `/citizens/${encodeURIComponent(citizenId)}`, { token });
 }
@@ -451,10 +488,15 @@ export interface StaffSummary {
   lastLoginAt: string | null;
 }
 
+/** Every staff account with the history count that gates a permanent delete. */
 export function getStaff(tenant: string, token: string) {
   return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token });
 }
 
+/**
+ * Creates an account. `confirmPassword` is deliberately not sent — it is a
+ * typo guard for whoever is typing, not something the server can verify.
+ */
 export function createStaff(
   tenant: string,
   token: string,
@@ -473,6 +515,7 @@ export function createStaff(
   });
 }
 
+/** Partial update. An omitted `password` leaves the current one alone. */
 export function updateStaff(
   tenant: string,
   token: string,
@@ -572,6 +615,10 @@ export interface CorrectionContext {
   properties: Array<Record<string, unknown>>;
 }
 
+/**
+ * The reviewer's note, the flagged fields, and the values behind them.
+ * Scoped to the signed-in citizen server-side.
+ */
 export function getCorrection(tenant: string, token: string, registrationId: string) {
   return apiFetch<CorrectionContext>(
     tenant,
@@ -580,6 +627,10 @@ export function getCorrection(tenant: string, token: string, registrationId: str
   );
 }
 
+/**
+ * Sends corrected values and returns the claim to the review queue. The
+ * server ignores any field the reviewer did not flag.
+ */
 export function submitCorrection(
   tenant: string,
   token: string,
@@ -597,6 +648,10 @@ export function submitCorrection(
   );
 }
 
+/**
+ * Moves a claim through the review lifecycle. Rejection additionally carries
+ * the reviewer's note and the fields they flagged.
+ */
 export function changeRegistrationStatus(
   tenant: string,
   token: string,
@@ -613,5 +668,259 @@ export function changeRegistrationStatus(
     tenant,
     `/registrations/${id}/status`,
     { method: 'PATCH', token, body: JSON.stringify(body) },
+  );
+}
+
+// ─────────────────────────  Fees & payments  ─────────────────────────
+
+export interface MunicipalitySettings {
+  whishMoneyNumber: string | null;
+  cashOfficeHours: string | null;
+  cashOfficeAddress: string | null;
+  updatedAt: string | null;
+}
+
+/** Readable by any signed-in user — the portal prints these on the pay modal. */
+export function getMunicipalitySettings(tenant: string, token: string) {
+  return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', { token });
+}
+
+/** SUPER_ADMIN only, server-enforced. */
+export function updateMunicipalitySettings(
+  tenant: string,
+  token: string,
+  input: {
+    whishMoneyNumber?: string;
+    cashOfficeHours?: string;
+    cashOfficeAddress?: string;
+  },
+) {
+  return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface FeeNoticeSummary {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  frequency: string;
+  targetType: string;
+  targetCategory: string | null;
+  targetCitizenName: string | null;
+  dueDate: string;
+  instructions: string | null;
+  /** How many citizens this notice actually billed. */
+  issuedCount: number;
+  /** False stops the recurring biller re-issuing it each period. */
+  isActive: boolean;
+  createdAt: string;
+}
+
+export function getFeeNotices(tenant: string, token: string) {
+  return apiFetch<{ items: FeeNoticeSummary[] }>(tenant, '/fees/notices', { token });
+}
+
+/** Writes the rule and bills every matching citizen in one transaction. */
+export function issueFeeNotice(
+  tenant: string,
+  token: string,
+  input: {
+    title: string;
+    amount: number;
+    frequency: string;
+    targetType: string;
+    targetCategory?: string;
+    targetCitizenId?: string;
+    dueDate: string;
+    instructions?: string;
+  },
+) {
+  return apiFetch<{ noticeId: string; issued: number }>(tenant, '/fees/notices', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface FeeSummary {
+  unpaidTotal: number;
+  unpaidCount: number;
+  pendingReviewCount: number;
+  paidTotal: number;
+  paidCount: number;
+}
+
+export function getFeeSummary(tenant: string, token: string) {
+  return apiFetch<FeeSummary>(tenant, '/fees/summary', { token });
+}
+
+export interface PendingPayment {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  paymentMethod: string | null;
+  whishTransactionRef: string | null;
+  citizenId: string;
+  citizenName: string;
+  citizenPhone: string | null;
+  citizenReference: string | null;
+}
+
+/** The clerk's queue: money claimed but not yet confirmed. */
+export function getPendingPayments(tenant: string, token: string) {
+  return apiFetch<{ items: PendingPayment[] }>(tenant, '/fees/payments/pending', { token });
+}
+
+export function reviewPayment(
+  tenant: string,
+  token: string,
+  id: string,
+  input: { confirmed: boolean; note?: string },
+) {
+  return apiFetch<{ paymentStatus: string }>(
+    tenant,
+    `/fees/payments/${encodeURIComponent(id)}/review`,
+    { token, method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export interface CitizenPaymentItem {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  /** `OVERDUE` is derived server-side from the due date, never stored. */
+  paymentStatus: string;
+  paymentMethod: string | null;
+  whishTransactionRef: string | null;
+  paidAt: string | null;
+  reviewNote: string | null;
+  frequency: string | null;
+}
+
+/** The signed-in citizen's own bills. */
+export function getMyPayments(tenant: string, token: string) {
+  return apiFetch<{ items: CitizenPaymentItem[] }>(tenant, '/fees/payments/mine', { token });
+}
+
+/** Declares a payment — moves it to PENDING_REVIEW, never straight to PAID. */
+export function declarePayment(
+  tenant: string,
+  token: string,
+  id: string,
+  input: { method: string; whishTransactionRef?: string },
+) {
+  return apiFetch<{ paymentStatus: string }>(
+    tenant,
+    `/fees/payments/mine/${encodeURIComponent(id)}/declare`,
+    { token, method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+/**
+ * Citizen sign-in by رقم مرجعي + phone. Both are required — see the note on
+ * `IdentityService.loginByReference`.
+ */
+export function loginByReference(
+  tenant: string,
+  input: { referenceNumber: string; phone: string },
+) {
+  return apiFetch<Session>(tenant, '/auth/citizen/reference/login', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** One invoice as the admin ledger shows it — who owes it, and where it stands. */
+export interface AdminPaymentItem {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  paymentStatus: string;
+  paymentMethod: string | null;
+  whishTransactionRef: string | null;
+  paidAt: string | null;
+  frequency: string | null;
+  citizenId: string;
+  citizenName: string;
+  citizenPhone: string | null;
+  citizenReference: string | null;
+}
+
+/** Every invoice, filterable by status and by who owes it. */
+export function getAllPayments(
+  tenant: string,
+  token: string,
+  filter: { status?: string; search?: string } = {},
+) {
+  const query = new URLSearchParams();
+  if (filter.status) query.set('status', filter.status);
+  if (filter.search) query.set('search', filter.search);
+  const suffix = query.toString() ? `?${query}` : '';
+  return apiFetch<{ items: AdminPaymentItem[] }>(tenant, `/fees/payments${suffix}`, { token });
+}
+
+/** A one-off charge against a single citizen — no notice, no recurrence. */
+export function chargeCitizen(
+  tenant: string,
+  token: string,
+  input: { citizenId: string; title: string; amount: number; dueDate: string },
+) {
+  return apiFetch<{ id: string }>(tenant, '/fees/payments', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Records money handed over in person. Goes straight to PAID — the clerk
+ * confirming it is the clerk who took it.
+ */
+export function settlePayment(
+  tenant: string,
+  token: string,
+  id: string,
+  input: { method?: string; note?: string } = {},
+) {
+  return apiFetch<{ paymentStatus: string }>(
+    tenant,
+    `/fees/payments/${encodeURIComponent(id)}/settle`,
+    { token, method: 'PATCH', body: JSON.stringify({ method: 'CASH', ...input }) },
+  );
+}
+
+/**
+ * Runs the recurring biller now instead of waiting for the nightly cron.
+ * Idempotent within a period — pressing it twice yields 0 new invoices.
+ */
+export function runRecurringBilling(tenant: string, token: string) {
+  return apiFetch<{ tenants: number; invoicesCreated: number }>(
+    tenant,
+    '/fees/recurring/run',
+    { token, method: 'POST' },
+  );
+}
+
+/** Stops or resumes the recurring biller for one notice. */
+export function setNoticeActive(
+  tenant: string,
+  token: string,
+  id: string,
+  isActive: boolean,
+) {
+  return apiFetch<{ isActive: boolean }>(
+    tenant,
+    `/fees/notices/${encodeURIComponent(id)}/active`,
+    { token, method: 'PATCH', body: JSON.stringify({ isActive }) },
   );
 }

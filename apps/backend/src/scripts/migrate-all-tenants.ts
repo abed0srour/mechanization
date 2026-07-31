@@ -15,6 +15,7 @@ import { Client } from 'pg';
 import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
 import { migrateTenantSchema } from '../infrastructure/prisma/tenant-migrator';
 
+/** Applies pending migrations to every provisioned schema, sequentially. */
 export async function migrateAllTenants(): Promise<void> {
   const registry = new RegistryPrismaClient();
   const ddl = new Client({

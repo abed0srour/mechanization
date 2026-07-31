@@ -31,17 +31,31 @@ export interface CitizenChoice {
 }
 
 export interface UserRepository {
+  /** Case-insensitive; staff only, so a citizen row can never satisfy a login. */
   findStaffByEmail(email: string): Promise<User | null>;
+  /** Either kind of user. Callers check `kind` before trusting the result. */
   findById(id: string): Promise<User | null>;
+  /** Everyone reachable on one number — a household shares a phone. */
   findCitizensByPhone(phone: string): Promise<CitizenChoice[]>;
+
+  /**
+   * By رقم مرجعي, for the portal's reference-number sign-in. Returns the whole
+   * user because the caller still has to match the phone on file before it
+   * will issue a session.
+   */
+  findCitizenByReference(referenceNumber: string): Promise<User | null>;
 
   /** Upserts on (identityDocType, identityDocNumber) — the household-safe key. */
   upsertCitizen(input: CitizenIdentityInput, referenceNumber: string): Promise<string>;
 
+  /** Stamps `lastLoginAt`, which the staff list surfaces as dormancy. */
   markLoggedIn(userId: string): Promise<void>;
+  /** Stores an unconfirmed secret; `confirmTotp` is what activates it. */
   saveTotpSecret(userId: string, secret: string): Promise<void>;
+  /** Marks enrolment complete once the admin has proved the app works. */
   confirmTotp(userId: string): Promise<void>;
 
+  /** Every staff account with the history count that gates a hard delete. */
   listStaff(): Promise<StaffSummary[]>;
 
   createStaff(input: {

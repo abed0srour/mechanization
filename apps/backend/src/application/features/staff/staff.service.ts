@@ -34,6 +34,10 @@ export class StaffService {
     private readonly events: EventEmitter2,
   ) {}
 
+  /**
+   * Every staff account, each with the history count that decides whether a
+   * permanent delete may be offered.
+   */
   list(): Promise<StaffSummary[]> {
     return this.users.listStaff();
   }

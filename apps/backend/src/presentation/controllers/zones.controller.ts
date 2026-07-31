@@ -20,7 +20,10 @@ import type { SessionClaims } from '../../application/features/identity/identity
 export class ZonesController {
   constructor(private readonly zones: ZonesService) {}
 
-  /** Reading sectors is part of reading the map, so every staff role may. */
+  /**
+   * Every sector with its parcel count. Reading sectors is part of reading
+   * the map, so every staff role may.
+   */
   @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
   @Get()
   async list() {

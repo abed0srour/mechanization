@@ -5,6 +5,7 @@ export * from './citizen.schema';
 export * from './property.schema';
 export * from './registration.schema';
 export * from './correction.schema';
+export * from './fee.schema';
 export * from './auth.schema';
 export * from './tenant.schema';
 export * from './zone.schema';

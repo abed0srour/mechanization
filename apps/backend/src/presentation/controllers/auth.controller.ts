@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import {
+  referenceLoginSchema,
   requestOtpSchema,
   staffLoginSchema,
   totpEnrolmentSchema,
@@ -96,6 +97,14 @@ export class AuthController {
       // Never echo whether the phone is known — that would turn this endpoint
       // into a way to test which numbers have registered with the municipality.
       sent: true,
+      /**
+       * Whether the login page should ask for a code at all. Reported rather
+       * than assumed by the client: the switch lives in the server's
+       * environment, and a page guessing wrong either strands the citizen on a
+       * code screen no SMS will ever answer, or skips a step that is still
+       * enforced.
+       */
+      otpRequired: this.identity.otpRequired,
       channel: result.channel,
       expiresAt: result.expiresAt.toISOString(),
       resendAvailableAt: result.resendAvailableAt.toISOString(),
@@ -108,7 +117,7 @@ export class AuthController {
   async verifyOtp(
     @Param('tenantSlug') tenantSlug: string,
     @Body(new ZodValidationPipe(verifyOtpSchema))
-    body: { phone: string; code: string; citizenId?: string },
+    body: { phone: string; code?: string; citizenId?: string },
     @Req() request: Request,
   ) {
     return this.identity.verifyOtp({
@@ -116,6 +125,34 @@ export class AuthController {
       phone: body.phone,
       code: body.code,
       citizenId: body.citizenId,
+      context: { ip: request.ip, userAgent: request.header('user-agent') },
+    });
+  }
+
+  /**
+   * Sign-in by رقم مرجعي + phone, for the payments portal.
+   *
+   * Rate-limited like the staff login rather than like the OTP request: this
+   * one *is* the credential check, so it is the endpoint worth guessing at.
+   */
+  @Public()
+  @Post('citizen/reference/login')
+  @Throttle({
+    default: {
+      limit: APP_CONFIG.throttle.staffLogin.limit,
+      ttl: APP_CONFIG.throttle.staffLogin.ttlSeconds * 1000,
+    },
+  })
+  async loginByReference(
+    @Param('tenantSlug') tenantSlug: string,
+    @Body(new ZodValidationPipe(referenceLoginSchema))
+    body: { referenceNumber: string; phone: string },
+    @Req() request: Request,
+  ) {
+    return this.identity.loginByReference({
+      tenantSlug,
+      referenceNumber: body.referenceNumber,
+      phone: body.phone,
       context: { ip: request.ip, userAgent: request.header('user-agent') },
     });
   }

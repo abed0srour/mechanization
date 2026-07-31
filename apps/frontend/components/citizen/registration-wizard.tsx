@@ -41,11 +41,13 @@ function validatePersonalStep(personal: Record<string, unknown>): Record<string,
   return result.success ? {} : fieldErrorsFrom(result.error, 'personal');
 }
 
+/** Step 2 against the shared contact schema. */
 function validateContactStep(contact: Record<string, unknown>): Record<string, string> {
   const result = contactDetailsSchema.safeParse(contact);
   return result.success ? {} : fieldErrorsFrom(result.error, 'contact');
 }
 
+/** Step 3–4 against the shared property schema. */
 function validatePropertiesStep(properties: PropertyDraft[]): Record<string, string> {
   // The same transform handleSubmit applies before sending the payload —
   // reusing it is what keeps a numeric string like unitArea validating the
@@ -572,6 +574,7 @@ function slotTypeFor(field: string): string {
   return 'EXTRA_PHOTO';
 }
 
+/** `proof-2` -> 2. Which property card a file belongs to, or undefined. */
 function slotPropertyIndex(field: string): number | undefined {
   const match = field.match(/-(\d+)$/);
   return match ? Number(match[1]) : undefined;
@@ -590,6 +593,7 @@ function toPayloadProperty(property: PropertyDraft): Record<string, unknown> {
   };
 }
 
+/** Coerces one building unit's numeric strings for the wire. */
 function toPayloadUnit(unit: UnitDraft): Record<string, unknown> {
   const { unitArea, ...rest } = unit;
   return {
