@@ -12,9 +12,9 @@
  */
 import { randomBytes } from 'node:crypto';
 import { Client } from 'pg';
-import { PrismaClient as RegistryPrismaClient } from '../../generated/registry-client';
-import { TenantSlug } from '../../domain/value-objects/tenant-slug.vo';
-import { migrateTenantSchema } from './tenant-migrator';
+import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
+import { TenantSlug } from '../domain/value-objects/tenant-slug.vo';
+import { migrateTenantSchema } from '../infrastructure/prisma/tenant-migrator';
 
 interface Args {
   slug: string;

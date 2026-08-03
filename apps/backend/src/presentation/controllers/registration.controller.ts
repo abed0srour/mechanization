@@ -13,6 +13,7 @@ import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import {
   changeStatusSchema,
+  correctionSchema,
   submitRegistrationSchema,
 } from '@mechanization/shared-schemas';
 import { RegistrationService } from '../../application/features/registration/registration.service';
@@ -137,6 +138,44 @@ export class RegistrationController {
     };
   }
 
+  /**
+   * The correction form's data: the reviewer's note, the flags, and the
+   * current values behind them.
+   *
+   * Scoped to `user.sub` all the way down into the WHERE clause — this returns
+   * identity-document numbers, so "is it mine" is answered by the query rather
+   * than by a check the next refactor could drop.
+   */
+  @Get('mine/:id/correction')
+  async getCorrection(@CurrentUser() user: SessionClaims, @Param('id') id: string) {
+    return this.registrations.getCorrectionContext(id, user.sub);
+  }
+
+  /** Submits those corrections and puts the claim back in the review queue. */
+  @Patch('mine/:id/correction')
+  async submitCorrection(
+    @Param('tenantSlug') tenantSlug: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(correctionSchema))
+    body: {
+      personal?: Record<string, unknown>;
+      contact?: Record<string, unknown>;
+      properties?: Array<{ id: string } & Record<string, unknown>>;
+    },
+    @CurrentUser() user: SessionClaims,
+  ) {
+    const transition = await this.registrations.applyCorrection({
+      tenantSlug,
+      registrationId: id,
+      citizenId: user.sub,
+      personal: body.personal ?? {},
+      contact: body.contact ?? {},
+      properties: body.properties ?? [],
+    });
+
+    return { registrationId: id, ...transition };
+  }
+
   // ──────────────────────────  Staff views  ──────────────────────────
 
   @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
@@ -177,7 +216,13 @@ export class RegistrationController {
     @Param('tenantSlug') tenantSlug: string,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(changeStatusSchema))
-    body: { status: string; reason?: string },
+    body: {
+      status: string;
+      reason?: string;
+      rejectedFields?: string[];
+      allowCitizenCorrection?: boolean;
+      revisitAt?: string;
+    },
     @CurrentUser() user: SessionClaims,
   ) {
     const transition = await this.registrations.changeStatus({
@@ -185,6 +230,9 @@ export class RegistrationController {
       registrationId: id,
       status: body.status as never,
       reason: body.reason,
+      rejectedFields: body.rejectedFields,
+      allowCitizenCorrection: body.allowCitizenCorrection,
+      revisitAt: body.revisitAt,
       actor: { id: user.sub, role: user.role ?? '' },
     });
 

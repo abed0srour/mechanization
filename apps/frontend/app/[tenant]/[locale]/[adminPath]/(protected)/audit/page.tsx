@@ -1,15 +1,14 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { ArrowRight, History, ShieldCheck } from 'lucide-react';
+import { History, ShieldCheck } from 'lucide-react';
 import { ApiRequestError, getAuditLog, logApiError } from '@/lib/api-client';
 import type { AuditEntry, Session } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import {
@@ -20,16 +19,37 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-const ENTITY_TYPES = ['Registration', 'Document', 'User'] as const;
+/** Exactly the values `AuditService` records — a filter option that matches
+ *  nothing reads as a broken page, not an empty result. */
+const ENTITY_TYPES = ['Registration', 'Document', 'User', 'Zone', 'Parcel'] as const;
+
+const ENTITY_LABELS: Record<string, string> = {
+  Registration: 'طلب',
+  Document: 'مرفق',
+  User: 'مستخدم',
+  Zone: 'قطاع',
+  Parcel: 'عقار',
+};
 const ALL_ENTITY_TYPES = 'ALL';
 
 const ACTION_LABELS: Record<string, string> = {
   REGISTRATION_SUBMITTED: 'تقديم طلب',
+  REGISTRATION_RESUBMITTED: 'إعادة تقديم بعد التصحيح',
   STATUS_CHANGE: 'تغيير حالة',
   LOGIN: 'تسجيل دخول',
   DOCUMENT_VIEW: 'فتح مرفق',
   CSV_EXPORT: 'تصدير CSV',
   CADASTRE_IMPORT: 'استيراد خريطة',
+  STAFF_CREATED: 'إنشاء حساب موظف',
+  STAFF_UPDATED: 'تعديل حساب موظف',
+  STAFF_DEACTIVATED: 'إلغاء تفعيل موظف',
+  STAFF_REACTIVATED: 'إعادة تفعيل موظف',
+  STAFF_DELETED: 'حذف حساب موظف',
+  TOTP_ENROLLED: 'تسجيل تحقق ثنائي',
+  TOTP_CONFIRMED: 'تأكيد التحقق الثنائي',
+  ZONE_CREATED: 'إنشاء قطاع',
+  ZONE_UPDATED: 'تعديل قطاع',
+  ZONE_DELETED: 'حذف قطاع',
 };
 
 const TABLE_LABELS: DataTableLabels = {
@@ -127,7 +147,9 @@ export default function AuditTrailPage({
             <Badge variant="secondary">
               {ACTION_LABELS[row.original.action] ?? row.original.action}
             </Badge>
-            <p className="text-xs text-muted-foreground">{row.original.entityType}</p>
+            <p className="text-xs text-muted-foreground">
+              {ENTITY_LABELS[row.original.entityType] ?? row.original.entityType}
+            </p>
           </div>
         ),
       },
@@ -173,20 +195,14 @@ export default function AuditTrailPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
-            <ShieldCheck className="size-7 text-primary" aria-hidden />
-            سجل النشاطات
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            كل إجراء إداري في النظام: الفعل، القائم به، وتوقيته
-          </p>
-        </div>
-        <Link href={`${base}/dashboard`} className={buttonVariants({ variant: 'outline' })}>
-          <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-          رجوع إلى اللوحة
-        </Link>
+      <div className="border-b pb-6">
+        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
+          <ShieldCheck className="size-7 text-primary" aria-hidden />
+          سجل النشاطات
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          كل إجراء إداري في النظام: الفعل، القائم به، وتوقيته
+        </p>
       </div>
 
       {error ? (
@@ -241,7 +257,7 @@ export default function AuditTrailPage({
                 <SelectItem value={ALL_ENTITY_TYPES}>كل الأنواع</SelectItem>
                 {ENTITY_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
-                    {type}
+                    {ENTITY_LABELS[type] ?? type}
                   </SelectItem>
                 ))}
               </SelectContent>

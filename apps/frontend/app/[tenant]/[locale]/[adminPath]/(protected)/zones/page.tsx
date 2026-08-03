@@ -2,9 +2,8 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2, Layers, Map as MapIcon, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Layers, Plus, Trash2, X } from 'lucide-react';
 import {
   ApiRequestError,
   createZone,
@@ -256,7 +255,7 @@ export default function ZonesPage({
   };
 
   return (
-    <main className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-lg font-bold">
@@ -267,29 +266,12 @@ export default function ZonesPage({
             قسّم عقارات البلدية إلى قطاعات إدارية على الخريطة
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {canEdit && !editorOpen ? (
-            <Button onClick={startNew}>
-              <Plus className="size-4" aria-hidden />
-              قطاع جديد
-            </Button>
-          ) : null}
-          {/* The way back to the ordinary map. Without it this screen is a
-              dead end that only the dashboard leads out of, even though staff
-              arrive here from the map far more often. */}
-          <Button asChild variant="outline">
-            <Link href={`${base}/map`}>
-              <MapIcon className="size-4" aria-hidden />
-              الخريطة العقارية
-            </Link>
+        {canEdit && !editorOpen ? (
+          <Button onClick={startNew}>
+            <Plus className="size-4" aria-hidden />
+            قطاع جديد
           </Button>
-          <Button asChild variant="outline">
-            <Link href={`${base}/dashboard`}>
-              <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-              رجوع إلى اللوحة
-            </Link>
-          </Button>
-        </div>
+        ) : null}
       </header>
 
       {error ? (
@@ -458,6 +440,6 @@ export default function ZonesPage({
         onSave={handleSave}
         onOpenChange={setModalOpen}
       />
-    </main>
+    </div>
   );
 }

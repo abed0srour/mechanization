@@ -112,6 +112,35 @@ export class Registration extends AggregateRoot {
     return { from, to: next };
   }
 
+  /**
+   * The citizen's answer to a rejection: corrected values, back into the queue.
+   *
+   * Deliberately not routed through `changeStatus`. REJECTED is terminal in
+   * ALLOWED_TRANSITIONS and stays that way — that table describes what a
+   * *reviewer* may do, and no reviewer should be able to un-reject a claim
+   * they or a colleague refused. This is a different actor exercising a
+   * different right, so it is a different method, and it is the only way back
+   * from REJECTED.
+   */
+  resubmit(correctedFields: string[]): { from: ReportStatus; to: ReportStatus } {
+    const from = this._status;
+
+    if (from !== 'REJECTED') {
+      throw new ConflictError('Only a rejected registration can be resubmitted');
+    }
+
+    this._status = 'PENDING';
+
+    this.record('registration.resubmitted', {
+      registrationId: this.id,
+      citizenId: this.citizenId,
+      referenceNumber: this.referenceNumber,
+      correctedFields,
+    });
+
+    return { from, to: 'PENDING' };
+  }
+
   /** What a reviewer may legally do next — drives the dashboard's buttons. */
   get allowedNextStatuses(): ReportStatus[] {
     return ALLOWED_TRANSITIONS[this._status];

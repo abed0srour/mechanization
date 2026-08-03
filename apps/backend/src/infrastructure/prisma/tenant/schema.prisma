@@ -160,6 +160,31 @@ model Registration {
   referenceNumber String  @unique
   rejectionReason String?
 
+  /// Which specific fields the reviewer flagged as wrong, as dot-paths the
+  /// applicant's form can resolve back to an input — `personal.firstName`, or
+  /// `property.0.propertyNumber` for a repeated card. Empty on a whole-claim
+  /// rejection, which stays a valid outcome: not every refusal is a
+  /// correctable mistake.
+  ///
+  /// Denormalised onto the registration rather than a join table because it
+  /// is read as one blob (render the applicant's form) and written as one
+  /// blob (the reviewer submits the whole set at once) — a row per flag would
+  /// buy queryability nothing here asks for.
+  rejectedFields  String[] @default([])
+
+  /// Whether the citizen may fix the flagged fields themselves.
+  ///
+  /// Default true: a wrong digit is a wrong digit, and making someone travel
+  /// to the municipality to change one is the outcome this system exists to
+  /// avoid. False is the deliberate exception — an original document has to be
+  /// seen, or an identity verified in person — and it turns the citizen's
+  /// correction form into an instruction to visit instead.
+  citizenCanCorrect Boolean @default(true)
+
+  /// Optional appointment for that visit. Only meaningful when
+  /// `citizenCanCorrect` is false; null there simply means "come when you can".
+  revisitAt DateTime?
+
   reviewedById String?   @db.Uuid
   reviewedBy   User?     @relation("ReviewedBy", fields: [reviewedById], references: [id])
   reviewedAt   DateTime?

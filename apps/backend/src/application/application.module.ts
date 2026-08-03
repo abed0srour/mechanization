@@ -10,6 +10,7 @@ import { OtpService } from './features/identity/otp.service';
 import { RegistrationService } from './features/registration/registration.service';
 import { ReportingService } from './features/reporting/reporting.service';
 import { TenantService } from './features/tenant/tenant.service';
+import { StaffService } from './features/staff/staff.service';
 import { ZonesService } from './features/zones/zones.service';
 
 /**
@@ -37,6 +38,7 @@ import { ZonesService } from './features/zones/zones.service';
     AuditService,
     ReportingService,
     CadastreImportService,
+    StaffService,
     ZonesService,
     OtpCleanupJob,
   ],
@@ -49,6 +51,7 @@ import { ZonesService } from './features/zones/zones.service';
     AuditService,
     ReportingService,
     CadastreImportService,
+    StaffService,
     ZonesService,
     JwtModule,
   ],

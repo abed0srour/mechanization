@@ -254,13 +254,19 @@ export function DataTable<TData, TValue = unknown>({
   const hasSearchTerm = committedSearch.trim().length > 0;
   const columnCount = columns.length;
 
+  // Varied bar widths, cycled deterministically by column. A grid of
+  // identical full-width bars reads as a broken layout; an uneven one reads
+  // as text that has not arrived yet, which is what this is.
   const skeletonRows = (
     <TableBody>
       {Array.from({ length: Math.min(pagination.pageSize, 8) }, (_, row) => (
-        <TableRow key={row}>
+        <TableRow key={row} className="hover:bg-transparent">
           {Array.from({ length: columnCount }, (_, col) => (
-            <TableCell key={col} className="py-4">
-              <div className="h-4 animate-pulse rounded bg-muted" />
+            <TableCell key={col}>
+              <div
+                className="h-4 animate-pulse rounded bg-muted"
+                style={{ width: `${[70, 90, 55, 80, 45, 65][(row + col) % 6]}%` }}
+              />
             </TableCell>
           ))}
         </TableRow>
@@ -321,9 +327,12 @@ export function DataTable<TData, TValue = unknown>({
           </p>
         </div>
       ) : (
+        // The single scroll container for both axes — `overflow-x` for a wide
+        // row of action buttons, `overflow-y` under `max-h` for a long page.
+        // `Table` deliberately adds no wrapper of its own; see table.tsx.
         <div className="max-h-[70vh] overflow-auto rounded-lg border">
           <Table>
-            <TableHeader className="sticky top-0 z-10 bg-muted/60 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/50">
+            <TableHeader className="sticky top-0 z-10 bg-muted/95 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/80">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id} className="hover:bg-transparent">
                   {headerGroup.headers.map((header) => {
@@ -383,7 +392,10 @@ export function DataTable<TData, TValue = unknown>({
                   <React.Fragment key={row.id}>
                     <TableRow
                       data-state={row.getIsExpanded() ? 'selected' : undefined}
-                      className={row.index % 2 === 1 ? 'bg-muted/25' : undefined}
+                      // Zebra stays on `muted` and hover on `primary` so the
+                      // two never compete on the same grey — hovering a
+                      // striped row is a hue change, not a shade nudge.
+                      className={row.index % 2 === 1 ? 'bg-muted/30' : undefined}
                     >
                       {row.getVisibleCells().map((cell) => (
                         <TableCell
@@ -409,8 +421,10 @@ export function DataTable<TData, TValue = unknown>({
         </div>
       )}
 
-      {/* Pagination + page-size footer */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Pagination + page-size footer. Bordered off from the table above it:
+          without the rule these controls float against the page and read as
+          part of the last row. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>{labels.rowsPerPage}</span>
           <Select

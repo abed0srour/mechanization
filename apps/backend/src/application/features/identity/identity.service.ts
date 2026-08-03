@@ -66,6 +66,8 @@ export class IdentityService {
     email: string;
     password: string;
     totpToken?: string;
+    /** "تذكّرني على هذا الجهاز" — issues JWT_STAFF_REMEMBER_TTL instead of JWT_STAFF_TTL. */
+    remember?: boolean;
     context: { ip?: string; userAgent?: string };
   }): Promise<SessionResult | { status: 'TOTP_REQUIRED' }> {
     const user = await this.users.findStaffByEmail(input.email.toLowerCase());
@@ -112,6 +114,7 @@ export class IdentityService {
       kind: 'STAFF',
       role: user.role,
       tenantSlug: input.tenantSlug,
+      remember: input.remember,
     });
   }
 
@@ -127,6 +130,17 @@ export class IdentityService {
 
     const secret = this.totp.generateSecret();
     await this.users.saveTotpSecret(user.id, secret);
+
+    // Recorded because issuing a new second factor is exactly the step an
+    // account takeover needs, and the trail is the only place that would show
+    // it happening. The secret itself is never part of the payload.
+    this.events.emit('staff.changed', {
+      action: 'TOTP_ENROLLED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
 
     return {
       secret,
@@ -145,6 +159,14 @@ export class IdentityService {
     }
 
     await this.users.confirmTotp(user.id);
+
+    this.events.emit('staff.changed', {
+      action: 'TOTP_CONFIRMED',
+      tenantSlug: user.tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
   }
 
   // ───────────────────────────  Citizens  ───────────────────────────
@@ -217,6 +239,8 @@ export class IdentityService {
     kind: 'STAFF' | 'CITIZEN';
     role?: StaffRole;
     tenantSlug: string;
+    /** STAFF only — see loginStaff. */
+    remember?: boolean;
   }): SessionResult {
     const claims: SessionClaims = {
       sub: input.id,
@@ -227,7 +251,10 @@ export class IdentityService {
 
     const expiresIn =
       input.kind === 'STAFF'
-        ? this.config.get<string>('JWT_STAFF_TTL', '12h')
+        ? this.config.get<string>(
+            input.remember ? 'JWT_STAFF_REMEMBER_TTL' : 'JWT_STAFF_TTL',
+            input.remember ? '30d' : '12h',
+          )
         : this.config.get<string>('JWT_CITIZEN_TTL', '7d');
 
     return {

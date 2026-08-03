@@ -49,6 +49,36 @@
     --font-display: 'Noto Kufi Arabic', system-ui;
     --font-body: 'IBM Plex Sans Arabic', system-ui;
   }
+
+  /**
+   * `darkMode: ['class']` in tailwind.config only switches which of these two
+   * blocks applies — it was set up with nothing to switch to until now.
+   * Same hues as `:root` (keeps the municipal blue and the warning/success
+   * additions recognisable), lightness inverted to the standard shadcn/ui
+   * slate dark palette, which is already tuned for contrast against a near-
+   * black background.
+   */
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --primary: 199 89% 45%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 199 89% 45%;
+    --warning: 32 95% 55%;
+    --success: 142 71% 40%;
+  }
 }
 
 @layer base {

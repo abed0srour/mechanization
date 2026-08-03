@@ -57,6 +57,19 @@ export default async function TenantLayout({
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@500;700&display=swap"
           rel="stylesheet"
         />
+        {/*
+          Applies the `dark` class before first paint — a `useEffect` in the
+          toggle component would run after hydration, showing light mode for
+          one frame on every load for a staff member who chose dark. Reads
+          the stored choice, falling back to the OS preference when nothing
+          has been chosen yet; must stay a plain string in sync with the key
+          `lib/theme.ts` uses, since this runs before any module does.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('mechanization.theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
+          }}
+        />
       </head>
       <body
         className="min-h-screen bg-muted/30 font-sans antialiased"

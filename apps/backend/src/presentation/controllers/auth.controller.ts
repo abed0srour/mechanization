@@ -42,7 +42,7 @@ export class AuthController {
   async loginStaff(
     @Param('tenantSlug') tenantSlug: string,
     @Body(new ZodValidationPipe(staffLoginSchema))
-    body: { email: string; password: string; totpToken?: string },
+    body: { email: string; password: string; totpToken?: string; remember?: boolean },
     @Req() request: Request,
   ) {
     return this.identity.loginStaff({
@@ -50,6 +50,7 @@ export class AuthController {
       email: body.email,
       password: body.password,
       totpToken: body.totpToken,
+      remember: body.remember,
       context: { ip: request.ip, userAgent: request.header('user-agent') },
     });
   }

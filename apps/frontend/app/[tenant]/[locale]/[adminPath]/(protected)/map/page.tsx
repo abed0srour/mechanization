@@ -1,10 +1,9 @@
 'use client';
 
-import { use, useEffect, useRef, useState } from 'react';
+import { use, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { ArrowRight, Layers, Loader2, Map as MapIcon, Upload } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Loader2, Map as MapIcon, Upload } from 'lucide-react';
 import {
   ApiRequestError,
   getRegisteredParcels,
@@ -35,14 +34,11 @@ const FullscreenMap = dynamic(
 );
 
 /**
- * `flex h-screen flex-col`: a header in normal flow, the map filling exactly
- * the remainder via `flex-1`. Copied from the sibling Mechanization project's
- * `/map` route rather than reached for independently — its map is proven to
- * render, and the map that used to live here (`position: fixed` inside the
- * citizen layout's `max-w-3xl` column) did not. A flex column that reaches
- * the viewport edge directly has no equivalent failure mode: there is no
- * ancestor `transform`/`filter` that can silently turn `fixed` into
- * "relative to some div" instead of "relative to the viewport".
+ * `flex h-full flex-col`: a header in normal flow, the map filling exactly
+ * the remainder via `flex-1`. `h-full` rather than `h-screen` because this
+ * page now renders inside the admin sidebar layout's own `h-screen` flex
+ * row — sizing to the viewport a second time here would just add a nested
+ * scrollbar instead of filling the space the layout already gave it.
  */
 export default function FullscreenMapPage({
   params,
@@ -56,6 +52,33 @@ export default function FullscreenMapPage({
   const [session, setSession] = useState<Session | null>(null);
   const [parcels, setParcels] = useState<RegisteredParcel[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Arriving from a citizen's profile ("عرض على الخريطة") carries where to
+   * point the map: `parcel` when the property is a registered one (the common
+   * case — flies in and opens the same drawer a marker click would), `lat`/
+   * `lng` as a fallback the map can still pin even if the property number
+   * doesn't resolve to a registered parcel.
+   *
+   * `useSearchParams` rather than reading `window.location.search` once on
+   * mount: this page is one route (`/map`), so going from one citizen's pin
+   * straight to another's — or back to the plain map and in again — changes
+   * only the query string, which does not always remount this component. A
+   * mount-only read went stale exactly in that case; this hook re-renders
+   * whenever the query string itself changes, mount or not.
+   */
+  const searchParams = useSearchParams();
+  const focus = useMemo(() => {
+    const parcelNumber = searchParams.get('parcel') ?? undefined;
+    const lat = searchParams.get('lat');
+    const lng = searchParams.get('lng');
+    if (!parcelNumber && !(lat && lng)) return null;
+    return {
+      parcelNumber,
+      lat: lat ? Number(lat) : undefined,
+      lng: lng ? Number(lng) : undefined,
+    };
+  }, [searchParams]);
 
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<CadastreImportResult | null>(null);
@@ -122,7 +145,7 @@ export default function FullscreenMapPage({
   }, [tenant, token, base, router]);
 
   return (
-    <main className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-lg font-bold">
@@ -133,46 +156,32 @@ export default function FullscreenMapPage({
             نقاط تفاعلية فقط على العقارات التي لديها تسجيلات
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {session?.user.role === 'SUPER_ADMIN' ? (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".geojson,application/geo+json,application/json"
-                className="sr-only"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleCadastreUpload(file);
-                }}
-              />
-              <Button
-                variant="outline"
-                disabled={uploading}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploading ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <Upload className="size-4" aria-hidden />
-                )}
-                رفع ملف GeoJSON
-              </Button>
-            </>
-          ) : null}
-          <Button asChild variant="outline">
-            <Link href={`${base}/zones`}>
-              <Layers className="size-4" aria-hidden />
-              القطاعات
-            </Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href={`${base}/dashboard`}>
-              <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-              رجوع إلى اللوحة
-            </Link>
-          </Button>
-        </div>
+        {session?.user.role === 'SUPER_ADMIN' ? (
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".geojson,application/geo+json,application/json"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleCadastreUpload(file);
+              }}
+            />
+            <Button
+              variant="outline"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Upload className="size-4" aria-hidden />
+              )}
+              رفع ملف GeoJSON
+            </Button>
+          </div>
+        ) : null}
       </header>
 
       {uploadResult ? (
@@ -204,9 +213,12 @@ export default function FullscreenMapPage({
             parcels={parcels}
             citizenHref={(citizenId) => `${base}/citizens/${citizenId}`}
             refreshToken={refreshToken}
+            focusParcelNumber={focus?.parcelNumber}
+            focusLat={focus?.lat}
+            focusLng={focus?.lng}
           />
         )}
       </div>
-    </main>
+    </div>
   );
 }

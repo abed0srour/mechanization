@@ -181,7 +181,7 @@ export type StaffLoginResponse = Session | { status: 'TOTP_REQUIRED' };
 
 export function loginStaff(
   tenant: string,
-  input: { email: string; password: string; totpToken?: string },
+  input: { email: string; password: string; totpToken?: string; remember?: boolean },
 ) {
   return apiFetch<StaffLoginResponse>(tenant, '/auth/staff/login', {
     method: 'POST',
@@ -198,8 +198,16 @@ export interface RegistrationListItem {
   citizenId: string;
   citizenName: string;
   propertyCount: number;
-  /** Distinct الحي values across this registration's properties. Usually one. */
-  neighborhoods: string[];
+  /** Contact number, so the staff table can call without opening the profile. */
+  citizenPhone: string | null;
+  /** Reviewer's note on a refused claim — what the applicant must fix. */
+  rejectionReason: string | null;
+  /** Dot-paths from `REJECTABLE_FIELDS`; empty unless refused field-by-field. */
+  rejectedFields: string[];
+  /** False when the citizen must come in person instead of correcting online. */
+  citizenCanCorrect: boolean;
+  /** Optional appointment for that visit, ISO-8601. */
+  revisitAt: string | null;
 }
 
 export function listMyRegistrations(tenant: string, token: string) {
@@ -339,17 +347,38 @@ export function getZonesGeoJson(tenant: string, token: string) {
   return apiFetch<GeoJSON.FeatureCollection>(tenant, '/zones/geojson', { token });
 }
 
+/** One unit inside a BUILDING — شقة, عيادة or محل. */
+export interface CitizenProfileUnit {
+  id: string;
+  unitType: string;
+  floor: string;
+  side: string | null;
+  unitArea: number;
+  sharedRights: string[];
+}
+
 export interface CitizenProfileProperty {
   id: string;
   neighborhood: string;
   propertyNumber: string;
   propertyType: string;
   occupancyType: string;
+  /** TENANT only. */
+  landlordName: string | null;
+  landlordPhone: string | null;
   buildingName: string | null;
+  /** HOUSE/LAND carry these directly; a BUILDING keeps them per unit. */
+  unitType: string | null;
+  landType: string | null;
+  floor: string | null;
+  side: string | null;
+  tentLocation: string | null;
   unitArea: number | null;
+  sharedRights: string[];
   latitude: number | null;
   longitude: number | null;
   unitCount: number;
+  units: CitizenProfileUnit[];
 }
 
 export interface CitizenProfileDocument {
@@ -366,6 +395,9 @@ export interface CitizenProfileRegistration {
   referenceNumber: string;
   status: string;
   submittedAt: string;
+  /** Reviewer's note, and the fields they flagged — see `REJECTABLE_FIELDS`. */
+  rejectionReason: string | null;
+  rejectedFields: string[];
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
 }
@@ -401,6 +433,80 @@ export function getDocumentViewUrl(tenant: string, token: string, documentId: st
     `/documents/${encodeURIComponent(documentId)}/url`,
     { token },
   );
+}
+
+// ───────────────────────────  Staff accounts  ───────────────────────────
+
+export interface StaffSummary {
+  id: string;
+  email: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  isActive: boolean;
+  /** Audit entries + reviewed registrations. A permanent delete needs zero. */
+  historyCount: number;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export function getStaff(tenant: string, token: string) {
+  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token });
+}
+
+export function createStaff(
+  tenant: string,
+  token: string,
+  input: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+  },
+) {
+  return apiFetch<{ id: string }>(tenant, '/staff', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateStaff(
+  tenant: string,
+  token: string,
+  id: string,
+  input: {
+    email?: string;
+    password?: string;
+    firstName?: string;
+    lastName?: string;
+    role?: string;
+  },
+) {
+  return apiFetch<{ updated: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Soft delete and its undo. */
+export function setStaffActive(tenant: string, token: string, id: string, isActive: boolean) {
+  return apiFetch<{ isActive: boolean }>(tenant, `/staff/${encodeURIComponent(id)}/active`, {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify({ isActive }),
+  });
+}
+
+/** Permanent — the server refuses it for any account that has already acted. */
+export function deleteStaff(tenant: string, token: string, id: string) {
+  return apiFetch<{ deleted: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
+    token,
+    method: 'DELETE',
+  });
 }
 
 export interface AuditEntry {
@@ -454,11 +560,54 @@ export function importCadastre(tenant: string, token: string, file: File) {
   });
 }
 
+/** A rejected claim plus the values the citizen is being asked to fix. */
+export interface CorrectionContext {
+  registrationId: string;
+  referenceNumber: string;
+  status: string;
+  rejectionReason: string | null;
+  rejectedFields: string[];
+  personal: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  properties: Array<Record<string, unknown>>;
+}
+
+export function getCorrection(tenant: string, token: string, registrationId: string) {
+  return apiFetch<CorrectionContext>(
+    tenant,
+    `/registrations/mine/${encodeURIComponent(registrationId)}/correction`,
+    { token },
+  );
+}
+
+export function submitCorrection(
+  tenant: string,
+  token: string,
+  registrationId: string,
+  body: {
+    personal?: Record<string, unknown>;
+    contact?: Record<string, unknown>;
+    properties?: Array<{ id: string } & Record<string, unknown>>;
+  },
+) {
+  return apiFetch<{ registrationId: string; from: string; to: string }>(
+    tenant,
+    `/registrations/mine/${encodeURIComponent(registrationId)}/correction`,
+    { token, method: 'PATCH', body: JSON.stringify(body) },
+  );
+}
+
 export function changeRegistrationStatus(
   tenant: string,
   token: string,
   id: string,
-  body: { status: string; reason?: string },
+  body: {
+    status: string;
+    reason?: string;
+    rejectedFields?: string[];
+    allowCitizenCorrection?: boolean;
+    revisitAt?: string;
+  },
 ) {
   return apiFetch<{ registrationId: string; from: string; to: string }>(
     tenant,

@@ -7,7 +7,9 @@ import {
 } from '@mechanization/shared-schemas';
 import { ZonesService } from '../../application/features/zones/zones.service';
 import { ZodValidationPipe } from '../../application/common/pipes/zod-validation.pipe';
+import { CurrentUser } from '../decorators/current-user.decorator';
 import { Roles } from '../decorators/roles.decorator';
+import type { SessionClaims } from '../../application/features/identity/identity.service';
 
 /**
  * Sits under `t/:tenantSlug` like every other tenant-scoped controller — that
@@ -57,8 +59,9 @@ export class ZonesController {
   async create(
     @Param('tenantSlug') tenantSlug: string,
     @Body(new ZodValidationPipe(createZoneSchema)) body: CreateZoneInput,
+    @CurrentUser() user: SessionClaims,
   ) {
-    return this.zones.create(tenantSlug, body);
+    return this.zones.create(tenantSlug, body, { id: user.sub, role: user.role ?? '' });
   }
 
   @Roles('SUPER_ADMIN')
@@ -67,14 +70,19 @@ export class ZonesController {
     @Param('tenantSlug') tenantSlug: string,
     @Param('id') id: string,
     @Body(new ZodValidationPipe(updateZoneSchema)) body: UpdateZoneInput,
+    @CurrentUser() user: SessionClaims,
   ) {
-    return this.zones.update(tenantSlug, id, body);
+    return this.zones.update(tenantSlug, id, body, { id: user.sub, role: user.role ?? '' });
   }
 
   @Roles('SUPER_ADMIN')
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    await this.zones.remove(id);
+  async remove(
+    @Param('tenantSlug') tenantSlug: string,
+    @Param('id') id: string,
+    @CurrentUser() user: SessionClaims,
+  ) {
+    await this.zones.remove(tenantSlug, id, { id: user.sub, role: user.role ?? '' });
     return { deleted: true };
   }
 }

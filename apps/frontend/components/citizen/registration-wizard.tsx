@@ -456,12 +456,29 @@ export function RegistrationWizard({
         </section>
 
         {error ? (
-          <p
+          <div
             role="alert"
-            className="rounded-lg bg-destructive/10 p-3 text-center font-medium text-destructive"
+            className="space-y-2 rounded-lg bg-destructive/10 p-3 text-destructive"
           >
-            {error}
-          </p>
+            <p className="text-center font-medium">{error}</p>
+            {/*
+              The failures spelled out, not just counted.
+              Every message here normally also appears under its own input,
+              but "normally" is doing real work: a branch-specific field can
+              be hidden for the answers currently given (الجنسية is not
+              rendered at all for a Lebanese citizen), and a long step can put
+              the offending input off-screen. In either case the banner alone
+              was a dead end — it said something was missing without saying
+              what, on a form the citizen had just filled in completely.
+            */}
+            {Object.keys(fieldErrors).length > 0 ? (
+              <ul className="mx-auto list-inside list-disc text-sm">
+                {[...new Set(Object.values(fieldErrors))].map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="flex gap-3 pt-2">

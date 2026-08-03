@@ -55,17 +55,47 @@ export interface RegisteredParcel {
   registrants: ParcelRegistrant[];
 }
 
+/** One unit inside a BUILDING — شقة, عيادة or محل. */
+export interface CitizenProfileUnit {
+  id: string;
+  unitType: string;
+  floor: string;
+  side: string | null;
+  unitArea: number;
+  sharedRights: string[];
+}
+
+/**
+ * A property card as the citizen filed it.
+ *
+ * Everything the wizard's four property branches can collect is here, not just
+ * the fields common to all of them: staff reviewing a claim were previously
+ * shown a tenant's property with no landlord on it, a plot with no land type,
+ * a tent with no location, and a building reduced to a unit *count* — all of
+ * it stored correctly and simply never selected.
+ */
 export interface CitizenProfileProperty {
   id: string;
   neighborhood: string;
   propertyNumber: string;
   propertyType: string;
   occupancyType: string;
+  /** TENANT only — the wizard requires both when occupancy is مستأجر. */
+  landlordName: string | null;
+  landlordPhone: string | null;
   buildingName: string | null;
+  /** HOUSE/LAND carry these directly; a BUILDING keeps them per unit below. */
+  unitType: string | null;
+  landType: string | null;
+  floor: string | null;
+  side: string | null;
+  tentLocation: string | null;
   unitArea: number | null;
+  sharedRights: string[];
   latitude: number | null;
   longitude: number | null;
   unitCount: number;
+  units: CitizenProfileUnit[];
 }
 
 export interface CitizenProfileDocument {
@@ -82,6 +112,9 @@ export interface CitizenProfileRegistration {
   referenceNumber: string;
   status: string;
   submittedAt: string;
+  /** Reviewer's note, and the fields they flagged — see `REJECTABLE_FIELDS`. */
+  rejectionReason: string | null;
+  rejectedFields: string[];
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
 }
@@ -300,6 +333,8 @@ export class ReportingService {
             referenceNumber: true,
             status: true,
             submittedAt: true,
+            rejectionReason: true,
+            rejectedFields: true,
             properties: {
               select: {
                 id: true,
@@ -307,11 +342,32 @@ export class ReportingService {
                 propertyNumber: true,
                 propertyType: true,
                 occupancyType: true,
+                landlordName: true,
+                landlordPhone: true,
                 buildingName: true,
+                unitType: true,
+                landType: true,
+                floor: true,
+                side: true,
+                tentLocation: true,
                 unitArea: true,
+                sharedRights: true,
                 latitude: true,
                 longitude: true,
-                _count: { select: { units: true } },
+                // The units themselves, not just how many: a landlord's claim
+                // over a building *is* the unit list, and a bare count told a
+                // reviewer nothing about which floors were being claimed.
+                units: {
+                  orderBy: { createdAt: 'asc' },
+                  select: {
+                    id: true,
+                    unitType: true,
+                    floor: true,
+                    side: true,
+                    unitArea: true,
+                    sharedRights: true,
+                  },
+                },
               },
             },
             // Staff previously had no way to see a citizen's uploaded proofs
@@ -359,17 +415,37 @@ export class ReportingService {
         referenceNumber: registration.referenceNumber,
         status: registration.status,
         submittedAt: registration.submittedAt.toISOString(),
+        rejectionReason: registration.rejectionReason,
+        rejectedFields: registration.rejectedFields,
         properties: registration.properties.map((property) => ({
           id: property.id,
           neighborhood: property.neighborhood,
           propertyNumber: property.propertyNumber,
           propertyType: property.propertyType,
           occupancyType: property.occupancyType,
+          landlordName: property.landlordName,
+          landlordPhone: property.landlordPhone,
           buildingName: property.buildingName,
+          unitType: property.unitType,
+          landType: property.landType,
+          floor: property.floor,
+          side: property.side,
+          tentLocation: property.tentLocation,
+          // Decimal → number at the edge; `Decimal` serialises as an object,
+          // which the client would render as "[object Object]".
           unitArea: property.unitArea == null ? null : Number(property.unitArea),
+          sharedRights: property.sharedRights,
           latitude: property.latitude,
           longitude: property.longitude,
-          unitCount: property._count.units,
+          unitCount: property.units.length,
+          units: property.units.map((unit) => ({
+            id: unit.id,
+            unitType: unit.unitType,
+            floor: unit.floor,
+            side: unit.side,
+            unitArea: Number(unit.unitArea),
+            sharedRights: unit.sharedRights,
+          })),
         })),
         documents: registration.documents.map((document) => ({
           id: document.id,

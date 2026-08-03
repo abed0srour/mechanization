@@ -10,11 +10,11 @@
 import { Client } from 'pg';
 import * as bcrypt from 'bcrypt';
 import { authenticator } from 'otplib';
-import { PrismaClient as RegistryPrismaClient } from '../../generated/registry-client';
-import { PrismaClient as TenantPrismaClient } from '../../generated/tenant-client';
-import { ReferenceNumber } from '../../domain/value-objects/reference-number.vo';
-import { TenantSlug } from '../../domain/value-objects/tenant-slug.vo';
-import { migrateTenantSchema } from './tenant-migrator';
+import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
+import { PrismaClient as TenantPrismaClient } from '../generated/tenant-client';
+import { ReferenceNumber } from '../domain/value-objects/reference-number.vo';
+import { TenantSlug } from '../domain/value-objects/tenant-slug.vo';
+import { migrateTenantSchema } from '../infrastructure/prisma/tenant-migrator';
 
 const TENANTS = [
   {

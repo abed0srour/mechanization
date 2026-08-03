@@ -2,7 +2,7 @@
  * Imports a municipality's cadastre from the survey office's KMZ.
  *
  *   pnpm --filter @mechanization/backend cadastre:import \
- *     --slug albazourieh --file ../../bazoreyye.kmz
+ *     --slug albazourieh --file data/bazoreyye.kmz
  *
  * Two outputs, because the data has two jobs:
  *
@@ -19,17 +19,17 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { PrismaClient as RegistryPrismaClient } from '../../generated/registry-client';
-import { PrismaClient as TenantPrismaClient } from '../../generated/tenant-client';
-import { TenantSlug } from '../../domain/value-objects/tenant-slug.vo';
+import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
+import { PrismaClient as TenantPrismaClient } from '../generated/tenant-client';
+import { TenantSlug } from '../domain/value-objects/tenant-slug.vo';
 import {
   type CadastreLine,
   type Parcel,
   mergeParcelPoints,
   parseCadastre,
   readKmlText,
-} from './kmz-parser';
-import { buildCadastreGeometryAssets } from './parcel-geometry';
+} from '../infrastructure/cadastre/kmz-parser';
+import { buildCadastreGeometryAssets } from '../infrastructure/cadastre/parcel-geometry';
 
 /**
  * Six decimal places is ~0.11 m at this latitude — finer than the survey's own
@@ -168,7 +168,7 @@ export async function importCadastre(args: Args): Promise<void> {
     // ── Map assets ──
     const outDir =
       args.outDir ??
-      join(__dirname, '..', '..', '..', '..', 'frontend', 'public', 'tenants', slug.value);
+      join(__dirname, '..', '..', '..', 'frontend', 'public', 'tenants', slug.value);
 
     writeAsset(join(outDir, 'parcels.geojson'), parcelsGeoJson(parcels));
     writeAsset(join(outDir, 'cadastre.geojson'), cadastreGeoJson(lines));

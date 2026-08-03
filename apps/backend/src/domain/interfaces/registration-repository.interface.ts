@@ -16,6 +16,20 @@ export interface SubmitRegistrationResult {
   propertyIds: string[];
 }
 
+/** A rejected claim plus the values the citizen is being asked to fix. */
+export interface CorrectionContext {
+  registrationId: string;
+  referenceNumber: string;
+  status: string;
+  rejectionReason: string | null;
+  rejectedFields: string[];
+  citizenCanCorrect: boolean;
+  revisitAt: string | null;
+  personal: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  properties: Array<Record<string, unknown>>;
+}
+
 export interface RegistrationListItem {
   id: string;
   referenceNumber: string;
@@ -25,8 +39,20 @@ export interface RegistrationListItem {
   citizenId: string;
   citizenName: string;
   propertyCount: number;
-  /** Distinct الحي values across this registration's properties. Usually one. */
-  neighborhoods: string[];
+  /**
+   * The citizen's contact number. Carried on the row because the staff table's
+   * first move on a questionable claim is to phone the person who filed it —
+   * previously that meant opening their profile to read one field.
+   */
+  citizenPhone: string | null;
+  /** Reviewer's note on a refused claim — what the applicant must fix. */
+  rejectionReason: string | null;
+  /** Dot-paths from `REJECTABLE_FIELDS`; empty unless refused field-by-field. */
+  rejectedFields: string[];
+  /** False when the citizen must come in person instead of correcting online. */
+  citizenCanCorrect: boolean;
+  /** Optional appointment for that visit, ISO-8601. */
+  revisitAt: string | null;
 }
 
 export interface RegistrationRepository {
@@ -46,10 +72,33 @@ export interface RegistrationRepository {
     offset: number;
   }): Promise<{ items: RegistrationListItem[]; total: number }>;
 
+  /** The rejected claim as its own citizen sees it, for the correction form. */
+  findCorrectionContext(input: {
+    registrationId: string;
+    citizenId: string;
+  }): Promise<CorrectionContext | null>;
+
+  /**
+   * Applies a citizen's corrections and puts the claim back in the queue, in
+   * one transaction: a correction that updated the person but not the status
+   * would leave a fixed claim sitting in REJECTED forever.
+   */
+  applyCorrection(input: {
+    registrationId: string;
+    citizenId: string;
+    personal: Record<string, unknown>;
+    contact: Record<string, unknown>;
+    properties: Array<{ id: string } & Record<string, unknown>>;
+  }): Promise<void>;
+
   persistStatusChange(input: {
     registrationId: string;
     status: ReportStatus;
     reason?: string;
+    /** Dot-paths from `REJECTABLE_FIELDS`; only meaningful on a rejection. */
+    rejectedFields?: string[];
+    allowCitizenCorrection?: boolean;
+    revisitAt?: string;
     reviewedById: string;
   }): Promise<void>;
 

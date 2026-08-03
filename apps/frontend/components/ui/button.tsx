@@ -32,6 +32,9 @@ const buttonVariants = cva(
         lg: 'h-14 rounded-lg px-8 text-lg',
         xl: 'h-20 rounded-xl px-8 text-xl',
         icon: 'h-10 w-10',
+        /** Icon-only control inside a table row, where `icon`'s 40px is
+         *  taller than the row's own text line. */
+        'icon-sm': 'h-8 w-8',
       },
     },
     defaultVariants: {
