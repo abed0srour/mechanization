@@ -2,14 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { OtpCleanupJob } from './background-jobs/otp-cleanup.job';
+import { RecurringBillingJob } from './background-jobs/recurring-billing.job';
 import { AuditService } from './features/audit/audit.service';
 import { CadastreImportService } from './features/cadastre/cadastre-import.service';
+import { CitizensService } from './features/citizens/citizens.service';
 import { DocumentService } from './features/documents/document.service';
 import { IdentityService } from './features/identity/identity.service';
 import { OtpService } from './features/identity/otp.service';
 import { RegistrationService } from './features/registration/registration.service';
 import { ReportingService } from './features/reporting/reporting.service';
 import { TenantService } from './features/tenant/tenant.service';
+import { FeesService } from './features/fees/fees.service';
 import { StaffService } from './features/staff/staff.service';
 import { ZonesService } from './features/zones/zones.service';
 
@@ -38,9 +41,12 @@ import { ZonesService } from './features/zones/zones.service';
     AuditService,
     ReportingService,
     CadastreImportService,
+    CitizensService,
+    FeesService,
     StaffService,
     ZonesService,
     OtpCleanupJob,
+    RecurringBillingJob,
   ],
   exports: [
     TenantService,
@@ -51,8 +57,11 @@ import { ZonesService } from './features/zones/zones.service';
     AuditService,
     ReportingService,
     CadastreImportService,
+    CitizensService,
+    FeesService,
     StaffService,
     ZonesService,
+    RecurringBillingJob,
     JwtModule,
   ],
 })

@@ -48,6 +48,33 @@
      */
     --font-display: 'Noto Kufi Arabic', system-ui;
     --font-body: 'IBM Plex Sans Arabic', system-ui;
+
+    /**
+     * Chart series colours.
+     *
+     * Finished hex rather than HSL triples like the tokens above, because
+     * these are not composed with Tailwind alpha — they are validated
+     * *exact* values. Each was checked against this app's real surfaces
+     * (light #ffffff, dark #020817) for the OKLCH lightness band, the chroma
+     * floor, protanopia/deuteranopia separation, a normal-vision floor, and
+     * ≥3:1 contrast. Nudging one by eye re-opens all five, so don't: re-run
+     * the validator instead.
+     *
+     * `series-1/2` are the two-hue categorical pair (blue/orange, worst
+     * adjacent CVD ΔE 24.7 light / 26.8 dark — comfortably past the ≥8 gate).
+     * `step-1..4` are a single-hue *ordinal* ramp for the review pipeline,
+     * where the order is the meaning: قيد الانتظار is lightest, مقبول
+     * darkest, so the stage reads out of the colour itself.
+     */
+    --viz-series-1: #2a78d6;
+    --viz-series-2: #eb6834;
+    --viz-step-1: #86b6ef;
+    --viz-step-2: #5598e7;
+    --viz-step-3: #2a78d6;
+    --viz-step-4: #1c5cab;
+    /** Reserved status red — مرفوض is an outcome, not a pipeline stage, so it
+     *  leaves the ramp entirely and is always paired with an icon + label. */
+    --viz-critical: #d03b3b;
   }
 
   /**
@@ -78,6 +105,20 @@
     --ring: 199 89% 45%;
     --warning: 32 95% 55%;
     --success: 142 71% 40%;
+
+    /**
+     * The dark steps are *selected*, not an automatic flip of the light ones:
+     * the same hues re-stepped for the dark band (OKLCH L ≈ 0.48–0.67) and
+     * re-validated against the dark surface. The ordinal ramp stops at step
+     * 600 — anything darker stops clearing the surface it sits on.
+     */
+    --viz-series-1: #3987e5;
+    --viz-series-2: #d95926;
+    --viz-step-1: #6da7ec;
+    --viz-step-2: #3987e5;
+    --viz-step-3: #256abf;
+    --viz-step-4: #184f95;
+    --viz-critical: #d03b3b;
   }
 }
 

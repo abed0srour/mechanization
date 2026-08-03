@@ -29,6 +29,7 @@ export const staffLoginSchema = z.object({
 });
 export type StaffLogin = z.infer<typeof staffLoginSchema>;
 
+/** The six-digit code proving an authenticator app is set up correctly. */
 export const totpEnrolmentSchema = z.object({
   token: z.string().trim().regex(/^\d{6}$/, 'رمز التحقق مكوّن من 6 أرقام'),
 });
@@ -44,9 +45,19 @@ export const requestOtpSchema = z.object({
   attempt: z.coerce.number().int().min(1).max(6).default(1),
 });
 
+/**
+ * `citizenId` is set only on the second call, after a shared phone matched
+ * several household members.
+ */
 export const verifyOtpSchema = z.object({
   phone: lebanesePhone,
-  code: z.string().trim().regex(/^\d{6}$/, 'الرمز مكوّن من 6 أرقام'),
+  /**
+   * Optional on the wire, required in practice whenever OTP is switched on —
+   * `OtpService.verify` is what refuses a missing or wrong code. Optional here
+   * only so a deployment running with `OTP_ENABLED=false` does not have to
+   * invent a fake six digits to satisfy a schema that will not check them.
+   */
+  code: z.string().trim().regex(/^\d{6}$/, 'الرمز مكوّن من 6 أرقام').optional(),
   /** Set on the second call when a shared phone matched several people. */
   citizenId: z.string().uuid().optional(),
 });
@@ -58,6 +69,7 @@ export const citizenChoiceSchema = z.object({
   identityDocLastDigits: z.string(),
 });
 
+/** Returned instead of a session when one phone belongs to several people. */
 export const disambiguationSchema = z.object({
   status: z.literal('CHOOSE_PROFILE'),
   phone: z.string(),
@@ -79,9 +91,12 @@ export const sessionSchema = z.object({
 });
 export type Session = z.infer<typeof sessionSchema>;
 
+/** Password was right; the second factor is still outstanding. */
 export const totpRequiredSchema = z.object({ status: z.literal('TOTP_REQUIRED') });
 
+/** Either a session or the TOTP challenge — `status` is the discriminant. */
 export const staffLoginResponseSchema = z.union([sessionSchema, totpRequiredSchema]);
+/** Either a session or the household profile choice. */
 export const verifyOtpResponseSchema = z.union([sessionSchema, disambiguationSchema]);
 
 const staffPassword = z
@@ -89,6 +104,10 @@ const staffPassword = z
   .min(10, 'استخدم 10 أحرف على الأقل لحسابات الموظفين')
   .max(200);
 
+/**
+ * A new staff account. Passwords are longer here than for citizens: these
+ * credentials open every citizen record in the municipality.
+ */
 export const createStaffUserSchema = z.object({
   email: z.string().trim().toLowerCase().email('البريد الإلكتروني غير صالح'),
   password: staffPassword,
@@ -127,4 +146,5 @@ export const staffPasswordPairSchema = z
     message: 'كلمتا المرور غير متطابقتين',
   });
 
+/** The soft-delete toggle, and its undo. */
 export const staffActiveSchema = z.object({ isActive: z.boolean() });

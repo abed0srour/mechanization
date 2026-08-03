@@ -30,6 +30,15 @@ export interface UnitDraft {
 }
 
 export interface PropertyDraft {
+  /**
+   * The stored row this card is editing, when there is one.
+   *
+   * Never set by the citizen wizard — a submission has nothing to identify
+   * yet. The staff editor sets it so an edited card updates its own row
+   * instead of being deleted and recreated, which would take the deed attached
+   * to it (`Document.propertyEntryId` cascades) down with it.
+   */
+  id?: string;
   occupancyType?: OccupancyType;
   landlordName?: string;
   landlordPhone?: string;
@@ -358,6 +367,10 @@ export function PropertyCard({
  */
 function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): PropertyDraft {
   const keep: PropertyDraft = {
+    // Identity survives a type change: this is still the same عقار, filed
+    // under the wrong branch until now. Dropping it here would silently turn
+    // the staff editor's update into a delete-and-recreate.
+    id: draft.id,
     occupancyType: draft.occupancyType,
     landlordName: draft.landlordName,
     landlordPhone: draft.landlordPhone,

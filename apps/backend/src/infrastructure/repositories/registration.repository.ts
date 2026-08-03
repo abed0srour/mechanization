@@ -138,6 +138,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     }
   }
 
+  /** Rehydrates the aggregate, properties and their units included. */
   async findById(id: string): Promise<Registration | null> {
     const row = await this.db.registration.findUnique({
       where: { id },
@@ -146,6 +147,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     return row ? this.toDomain(row) : null;
   }
 
+  /** Same shape as `findById`, keyed by the citizen-facing reference. */
   async findByReferenceNumber(reference: string): Promise<Registration | null> {
     const row = await this.db.registration.findUnique({
       where: { referenceNumber: reference },
@@ -154,6 +156,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     return row ? this.toDomain(row) : null;
   }
 
+  /** One citizen's submissions for متابعة طلبي. */
   async listByCitizen(citizenId: string): Promise<RegistrationListItem[]> {
     const rows = await this.db.registration.findMany({
       where: { citizenId },

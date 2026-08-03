@@ -10,6 +10,7 @@ import { DocumentController } from './controllers/document.controller';
 import { HealthController } from './controllers/health.controller';
 import { RegistrationController } from './controllers/registration.controller';
 import { TenantController } from './controllers/tenant.controller';
+import { FeesController } from './controllers/fees.controller';
 import { StaffController } from './controllers/staff.controller';
 import { ZonesController } from './controllers/zones.controller';
 import { DomainExceptionFilter } from './filters/domain-exception.filter';
@@ -30,6 +31,7 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
     DashboardController,
     CitizenController,
     CadastreController,
+    FeesController,
     StaffController,
     ZonesController,
   ],
@@ -45,6 +47,10 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
   ],
 })
 export class PresentationModule implements NestModule {
+  /**
+   * Binds `TenantMiddleware` to every tenant-scoped path, which is what
+   * gives the request its municipality-specific Prisma client.
+   */
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(CorrelationIdMiddleware)

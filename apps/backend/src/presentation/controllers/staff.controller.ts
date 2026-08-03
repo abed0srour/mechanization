@@ -25,6 +25,7 @@ import type { StaffRole } from '../../domain/entities/user.entity';
 export class StaffController {
   constructor(private readonly staff: StaffService) {}
 
+  /** Every staff account, including deactivated ones. */
   @Get()
   async list() {
     return { items: await this.staff.list() };

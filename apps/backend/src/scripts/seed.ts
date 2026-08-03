@@ -36,6 +36,7 @@ const TENANTS = [
 /** Development only. Production staff are created by the provisioning flow. */
 const DEV_PASSWORD = 'Password123!';
 
+/** A Prisma client bound to one municipality's schema. */
 function tenantClient(schemaName: string): TenantPrismaClient {
   const url = new URL(process.env.DIRECT_URL ?? process.env.DATABASE_URL!);
   url.searchParams.set('schema', schemaName);
@@ -79,6 +80,7 @@ async function sampleParcels(
   return picked.flat();
 }
 
+/** Staff at every role plus enough citizen data to exercise the dashboard. */
 async function seedTenant(
   tenant: (typeof TENANTS)[number],
   schemaName: string,
@@ -319,6 +321,7 @@ async function seedTenant(
   }
 }
 
+/** Provisions and seeds both demo municipalities. */
 async function main(): Promise<void> {
   const registry = new RegistryPrismaClient();
   const ddl = new Client({

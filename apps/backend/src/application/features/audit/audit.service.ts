@@ -135,6 +135,37 @@ export class AuditService {
     });
   }
 
+  /**
+   * Staff writes against the citizen registry.
+   *
+   * The counterpart to `staff.changed`, and the reason the admin citizens
+   * screen can exist at all: since the public wizard was removed, a clerk
+   * types other people's identity data on their behalf, so every create, edit
+   * and deletion has to name who did it. Values are summarised, never copied —
+   * an audit row that mirrored a citizen's document number would spread the
+   * data the registry exists to keep in one place.
+   */
+  @OnEvent('citizen.changed')
+  async onCitizenChanged(payload: {
+    citizenId: string;
+    action: string;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    actorId: string;
+    actorRole: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: payload.action,
+      entityType: 'User',
+      entityId: payload.citizenId,
+      before: payload.before,
+      after: payload.after,
+    });
+  }
+
   /** Sector writes — who redrew which sector, and how its membership moved. */
   @OnEvent('zone.changed')
   async onZoneChanged(payload: {

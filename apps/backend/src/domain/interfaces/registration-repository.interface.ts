@@ -63,8 +63,11 @@ export interface RegistrationRepository {
    */
   submit(input: SubmitRegistrationInput): Promise<SubmitRegistrationResult>;
 
+  /** Rehydrates the aggregate, properties included. */
   findById(id: string): Promise<Registration | null>;
+  /** The lookup behind a citizen quoting their رقم مرجعي at the counter. */
   findByReferenceNumber(reference: string): Promise<Registration | null>;
+  /** Every submission one citizen has filed, newest first. */
   listByCitizen(citizenId: string): Promise<RegistrationListItem[]>;
   listForReview(filter: {
     status?: ReportStatus;

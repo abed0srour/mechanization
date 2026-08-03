@@ -8,6 +8,10 @@ import { AppModule } from '../app.module';
 import { APP_CONFIG } from './config/app.config';
 import { AppLogger } from './config/app-logger';
 
+/**
+ * Boots the API: global prefix, security middleware, CORS, and the
+ * shutdown hooks that let Prisma close its tenant clients cleanly.
+ */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: false,

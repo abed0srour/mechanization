@@ -18,6 +18,7 @@ export class PrismaUserRepository implements UserRepository {
     return this.tenantContext.prisma;
   }
 
+  /** Lower-cased and staff-scoped, matching how accounts are stored. */
   async findStaffByEmail(email: string): Promise<User | null> {
     const row = await this.db.user.findFirst({
       where: { email: email.toLowerCase(), kind: 'STAFF' },
@@ -38,6 +39,7 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
+  /** Either kind — the caller decides whether that kind is acceptable. */
   async findById(id: string): Promise<User | null> {
     const row = await this.db.user.findUnique({ where: { id } });
     if (!row) return null;
@@ -56,6 +58,31 @@ export class PrismaUserRepository implements UserRepository {
         totpConfirmedAt: row.totpConfirmedAt,
       });
     }
+
+    return User.citizen({
+      id: row.id,
+      tenantSlug: row.tenantSlug,
+      phone: row.phone!,
+      whatsapp: row.whatsapp,
+      firstName: row.firstName,
+      middleName: row.middleName,
+      lastName: row.lastName,
+      referenceNumber: row.referenceNumber!,
+      identityDocType: row.identityDocType!,
+      identityDocNumber: row.identityDocNumber!,
+      isActive: row.isActive,
+    });
+  }
+
+  /**
+   * By رقم مرجعي. Citizen-scoped in the query itself, so a staff reference
+   * could never satisfy the portal's login even if one collided.
+   */
+  async findCitizenByReference(referenceNumber: string): Promise<User | null> {
+    const row = await this.db.user.findFirst({
+      where: { referenceNumber, kind: 'CITIZEN' },
+    });
+    if (!row) return null;
 
     return User.citizen({
       id: row.id,
@@ -149,6 +176,7 @@ export class PrismaUserRepository implements UserRepository {
     }
   }
 
+  /** Stamps `lastLoginAt` on a successful sign-in. */
   async markLoggedIn(userId: string): Promise<void> {
     await this.db.user.update({
       where: { id: userId },
@@ -156,6 +184,7 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
+  /** Writes an unconfirmed secret. Sessions stay blocked until confirmed. */
   async saveTotpSecret(userId: string, secret: string): Promise<void> {
     await this.db.user.update({
       where: { id: userId },
@@ -163,6 +192,7 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
+  /** Activates enrolment by recording when it was proved. */
   async confirmTotp(userId: string): Promise<void> {
     await this.db.user.update({
       where: { id: userId },
@@ -170,6 +200,7 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
+  /** Staff rows plus the audit/review counts a permanent delete depends on. */
   async listStaff(): Promise<StaffSummary[]> {
     const rows = await this.db.user.findMany({
       where: { kind: 'STAFF' },
@@ -280,14 +311,26 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
+  /**
+   * The soft delete and its undo. The row survives so the audit trail and any
+   * registration this account reviewed keep a name attached.
+   */
   async setStaffActive(id: string, isActive: boolean): Promise<void> {
     await this.db.user.update({ where: { id }, data: { isActive } });
   }
 
+  /**
+   * Erases the row. Callers must establish there is no history first — this
+   * does not check, and the FK from reviewed registrations would block it.
+   */
   async hardDeleteStaff(id: string): Promise<void> {
     await this.db.user.delete({ where: { id } });
   }
 
+  /**
+   * Audit entries plus registrations reviewed. Zero is what makes an account
+   * safe to erase outright.
+   */
   async countStaffHistory(id: string): Promise<number> {
     const [reviewed, audited] = await Promise.all([
       this.db.registration.count({ where: { reviewedById: id } }),

@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Building2,
   Calendar,
+  Clock3,
   ExternalLink,
   FileDigit,
   FileText,
@@ -20,6 +21,7 @@ import {
   Loader2,
   MapPin,
   MessageCircle,
+  Pencil,
   Phone,
   Ruler,
   Tent,
@@ -27,6 +29,7 @@ import {
   User,
   UserCheck,
   Users,
+  Wallet,
   XCircle,
 } from 'lucide-react';
 import { ar, REJECTABLE_FIELDS, type RejectableField } from '@mechanization/shared-schemas';
@@ -37,7 +40,12 @@ import {
   getDocumentViewUrl,
   logApiError,
 } from '@/lib/api-client';
-import type { CitizenProfile, CitizenProfileProperty } from '@/lib/api-client';
+import type {
+  CitizenFeeTotals,
+  CitizenProfile,
+  CitizenProfilePayment,
+  CitizenProfileProperty,
+} from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { findLocatedProperty, mapHref } from '@/lib/map-link';
 import { acceptStatusFor, isReviewable } from '@/lib/registration-status';
@@ -51,6 +59,7 @@ import { ReviewBar } from '@/components/admin/review-bar';
 import { Badge, StatusBadge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Money } from '@/components/ui/money';
 import { cn } from '@/lib/utils';
 
 /** One glyph per property branch, so a card's kind is readable before its text. */
@@ -108,7 +117,11 @@ export default function CitizenProfilePage({
   const [citizen, setCitizen] = useState<CitizenProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [role, setRole] = useState<string | undefined>();
   const [openingDocId, setOpeningDocId] = useState<string | null>(null);
+
+  /** Mirrors the server's write roles; the server is the enforcement. */
+  const canEdit = role === 'SUPER_ADMIN' || role === 'FIELD_INSPECTOR';
 
   /** Registration whose rejection is being composed, if any. */
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -184,6 +197,7 @@ export default function CitizenProfilePage({
       return;
     }
     setToken(session.accessToken);
+    setRole(session.user.role);
 
     getCitizenProfile(tenant, session.accessToken, citizenId)
       .then(setCitizen)
@@ -263,13 +277,18 @@ export default function CitizenProfilePage({
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       {/* Its own row above the header. Inside it, the avatar aligned to this
           link rather than to the name it belongs to, which is what left the
-          circle floating above the heading. */}
+          circle floating above the heading.
+
+          Points at the citizens registry rather than the dashboard: this page
+          is reached from that list far more often than from the review queue,
+          and "back" that lands somewhere other than where you came from is
+          worse than no back link. */}
       <Link
-        href={`${base}/dashboard`}
+        href={`${base}/citizens`}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-        رجوع إلى اللوحة
+        رجوع إلى سجل المواطنين
       </Link>
 
       <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-6">
@@ -306,14 +325,22 @@ export default function CitizenProfilePage({
           </div>
         </div>
 
-        <Link
-          href={locatedProperty ? mapHref(base, locatedProperty) : `${base}/map`}
-          className={buttonVariants({ variant: 'outline' })}
-          title={locatedProperty ? undefined : 'لم يتم تحديد موقع أي عقار لهذا المواطن بعد'}
-        >
-          <MapPin className="size-4" aria-hidden />
-          عرض على الخريطة
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {canEdit ? (
+            <Link href={`${base}/citizens/${citizen.id}/edit`} className={buttonVariants()}>
+              <Pencil className="size-4" aria-hidden />
+              تعديل البيانات
+            </Link>
+          ) : null}
+          <Link
+            href={locatedProperty ? mapHref(base, locatedProperty) : `${base}/map`}
+            className={buttonVariants({ variant: 'outline' })}
+            title={locatedProperty ? undefined : 'لم يتم تحديد موقع أي عقار لهذا المواطن بعد'}
+          >
+            <MapPin className="size-4" aria-hidden />
+            عرض على الخريطة
+          </Link>
+        </div>
       </div>
 
       {/*
@@ -453,6 +480,8 @@ export default function CitizenProfilePage({
         </CardContent>
       </Card>
 
+      <FeesPanel payments={citizen.payments} fees={citizen.fees} />
+
       <section className="space-y-4">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <FileText className="size-5 text-primary" aria-hidden />
@@ -585,6 +614,160 @@ export default function CitizenProfilePage({
       </section>
     </div>
     </FieldReviewProvider>
+  );
+}
+
+/** Tone per payment state, matching the fees screen's vocabulary. */
+const PAYMENT_TONE: Record<string, string> = {
+  PAID: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+  PENDING_REVIEW:
+    'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
+  UNPAID:
+    'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  OVERDUE: 'border-red-600/30 bg-red-600/10 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+};
+
+/**
+ * The citizen's ledger, on the same page as their claims.
+ *
+ * Staff reviewing a registration are routinely also the people asked "what do
+ * I owe?" at the counter, and until now that answer lived only on the fees
+ * screen — keyed by a name they had to search for a second time. المتأخرات is
+ * broken out from المستحق because the two prompt different conversations: this
+ * system levies no penalty on a late fee, so a late fee *is* the unpaid fee,
+ * and the only thing distinguishing it is that the date has passed.
+ */
+function FeesPanel({
+  payments,
+  fees,
+}: {
+  payments: CitizenProfilePayment[];
+  fees: CitizenFeeTotals;
+}) {
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Wallet className="size-5 text-primary" aria-hidden />
+          الرسوم والمدفوعات
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-6 pt-6">
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Total label="إجمالي الرسوم" value={fees.feesTotal} />
+          <Total label="المسدَّد" value={fees.paidTotal} tone="text-emerald-600" />
+          <Total label="غير المسدَّد" value={fees.outstandingTotal} />
+          <Total
+            label={`المتأخرات${fees.overdueCount > 0 ? ` (${fees.overdueCount})` : ''}`}
+            value={fees.overdueTotal}
+            tone={fees.overdueTotal > 0 ? 'text-destructive' : undefined}
+          />
+        </dl>
+
+        {fees.pendingReviewCount > 0 ? (
+          <p className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm">
+            <Clock3 className="size-4 shrink-0 text-blue-600" aria-hidden />
+            {fees.pendingReviewCount} دفعة بانتظار تحقق الموظف — راجعها من صفحة إدارة الرسوم.
+          </p>
+        ) : null}
+
+        {payments.length === 0 ? (
+          <p className="rounded-lg border p-6 text-center text-muted-foreground">
+            لم تُصدَر أي رسوم على هذا المواطن.
+          </p>
+        ) : (
+          // A card list rather than a table: at two to five rows a table is
+          // more chrome than content, and this has to stay readable inside a
+          // page already dense with property grids.
+          <ul className="divide-y rounded-lg border">
+            {payments.map((payment) => (
+              <li
+                key={payment.id}
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-4"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="flex flex-wrap items-center gap-2 font-medium">
+                    <span className="truncate">{payment.title}</span>
+                    <Badge
+                      variant="outline"
+                      className={cn('shrink-0', PAYMENT_TONE[payment.paymentStatus])}
+                    >
+                      {ar.paymentStatus?.[payment.paymentStatus as never] ??
+                        payment.paymentStatus}
+                    </Badge>
+                  </p>
+                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar className="size-3.5 shrink-0" aria-hidden />
+                      استحقاق {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                    </span>
+                    {payment.frequency ? (
+                      <span>{ar.feeFrequency?.[payment.frequency as never] ?? payment.frequency}</span>
+                    ) : null}
+                    {payment.paidAt ? (
+                      <span className="text-emerald-600">
+                        سُدّد {new Date(payment.paidAt).toLocaleDateString('ar-LB')}
+                      </span>
+                    ) : null}
+                    {payment.paymentMethod ? (
+                      <span>
+                        {ar.paymentMethod?.[payment.paymentMethod as never] ??
+                          payment.paymentMethod}
+                      </span>
+                    ) : null}
+                  </p>
+                  {payment.reviewNote ? (
+                    <p className="text-xs text-muted-foreground">
+                      ملاحظة الموظف: {payment.reviewNote}
+                    </p>
+                  ) : null}
+                </div>
+
+                {/*
+                  `exact` here and compacted in the totals above: one invoice
+                  line has the whole width of the row to itself and is the
+                  figure a clerk reads out, so rounding it would be trading
+                  precision for space that is not short.
+                */}
+                <Money
+                  amount={payment.amount}
+                  exact
+                  className="shrink-0 font-semibold"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * One money total in the fee summary row.
+ *
+ * Four of these sit in a grid that drops to two columns on a tablet and one
+ * on a phone, so each tile is a third of a card wide at its narrowest — the
+ * place a ten-digit municipal total would have wrapped its label away from
+ * its figure. `Money` compacts it and keeps the exact number on hover.
+ */
+function Total({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border bg-muted/20 p-4">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn('mt-1 text-xl font-bold', tone)}>
+        <Money amount={value} />
+      </dd>
+    </div>
   );
 }
 
@@ -817,6 +1000,7 @@ function FactSection({
   );
 }
 
+/** Small icon + label heading used inside a property or attachment block. */
 function SubHeading({
   icon: Icon,
   children,
@@ -832,6 +1016,7 @@ function SubHeading({
   );
 }
 
+/** Click-to-call, kept LTR so the number is not mirrored in an RTL page. */
 function PhoneLink({ phone }: { phone: string }) {
   return (
     <a href={`tel:${phone}`} dir="ltr" className="font-medium text-primary hover:underline">

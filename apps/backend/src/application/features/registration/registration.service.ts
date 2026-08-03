@@ -399,6 +399,10 @@ export class RegistrationService {
     };
   }
 
+  /**
+   * One registration for staff review. Throws rather than returning null —
+   * callers here have no meaningful "not found" branch.
+   */
   async getById(id: string): Promise<Registration> {
     const registration = await this.registrations.findById(id);
     if (!registration) {
@@ -425,6 +429,10 @@ export class RegistrationService {
     return registration;
   }
 
+  /**
+   * A citizen's own submissions, scoped to their id rather than filtered
+   * after the fact.
+   */
   async listMine(citizenId: string): Promise<RegistrationListItem[]> {
     return this.registrations.listByCitizen(citizenId);
   }
