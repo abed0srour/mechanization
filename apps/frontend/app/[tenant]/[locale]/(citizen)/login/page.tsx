@@ -53,6 +53,16 @@ export default function CitizenLogin({
     try {
       const result = await requestOtp(tenant, phone, nextAttempt);
       setAttempt(nextAttempt);
+
+      // OTP is switched off server-side: there is no code coming, so asking
+      // for one would strand the citizen on a screen nothing can satisfy.
+      // Sign in directly — the same `verifyOtp` call, minus the code the
+      // server is not checking.
+      if (result.otpRequired === false) {
+        await verify();
+        return;
+      }
+
       setStage('code');
       setDevCode(result.devCode ?? null);
       setCooldown(
@@ -73,7 +83,14 @@ export default function CitizenLogin({
     setBusy(true);
     setError(null);
     try {
-      const result = await verifyOtp(tenant, { phone, code, citizenId });
+      // Omitted rather than sent empty: the schema accepts a missing code
+      // (for the OTP-disabled case) but still rejects `''` against the
+      // six-digit pattern.
+      const result = await verifyOtp(tenant, {
+        phone,
+        ...(code ? { code } : {}),
+        citizenId,
+      });
 
       // `status` is the discriminant: a real session never carries one.
       if ('status' in result) {

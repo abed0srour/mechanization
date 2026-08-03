@@ -23,6 +23,7 @@ interface Args {
   prefix?: string;
 }
 
+/** All four flags are required — a municipality cannot be half-named. */
 function parseArgs(argv: string[]): Args {
   const get = (flag: string): string | undefined => {
     const index = argv.indexOf(flag);
@@ -51,6 +52,7 @@ function generateAdminPathSegment(): string {
   return `admin-portal-${randomBytes(3).toString('hex')}`;
 }
 
+/** Registry row, Postgres schema, then migrations. Safe to re-run. */
 export async function provisionTenant(args: Args): Promise<void> {
   const slug = TenantSlug.parse(args.slug);
   const schemaName = slug.schemaName;

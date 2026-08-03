@@ -58,6 +58,10 @@ declare module '@tanstack/react-table' {
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * `{count} طلب` + `{count: 12}` -> `12 طلب`. Keeps pluralisable copy in the
+ * labels object rather than concatenated at the use site.
+ */
 function fillTemplate(
   template: string,
   values: Record<string, string | number>,

@@ -35,6 +35,22 @@ export const envSchema = z
     SMS_PROVIDER_FALLBACK_API_KEY: z.string().optional(),
 
     /**
+     * Citizen one-time-password verification.
+     *
+     * Off means a phone number alone signs someone in. That is a development
+     * convenience while no SMS provider is wired up — it is refused in
+     * production below, because the records behind this login include national
+     * ID numbers, home addresses and refugee status.
+     *
+     * Anything unrecognised parses as *enabled*: a typo in an environment
+     * variable must not silently unlock the citizen portal.
+     */
+    OTP_ENABLED: z
+      .string()
+      .default('true')
+      .transform((value) => !['false', '0', 'no', 'off'].includes(value.trim().toLowerCase())),
+
+    /**
      * Optional: the dashboard cache runs in read-through mode when unset (every
      * read falls straight to Postgres), so a dev environment without Redis
      * still works — it just does not get the cached fast path.
@@ -64,6 +80,22 @@ export const envSchema = z
     if (env.NODE_ENV !== 'production') return;
 
     /**
+     * The one guardrail on the flag above. Citizen records hold identity
+     * document numbers, home coordinates and residency status; without OTP the
+     * only thing standing between those and anyone at all is knowing a phone
+     * number, which is not a secret. A deploy that reaches production with this
+     * off is a mistake, and boot is the last place it can still be caught.
+     */
+    if (!env.OTP_ENABLED) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['OTP_ENABLED'],
+        message:
+          'OTP cannot be disabled in production — a phone number alone would open a citizen record',
+      });
+    }
+
+    /**
      * Lebanese SMS delivery fails often enough that a single provider is a
      * single point of failure on the login path — and the people locked out are
      * exactly the ones this system exists to serve. Production refuses to start
@@ -89,6 +121,10 @@ export const envSchema = z
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Parses the environment or throws with every problem listed at once —
+ * a boot that fails on one missing variable at a time wastes a deploy each.
+ */
 export function validateEnv(raw: Record<string, unknown>): Env {
   const result = envSchema.safeParse(raw);
 

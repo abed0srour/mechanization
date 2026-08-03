@@ -180,6 +180,7 @@ export class ReportingService {
     return `dashboard:${this.tenantContext.tenantSlug}:${name}`;
   }
 
+  /** Headline totals, served from cache when warm. */
   async getDashboardCounters(): Promise<DashboardCounters> {
     const key = this.cacheKey('counters');
     const cached = await this.cache.get<DashboardCounters>(key);

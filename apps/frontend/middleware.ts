@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 const LOCALES = ['ar', 'en'] as const;
 const DEFAULT_LOCALE = 'ar';
 
+/**
+ * Fills in the default locale when a URL omits it, and refuses the two
+ * reserved segments that would otherwise shadow a municipality slug.
+ */
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 

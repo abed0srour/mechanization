@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'node:crypto';
 import {
   OTP_REPOSITORY,
@@ -31,7 +32,20 @@ export class OtpService {
     @Inject(OTP_REPOSITORY) private readonly challenges: OtpRepository,
     @Inject(SMS_SENDER) private readonly sms: SmsSender,
     @Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Whether a code is actually demanded of the citizen.
+   *
+   * Off, everything below still exists and is still reachable — this is a
+   * switch, not a removal — but `issue` writes no challenge and `verify`
+   * accepts anything. `env.schema.ts` refuses to boot production in this
+   * state; see the note on OTP_ENABLED there for why.
+   */
+  get enabled(): boolean {
+    return this.config.get<boolean>('OTP_ENABLED') !== false;
+  }
 
   /**
    * Issues a code and sends it.
@@ -43,6 +57,22 @@ export class OtpService {
    */
   async issue(rawPhone: string, attempt = 1): Promise<OtpIssueResult> {
     const phone = PhoneNumber.parse(rawPhone);
+
+    // The number is still parsed above, so a malformed one is still rejected
+    // here rather than at the next step. Nothing else runs: no challenge row
+    // to verify against, no SMS, no rate-limit budget spent on a code that
+    // will never be asked for.
+    if (!this.enabled) {
+      this.logger.warn(
+        `OTP disabled — issuing no code for ${phone.masked}. Set OTP_ENABLED=true to restore.`,
+      );
+      const now = Date.now();
+      return {
+        channel: 'PRIMARY',
+        expiresAt: new Date(now + APP_CONFIG.otp.ttlSeconds * 1000),
+        resendAvailableAt: new Date(now),
+      };
+    }
 
     const hourAgo = new Date(Date.now() - 3_600_000);
     const recent = await this.challenges.countRecent(phone.e164, hourAgo);
@@ -120,6 +150,11 @@ export class OtpService {
    */
   async verify(rawPhone: string, code: string): Promise<string> {
     const phone = PhoneNumber.parse(rawPhone);
+
+    // Returns the canonical number without checking anything — there is no
+    // challenge to check against, because `issue` wrote none.
+    if (!this.enabled) return phone.e164;
+
     const challenge = await this.challenges.findActive(phone.e164);
 
     if (!challenge) {

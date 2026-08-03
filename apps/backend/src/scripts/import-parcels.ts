@@ -43,6 +43,7 @@ interface Args {
   outDir?: string;
 }
 
+/** `--slug` and `--file` are both required; usage is thrown, not defaulted. */
 function parseArgs(argv: string[]): Args {
   const get = (flag: string): string | undefined => {
     const index = argv.indexOf(flag);
@@ -61,10 +62,12 @@ function parseArgs(argv: string[]): Args {
   return { slug, file, outDir: get('--out-dir') };
 }
 
+/** Trims a coordinate to survey precision — see COORDINATE_PRECISION. */
 function round(value: number): number {
   return Number(value.toFixed(COORDINATE_PRECISION));
 }
 
+/** Parcel centroids as points, with a flag marking merged approximations. */
 function parcelsGeoJson(parcels: readonly Parcel[]): string {
   return JSON.stringify({
     type: 'FeatureCollection',
@@ -108,6 +111,7 @@ function cadastreGeoJson(lines: readonly CadastreLine[]): string {
   });
 }
 
+/** Writes one generated map asset, creating its directory, and logs the size. */
 function writeAsset(path: string, contents: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, contents, 'utf8');
@@ -115,6 +119,7 @@ function writeAsset(path: string, contents: string): void {
   console.log(`  wrote ${path} (${kb} KB)`);
 }
 
+/** Rebuilds a municipality's parcel registry and map layers from its KMZ. */
 export async function importCadastre(args: Args): Promise<void> {
   const slug = TenantSlug.parse(args.slug);
   const registry = new RegistryPrismaClient();

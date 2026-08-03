@@ -488,6 +488,7 @@ export function DocumentsStep({
   );
 }
 
+/** One upload slot: shows the chosen file, or the requirement if empty. */
 function FileField({
   field,
   label,
@@ -661,6 +662,7 @@ export function ReviewStep({
   );
 }
 
+/** A review-step section with an inline «تعديل» editor for its own step. */
 function ReviewBlock({
   title,
   editing,
@@ -689,6 +691,7 @@ function ReviewBlock({
   );
 }
 
+/** One label/value line in the review summary. */
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4 py-1">

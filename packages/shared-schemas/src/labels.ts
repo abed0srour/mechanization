@@ -16,6 +16,45 @@ import type {
 export const ar = {
   gender: { MALE: 'ذكر', FEMALE: 'أنثى' } satisfies Record<Gender, string>,
 
+  /** How often a fee recurs. */
+  feeFrequency: {
+    ONCE: 'مرة واحدة',
+    MONTHLY: 'شهري',
+    HALF_YEARLY: 'نصف سنوي',
+    ANNUALLY: 'سنوي',
+  },
+
+  /** Who a fee is issued to. */
+  feeTargetType: {
+    ALL_CITIZENS: 'جميع المواطنين',
+    BUILDING_CATEGORY: 'فئة عقارية',
+    INDIVIDUAL_CITIZEN: 'مواطن محدّد',
+  },
+
+  /** The property categories a fee may target, in the registry's own terms. */
+  feeTargetCategory: {
+    BUILDING: 'مبانٍ',
+    HOUSE: 'منازل',
+    LAND: 'أراضٍ',
+    TENT: 'خيم',
+    APARTMENT: 'شقق سكنية',
+    CLINIC: 'عيادات',
+    SHOP: 'محلات تجارية',
+  },
+
+  /** Where a payment stands. `PENDING_REVIEW` is a claim, not a receipt. */
+  paymentStatus: {
+    UNPAID: 'مطلوب',
+    PENDING_REVIEW: 'قيد المراجعة',
+    PAID: 'مدفوع',
+    OVERDUE: 'متأخّر',
+  },
+
+  paymentMethod: {
+    CASH: 'نقداً في البلدية',
+    WHISH_MONEY: 'تحويل Whish Money',
+  },
+
   /** Staff roles as the municipality names them, not as the enum spells them. */
   staffRole: {
     SUPER_ADMIN: 'مدير النظام',

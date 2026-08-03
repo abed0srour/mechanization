@@ -51,6 +51,7 @@ export const submitRegistrationSchema = z
 
 export type SubmitRegistration = z.infer<typeof submitRegistrationSchema>;
 
+/** What the receipt screen renders — above all the رقم مرجعي. */
 export const submitRegistrationResponseSchema = z.object({
   registrationId: uuid,
   referenceNumber: z.string(),
@@ -132,6 +133,7 @@ export const REJECTABLE_FIELDS = {
 
 export type RejectableField = keyof typeof REJECTABLE_FIELDS;
 
+/** The registry's keys as a tuple, so `z.enum` can validate against them. */
 export const REJECTABLE_FIELD_KEYS = Object.keys(REJECTABLE_FIELDS) as [
   RejectableField,
   ...RejectableField[],

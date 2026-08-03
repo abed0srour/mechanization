@@ -71,11 +71,13 @@ export class ZonesService {
     });
   }
 
+  /** Every sector, with membership reduced to a count. */
   async list(): Promise<ZoneSummary[]> {
     const rows = await this.zones.findAll();
     return rows.map(toSummary);
   }
 
+  /** One sector including the parcel numbers it owns, for the editor. */
   async get(id: string): Promise<ZoneDetail> {
     const zone = await this.zones.findById(id);
     if (!zone) throw new NotFoundError('القطاع غير موجود');
@@ -310,6 +312,7 @@ export class ZonesService {
   }
 }
 
+/** Drops a sector's parcel list down to the count the list view shows. */
 function toSummary(zone: Zone): ZoneSummary {
   return {
     id: zone.id,

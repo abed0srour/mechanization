@@ -106,6 +106,7 @@ const LTR_INPUTS = new Set([
   'unitArea',
 ]);
 
+/** Null-safe string coercion for seeding an input from stored data. */
 function str(value: unknown): string {
   return value == null ? '' : String(value);
 }

@@ -19,6 +19,10 @@ import type { Session } from './api-client';
  */
 const key = (tenant: string) => `mechanization.session.${tenant}`;
 
+/**
+ * Stores the session, in `localStorage` when "remember me" was ticked and
+ * `sessionStorage` otherwise — see the note above on shared municipal PCs.
+ */
 export function saveSession(tenant: string, session: Session, remember = false): void {
   const store = remember ? localStorage : sessionStorage;
   const other = remember ? sessionStorage : localStorage;
@@ -33,6 +37,7 @@ export function saveSession(tenant: string, session: Session, remember = false):
   }
 }
 
+/** Reads whichever store holds this tenant's session, session-scoped first. */
 export function loadSession(tenant: string): Session | null {
   try {
     const raw = sessionStorage.getItem(key(tenant)) ?? localStorage.getItem(key(tenant));
@@ -42,6 +47,7 @@ export function loadSession(tenant: string): Session | null {
   }
 }
 
+/** Signs out of this tenant by clearing both stores. */
 export function clearSession(tenant: string): void {
   try {
     sessionStorage.removeItem(key(tenant));

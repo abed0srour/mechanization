@@ -14,6 +14,7 @@ import {
   Moon,
   Sun,
   Languages,
+  Receipt,
   UsersRound,
 } from 'lucide-react';
 import { clearSession, loadSession } from '@/lib/session';
@@ -110,6 +111,9 @@ export function AdminSidebar({
     { href: `${base}/dashboard`, label: 'لوحة التحكم', icon: LayoutDashboard },
     { href: `${base}/map`, label: 'الخريطة', icon: MapIcon },
     { href: `${base}/zones`, label: 'القطاعات', icon: Layers },
+    // Next to the registry rather than under settings: a fee is issued
+    // against the citizens on the dashboard, not configured in isolation.
+    { href: `${base}/fees`, label: 'إدارة الرسوم والمدفوعات', icon: Receipt },
     {
       href: `${base}/audit`,
       label: 'سجل النشاطات',

@@ -175,6 +175,55 @@ export class IdentityService {
     return this.otp.issue(phone, attempt);
   }
 
+  /** Whether the citizen login page should collect a code. See `OtpService`. */
+  get otpRequired(): boolean {
+    return this.otp.enabled;
+  }
+
+  /**
+   * Citizen sign-in by رقم مرجعي **and** phone number.
+   *
+   * The reference number alone is not accepted, and that is deliberate: it is
+   * printed on a receipt and read aloud at a counter, so treating it as a lone
+   * credential would make a citizen's national ID and residency status
+   * readable by anyone who glanced at a slip of paper. Requiring the phone on
+   * file alongside it is the weakest bar this data can defensibly sit behind.
+   *
+   * Both failures return the same message for the same reason every other
+   * login path here does — a distinct "no such reference" turns this endpoint
+   * into a way to enumerate which references exist.
+   */
+  async loginByReference(input: {
+    tenantSlug: string;
+    referenceNumber: string;
+    phone: string;
+    context: { ip?: string; userAgent?: string };
+  }): Promise<SessionResult> {
+    const citizen = await this.users.findCitizenByReference(input.referenceNumber);
+
+    // Compared here rather than in the query so a wrong phone costs the same
+    // work as a wrong reference.
+    const phoneMatches =
+      citizen?.phone != null && normalisePhone(citizen.phone) === normalisePhone(input.phone);
+
+    if (!citizen || !phoneMatches) {
+      throw new UnauthorizedError('الرقم المرجعي أو رقم الهاتف غير صحيح');
+    }
+
+    citizen.assertMayStartSession();
+
+    await this.users.markLoggedIn(citizen.id);
+    citizen.recordLogin(input.context);
+    this.publish(citizen.pullEvents(), input.tenantSlug);
+
+    return this.issueSession({
+      id: citizen.id,
+      name: citizen.fullName,
+      kind: 'CITIZEN',
+      tenantSlug: input.tenantSlug,
+    });
+  }
+
   /**
    * Verifies the code, then resolves *which person* is logging in.
    *
@@ -185,11 +234,15 @@ export class IdentityService {
   async verifyOtp(input: {
     tenantSlug: string;
     phone: string;
-    code: string;
+    /** Absent only when OTP is switched off — `otp.verify` enforces it. */
+    code?: string;
     citizenId?: string;
     context: { ip?: string; userAgent?: string };
   }): Promise<SessionResult | DisambiguationRequired> {
-    const phone = await this.otp.verify(input.phone, input.code);
+    // `?? ''` rather than a guard: an empty code fails the hash compare inside
+    // `verify` exactly like a wrong one, so a client omitting it while OTP is
+    // on is refused by the same path as a client sending six wrong digits.
+    const phone = await this.otp.verify(input.phone, input.code ?? '');
     const candidates = await this.users.findCitizensByPhone(phone);
 
     if (candidates.length === 0) {
@@ -276,3 +329,14 @@ export class IdentityService {
  * "no such account" close to "wrong password".
  */
 const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEe.eS3.eXwuNfMmZLbTfjA.9YMK1XwK1Wu';
+
+/**
+ * Strips formatting so `03 123456`, `+96103123456` and `0096103123456` all
+ * compare equal. Not `PhoneNumber.parse` — that throws on a malformed input,
+ * and a citizen mistyping their number at the login box should be told their
+ * details do not match, not handed a validation error that reveals the
+ * reference number itself was fine.
+ */
+function normalisePhone(value: string): string {
+  return value.replace(/[\s-()]/g, '').replace(/^(\+961|00961|0)/, '');
+}
