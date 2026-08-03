@@ -13,6 +13,58 @@ export interface DashboardCounters {
   submittedLast7Days: number;
 }
 
+/**
+ * Everything the analytics dashboard plots, in one payload.
+ *
+ * Assembled server-side rather than derived in the browser from three separate
+ * endpoints: the KPI tiles and the charts have to agree with each other, and
+ * three independently-cached fetches guarantee a window where they do not —
+ * a "collection rate" computed from one response against a total from another
+ * is a number nobody can reconcile.
+ */
+export interface DashboardAnalytics {
+  /** Household records on file — one row per registered citizen. */
+  citizenRecords: number;
+  /**
+   * عدد السكان: the sum of every household's عدد أفراد الأسرة.
+   *
+   * This is the municipality's population as it has actually been declared,
+   * not a headcount of portal accounts — one registration speaks for a whole
+   * household, so the record count understates the people served by roughly a
+   * factor of four here.
+   */
+  populationTotal: number;
+  /**
+   * Households whose family size was never recorded. Reported rather than
+   * hidden: they contribute nothing to `populationTotal`, so the figure is
+   * understated by at least this many people, and a dashboard that quietly
+   * rounded them to zero would be lying by omission.
+   */
+  householdsWithoutSize: number;
+  /** One entry per distinct declared household size. */
+  familySizes: Array<{ size: number; households: number }>;
+
+  byStatus: Record<string, number>;
+  registrationTotal: number;
+
+  billedTotal: number;
+  collectedTotal: number;
+  outstandingTotal: number;
+  /** Unpaid and past its due date — see the note on late fees below. */
+  overdueTotal: number;
+  overdueCount: number;
+  pendingReviewCount: number;
+
+  /**
+   * The last six months, keyed by the month an invoice fell **due**.
+   *
+   * One time axis for all three measures on purpose. Plotting "billed by due
+   * date" against "collected by payment date" would put two different
+   * populations of rows on one chart and invite the reader to subtract them.
+   */
+  monthly: Array<{ month: string; billed: number; collected: number; overdue: number }>;
+}
+
 export interface SpatialFeature {
   id: string;
   propertyNumber: string;
@@ -119,6 +171,39 @@ export interface CitizenProfileRegistration {
   documents: CitizenProfileDocument[];
 }
 
+/** One invoice on the citizen's profile — the same shape the portal shows them. */
+export interface CitizenProfilePayment {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  /** `OVERDUE` is derived from the due date on read, never stored. */
+  paymentStatus: string;
+  paymentMethod: string | null;
+  whishTransactionRef: string | null;
+  paidAt: string | null;
+  reviewNote: string | null;
+  frequency: string | null;
+}
+
+/**
+ * Where this citizen stands with the municipality's fees.
+ *
+ * `overdueTotal` is the unpaid amount whose due date has passed. This system
+ * levies no penalty on top of a late fee, so a late fee *is* the unpaid fee —
+ * reported as its own total because "owes 400,000" and "owes 400,000, all of
+ * it late" are different conversations at the counter.
+ */
+export interface CitizenFeeTotals {
+  feesTotal: number;
+  paidTotal: number;
+  outstandingTotal: number;
+  overdueTotal: number;
+  overdueCount: number;
+  pendingReviewCount: number;
+}
+
 /** The staff-facing view of one citizen and everything they have filed. */
 export interface CitizenProfile {
   id: string;
@@ -137,7 +222,11 @@ export interface CitizenProfile {
   maritalStatus: string | null;
   referenceNumber: string | null;
   registeredAt: string;
+  /** False for a deactivated record — kept for its history, refused a session. */
+  isActive: boolean;
   registrations: CitizenProfileRegistration[];
+  payments: CitizenProfilePayment[];
+  fees: CitizenFeeTotals;
 }
 
 /**
@@ -241,6 +330,101 @@ export class ReportingService {
   }
 
   /**
+   * Everything the analytics dashboard plots, served from cache when warm.
+   *
+   * Shares the `dashboard:{tenant}:` namespace, so the existing event-driven
+   * invalidation — registration, citizen and money events alike — already
+   * clears it without a listener of its own.
+   */
+  async getAnalytics(): Promise<DashboardAnalytics> {
+    const key = this.cacheKey('analytics');
+    const cached = await this.cache.get<DashboardAnalytics>(key);
+    if (cached) return cached;
+
+    const analytics = await this.computeAnalytics();
+    await this.cache.set(key, analytics, this.cacheTtlSeconds);
+    return analytics;
+  }
+
+  /**
+   * One round trip for a screen made entirely of aggregates.
+   *
+   * Same reasoning as `computeDashboardCounters`: against a pooler holding a
+   * single connection per tenant schema, issuing eight `groupBy` calls in
+   * parallel makes them contend with each other, and this page opens with all
+   * of them at once. Scalar subqueries in one statement remove the contention
+   * rather than widening the pool to tolerate it.
+   */
+  private async computeAnalytics(): Promise<DashboardAnalytics> {
+    const [row] = await withConnectionRetry(() =>
+      this.db.$queryRaw<DashboardAnalytics[]>`
+        SELECT
+          (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN')
+            AS "citizenRecords",
+          (SELECT COALESCE(sum("familySize"), 0)::int FROM users WHERE kind = 'CITIZEN')
+            AS "populationTotal",
+          (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN' AND "familySize" IS NULL)
+            AS "householdsWithoutSize",
+          (SELECT COALESCE(
+                    json_agg(json_build_object('size', size, 'households', c) ORDER BY size),
+                    '[]'::json)
+             FROM (SELECT "familySize" AS size, count(*)::int AS c
+                     FROM users
+                    WHERE kind = 'CITIZEN' AND "familySize" IS NOT NULL
+                    GROUP BY 1) f)
+            AS "familySizes",
+          (SELECT COALESCE(json_object_agg(status, cnt), '{}'::json)
+             FROM (SELECT status, count(*)::int AS cnt FROM registrations GROUP BY status) s)
+            AS "byStatus",
+          (SELECT count(*)::int FROM registrations)
+            AS "registrationTotal",
+          COALESCE((SELECT sum(amount) FROM citizen_payments), 0)::float8
+            AS "billedTotal",
+          COALESCE((SELECT sum(amount) FROM citizen_payments
+                     WHERE "paymentStatus" = 'PAID'), 0)::float8
+            AS "collectedTotal",
+          COALESCE((SELECT sum(amount) FROM citizen_payments
+                     WHERE "paymentStatus" <> 'PAID'), 0)::float8
+            AS "outstandingTotal",
+          -- Derived from the due date on read, never stored: a flag written by
+          -- a nightly job is wrong for every hour between a due date passing
+          -- and the job next running.
+          COALESCE((SELECT sum(amount) FROM citizen_payments
+                     WHERE "paymentStatus" = 'UNPAID' AND "dueDate" < now()), 0)::float8
+            AS "overdueTotal",
+          (SELECT count(*)::int FROM citizen_payments
+            WHERE "paymentStatus" = 'UNPAID' AND "dueDate" < now())
+            AS "overdueCount",
+          (SELECT count(*)::int FROM citizen_payments
+            WHERE "paymentStatus" = 'PENDING_REVIEW')
+            AS "pendingReviewCount",
+          (SELECT COALESCE(json_agg(row_to_json(m) ORDER BY m.month), '[]'::json)
+             FROM (
+               SELECT to_char(d.m, 'YYYY-MM') AS month,
+                      COALESCE(sum(p.amount), 0)::float8 AS billed,
+                      COALESCE(sum(p.amount)
+                        FILTER (WHERE p."paymentStatus" = 'PAID'), 0)::float8 AS collected,
+                      COALESCE(sum(p.amount)
+                        FILTER (WHERE p."paymentStatus" = 'UNPAID'
+                                  AND p."dueDate" < now()), 0)::float8 AS overdue
+                 -- A generated month spine, LEFT JOINed: a month in which the
+                 -- municipality billed nothing has to plot as a zero, not go
+                 -- missing and silently shorten the axis.
+                 FROM generate_series(
+                        (date_trunc('month', now()) - interval '5 months')::timestamp,
+                        date_trunc('month', now())::timestamp,
+                        interval '1 month') AS d(m)
+                 LEFT JOIN citizen_payments p
+                        ON date_trunc('month', p."dueDate") = d.m
+                GROUP BY d.m) m)
+            AS "monthly"
+      `,
+    );
+
+    return row;
+  }
+
+  /**
    * Points for the admin map. Returns plain coordinates rather than GeoJSON
    * because the frontend uses MapLibre markers directly — v2 dropped deck.gl,
    * whose WebGL layer pipeline bought nothing at a few hundred points and cost
@@ -326,7 +510,30 @@ export class ReportingService {
         familySize: true,
         maritalStatus: true,
         referenceNumber: true,
+        isActive: true,
         createdAt: true,
+        /**
+         * The citizen's ledger, alongside their claims rather than a page
+         * away. Staff reviewing a registration are routinely also the people
+         * asked "what do I owe?", and until now the answer lived only on the
+         * fees screen, keyed by a name they had to search for again.
+         */
+        payments: {
+          orderBy: [{ paymentStatus: 'asc' }, { dueDate: 'asc' }],
+          select: {
+            id: true,
+            title: true,
+            amount: true,
+            currency: true,
+            dueDate: true,
+            paymentStatus: true,
+            paymentMethod: true,
+            whishTransactionRef: true,
+            paidAt: true,
+            reviewNote: true,
+            feeNotice: { select: { frequency: true } },
+          },
+        },
         registrations: {
           orderBy: { submittedAt: 'desc' },
           select: {
@@ -392,6 +599,36 @@ export class ReportingService {
 
     if (!citizen) return null;
 
+    const now = new Date();
+
+    // OVERDUE is derived here for the same reason `FeesService` derives it: a
+    // status written by a nightly job is wrong for every hour between a due
+    // date passing and the job next running.
+    const payments = citizen.payments.map((payment) => ({
+      id: payment.id,
+      title: payment.title,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      dueDate: payment.dueDate.toISOString(),
+      paymentStatus:
+        payment.paymentStatus === 'UNPAID' && payment.dueDate < now
+          ? 'OVERDUE'
+          : payment.paymentStatus,
+      paymentMethod: payment.paymentMethod,
+      whishTransactionRef: payment.whishTransactionRef,
+      paidAt: payment.paidAt?.toISOString() ?? null,
+      reviewNote: payment.reviewNote,
+      frequency: payment.feeNotice?.frequency ?? null,
+    }));
+
+    // Summed from the rows just mapped rather than by a second set of
+    // aggregate queries: the totals and the list a reviewer reads them against
+    // then cannot disagree, which they could if one was cached a moment apart
+    // from the other.
+    const sum = (rows: typeof payments) =>
+      rows.reduce((total, payment) => total + payment.amount, 0);
+    const overdue = payments.filter((payment) => payment.paymentStatus === 'OVERDUE');
+
     return {
       id: citizen.id,
       fullName: [citizen.firstName, citizen.middleName, citizen.lastName]
@@ -411,6 +648,18 @@ export class ReportingService {
       maritalStatus: citizen.maritalStatus,
       referenceNumber: citizen.referenceNumber,
       registeredAt: citizen.createdAt.toISOString(),
+      isActive: citizen.isActive,
+      payments,
+      fees: {
+        feesTotal: sum(payments),
+        paidTotal: sum(payments.filter((payment) => payment.paymentStatus === 'PAID')),
+        outstandingTotal: sum(payments.filter((payment) => payment.paymentStatus !== 'PAID')),
+        overdueTotal: sum(overdue),
+        overdueCount: overdue.length,
+        pendingReviewCount: payments.filter(
+          (payment) => payment.paymentStatus === 'PENDING_REVIEW',
+        ).length,
+      },
       registrations: citizen.registrations.map((registration) => ({
         id: registration.id,
         referenceNumber: registration.referenceNumber,
@@ -681,6 +930,18 @@ export class ReportingService {
   @OnEvent('registration.submitted')
   @OnEvent('registration.status-changed')
   @OnEvent('cadastre.imported')
+  /** A staff edit rewrites the very profile this caches under `citizen:{id}`. */
+  @OnEvent('citizen.changed')
+  /**
+   * The profile now carries the citizen's invoices, so money events stale it
+   * too. Without these three a clerk who has just confirmed a payment reloads
+   * the profile and still sees the fee outstanding — for the whole TTL, which
+   * is five minutes in the shipped config and reads as "the confirmation did
+   * not save".
+   */
+  @OnEvent('fee.issued')
+  @OnEvent('payment.declared')
+  @OnEvent('payment.reviewed')
   async onDashboardDataChanged(): Promise<void> {
     await this.cache.invalidatePrefix(`dashboard:${this.tenantContext.tenantSlug}:`);
   }

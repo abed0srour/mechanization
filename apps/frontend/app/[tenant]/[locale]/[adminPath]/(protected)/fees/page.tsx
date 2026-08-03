@@ -45,6 +45,7 @@ import type {
   RegistrationListItem,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
+import { formatLbp } from '@/lib/currency';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,10 +57,14 @@ import {
   type ChargeValues,
 } from '@/components/admin/charge-citizen-dialog';
 
-/** LBP has no minor unit in practice — whole pounds, grouped. */
-function lbp(amount: number): string {
-  return `${amount.toLocaleString('en-US')} ل.ل`;
-}
+/**
+ * LBP has no minor unit in practice — whole pounds, grouped.
+ *
+ * Kept as a local alias rather than three call sites reaching for the shared
+ * name: this screen prints exact figures throughout (it is the ledger), so it
+ * deliberately does not use the compacting `Money` the citizens registry does.
+ */
+const lbp = formatLbp;
 
 /**
  * إدارة الرسوم والمدفوعات.

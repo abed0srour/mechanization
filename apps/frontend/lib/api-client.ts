@@ -267,6 +267,54 @@ export function getDashboardCounters(tenant: string, token: string) {
   return apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token });
 }
 
+/** One month of the fee ledger, keyed by the month an invoice fell due. */
+export interface MonthlyFees {
+  /** `YYYY-MM`. */
+  month: string;
+  billed: number;
+  collected: number;
+  overdue: number;
+}
+
+/**
+ * Everything the analytics dashboard plots, in one payload — so the KPI tiles
+ * and the charts below them can never disagree.
+ */
+export interface DashboardAnalytics {
+  /** Household records on file — one row per registered citizen. */
+  citizenRecords: number;
+  /**
+   * عدد السكان: the sum of every household's عدد أفراد الأسرة, i.e. the
+   * population as declared rather than a headcount of portal accounts.
+   */
+  populationTotal: number;
+  /**
+   * Households with no declared family size. They contribute nothing to
+   * `populationTotal`, so it is understated by at least this many people —
+   * surfaced in the UI rather than silently rounded to zero.
+   */
+  householdsWithoutSize: number;
+  familySizes: Array<{ size: number; households: number }>;
+
+  byStatus: Record<string, number>;
+  registrationTotal: number;
+
+  billedTotal: number;
+  collectedTotal: number;
+  outstandingTotal: number;
+  /** Unpaid and past its due date. */
+  overdueTotal: number;
+  overdueCount: number;
+  pendingReviewCount: number;
+
+  monthly: MonthlyFees[];
+}
+
+/** The analytics dashboard's whole dataset. Cached server-side. */
+export function getDashboardAnalytics(tenant: string, token: string) {
+  return apiFetch<DashboardAnalytics>(tenant, '/dashboard/analytics', { token });
+}
+
 /** One citizen registered against a parcel, as the map drawer lists them. */
 export interface ParcelRegistrant {
   citizenId: string;
@@ -435,6 +483,39 @@ export interface CitizenProfileRegistration {
   documents: CitizenProfileDocument[];
 }
 
+/** One invoice on the citizen's profile. */
+export interface CitizenProfilePayment {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  dueDate: string;
+  /** `OVERDUE` is derived server-side from the due date, never stored. */
+  paymentStatus: string;
+  paymentMethod: string | null;
+  whishTransactionRef: string | null;
+  paidAt: string | null;
+  reviewNote: string | null;
+  frequency: string | null;
+}
+
+/**
+ * Where a citizen stands with the municipality's fees.
+ *
+ * `overdueTotal` is the unpaid amount past its due date. The system levies no
+ * penalty on top, so a late fee *is* the unpaid fee — it is reported as its own
+ * total because "owes 400,000" and "owes 400,000, all of it late" are different
+ * conversations at the counter.
+ */
+export interface CitizenFeeTotals {
+  feesTotal: number;
+  paidTotal: number;
+  outstandingTotal: number;
+  overdueTotal: number;
+  overdueCount: number;
+  pendingReviewCount: number;
+}
+
 export interface CitizenProfile {
   id: string;
   fullName: string;
@@ -452,7 +533,11 @@ export interface CitizenProfile {
   maritalStatus: string | null;
   referenceNumber: string | null;
   registeredAt: string;
+  /** False for a deactivated record — kept for its history, refused a session. */
+  isActive: boolean;
   registrations: CitizenProfileRegistration[];
+  payments: CitizenProfilePayment[];
+  fees: CitizenFeeTotals;
 }
 
 /**
@@ -461,6 +546,144 @@ export interface CitizenProfile {
  */
 export function getCitizenProfile(tenant: string, token: string, citizenId: string) {
   return apiFetch<CitizenProfile>(tenant, `/citizens/${encodeURIComponent(citizenId)}`, { token });
+}
+
+// ─────────────────────  Citizens registry (staff CRUD)  ─────────────────────
+
+/** One row of the admin citizens table — pre-aggregated, including fee totals. */
+export interface CitizenListItem {
+  id: string;
+  fullName: string;
+  phone: string | null;
+  whatsapp: string | null;
+  referenceNumber: string | null;
+  identityDocType: string | null;
+  identityDocNumber: string | null;
+  residentStatus: string | null;
+  isActive: boolean;
+  registeredAt: string;
+
+  registrationCount: number;
+  propertyCount: number;
+  /** Status of the most recent registration; null for a citizen with none. */
+  latestStatus: string | null;
+  latestSubmittedAt: string | null;
+
+  feesTotal: number;
+  paidTotal: number;
+  outstandingTotal: number;
+  /** The slice of `outstandingTotal` whose due date has passed — المتأخرات. */
+  overdueTotal: number;
+  overdueCount: number;
+  pendingReviewCount: number;
+}
+
+/**
+ * The citizen registry. `search` matches name, phone, رقم مرجعي or document
+ * number server-side — the table's own search box narrows the page further in
+ * the browser.
+ */
+export function listCitizens(
+  tenant: string,
+  token: string,
+  filter: { search?: string; limit?: number; offset?: number } = {},
+) {
+  const query = new URLSearchParams();
+  if (filter.search) query.set('search', filter.search);
+  query.set('limit', String(filter.limit ?? 200));
+  query.set('offset', String(filter.offset ?? 0));
+
+  return apiFetch<{ items: CitizenListItem[]; total: number }>(
+    tenant,
+    `/citizens?${query}`,
+    { token },
+  );
+}
+
+/**
+ * The three sections the admin form edits, exactly as it posts them back.
+ *
+ * `properties` carries only the citizen's most recent registration — the one
+ * the form owns. Earlier claims stay visible on the profile page with their
+ * own review state, so a name correction cannot silently reopen a claim
+ * approved months ago.
+ */
+export interface CitizenFormData {
+  id: string;
+  registrationId: string | null;
+  referenceNumber: string | null;
+  status: string | null;
+  personal: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  properties: Array<Record<string, unknown>>;
+}
+
+export function getCitizenForm(tenant: string, token: string, citizenId: string) {
+  return apiFetch<CitizenFormData>(
+    tenant,
+    `/citizens/${encodeURIComponent(citizenId)}/form`,
+    { token },
+  );
+}
+
+export interface CitizenWriteInput {
+  personal: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  properties: Array<Record<string, unknown>>;
+}
+
+/** Files a citizen and their first registration. Lands as PENDING, like any claim. */
+export function createCitizen(tenant: string, token: string, input: CitizenWriteInput) {
+  return apiFetch<{
+    citizenId: string;
+    registrationId: string;
+    referenceNumber: string;
+    propertyCount: number;
+  }>(tenant, '/citizens', { token, method: 'POST', body: JSON.stringify(input) });
+}
+
+/**
+ * Replaces the citizen's details and reconciles the properties of their latest
+ * registration: an entry with an `id` is updated, one without is created, and
+ * a stored entry absent from the payload is deleted along with its documents.
+ */
+export function updateCitizen(
+  tenant: string,
+  token: string,
+  citizenId: string,
+  input: CitizenWriteInput,
+) {
+  return apiFetch<{ updated: boolean; citizenId: string }>(
+    tenant,
+    `/citizens/${encodeURIComponent(citizenId)}`,
+    { token, method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+/** Soft delete and its undo — a deactivated citizen is skipped by the biller. */
+export function setCitizenActive(
+  tenant: string,
+  token: string,
+  citizenId: string,
+  isActive: boolean,
+) {
+  return apiFetch<{ isActive: boolean }>(
+    tenant,
+    `/citizens/${encodeURIComponent(citizenId)}/active`,
+    { token, method: 'PATCH', body: JSON.stringify({ isActive }) },
+  );
+}
+
+/**
+ * Permanent, cascading to registrations, properties, documents and invoices.
+ * SUPER_ADMIN only, and the server refuses it for anyone with a settled payment.
+ */
+export function deleteCitizen(tenant: string, token: string, citizenId: string) {
+  return apiFetch<{ deleted: boolean }>(
+    tenant,
+    `/citizens/${encodeURIComponent(citizenId)}`,
+    { token, method: 'DELETE' },
+  );
 }
 
 /** Opens the signed URL in a new tab; the backend records who viewed what. */

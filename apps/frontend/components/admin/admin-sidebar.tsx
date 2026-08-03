@@ -15,6 +15,7 @@ import {
   Sun,
   Languages,
   Receipt,
+  Users,
   UsersRound,
 } from 'lucide-react';
 import { clearSession, loadSession } from '@/lib/session';
@@ -109,6 +110,11 @@ export function AdminSidebar({
 
   const items: NavItem[] = [
     { href: `${base}/dashboard`, label: 'لوحة التحكم', icon: LayoutDashboard },
+    // Directly under the dashboard: the dashboard is the review queue — one
+    // row per طلب, ordered by what needs deciding — and this is the register
+    // it decides about, one row per person. Since the public wizard was
+    // removed, it is also where a citizen is created at all.
+    { href: `${base}/citizens`, label: 'المواطنون', icon: Users },
     { href: `${base}/map`, label: 'الخريطة', icon: MapIcon },
     { href: `${base}/zones`, label: 'القطاعات', icon: Layers },
     // Next to the registry rather than under settings: a fee is issued

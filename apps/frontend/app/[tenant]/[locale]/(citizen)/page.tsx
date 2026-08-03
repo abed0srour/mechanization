@@ -2,11 +2,19 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
- * Landing page: a deliberate either/or, not a login wall and not a form with a
- * hidden login link. Most first-time visitors are here to file something, so
- * that action leads — but tracking an existing request is given equal weight
- * and equal tap size, because a small "sign in" link is invisible to the
- * elderly citizens this service exists for.
+ * Landing page: one action, متابعة الطلب.
+ *
+ * Self-service registration is no longer filed here. A claim is now entered by
+ * a municipality clerk from the documents the citizen brings to the counter —
+ * see the admin citizens registry — which means this page has exactly one job
+ * left: get someone who has already filed back into their own record. The
+ * either/or that used to sit here (تقديم طلب جديد beside الدخول) would now
+ * offer a route that ends in a form nobody is meant to fill in themselves.
+ *
+ * The old "what you need before you start" checklist went with it. It listed
+ * the documents to have in hand *while filling in the wizard*; as preparation
+ * for a visit to the municipality it is still useful, so it is kept — reworded
+ * for the counter rather than the browser.
  */
 export default async function TenantHome({
   params,
@@ -20,31 +28,27 @@ export default async function TenantHome({
     <div className="space-y-10">
       <div className="space-y-3">
         <h1 className="text-3xl font-bold leading-snug tracking-tight">
-          سجّل عقارك أو وحدتك السكنية
+          تابع طلب تسجيل عقارك
         </h1>
         <p className="max-w-prose text-lg text-muted-foreground">
-          التسجيل يستغرق حوالي عشر دقائق. يمكنك تسجيل أكثر من عقار في الطلب نفسه.
-          احتفظ بوثيقة إثبات الهوية وإثبات الملكية أو عقد الإيجار بالقرب منك.
+          سجّل الدخول لمتابعة حالة طلبك والاطلاع على الرسوم المستحقة عليك. لتقديم طلب
+          جديد، يرجى مراجعة البلدية مع أوراقك الثبوتية.
         </p>
       </div>
 
+      {/*
+        A single card, kept at the same tap size the pair used to share. Made
+        full-width on a phone and half-width from `sm` up rather than allowed to
+        stretch across a desktop: a lone 11rem-tall band spanning the whole page
+        reads as a banner, not as something to press.
+      */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Link
-          href={`${base}/report`}
-          className="flex min-h-[11rem] flex-col justify-between rounded-lg bg-primary p-6 text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        >
-          <span className="text-2xl font-bold">تقديم طلب جديد</span>
-          <span className="text-base opacity-90">
-            املأ الاستمارة خطوة بخطوة — لا حاجة لحساب مسبق
-          </span>
-        </Link>
-
-        <Link
           href={`${base}/login`}
-          className="flex min-h-[11rem] flex-col justify-between rounded-lg border bg-card p-6 text-card-foreground shadow-sm transition-colors hover:bg-accent"
+          className="flex min-h-[11rem] flex-col justify-between rounded-lg bg-primary p-6 text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:col-span-1"
         >
           <span className="text-2xl font-bold">الدخول لمتابعة طلبي</span>
-          <span className="text-base text-muted-foreground">
+          <span className="text-base opacity-90">
             برقم هاتفك — نرسل لك رمزاً برسالة نصية
           </span>
         </Link>
@@ -52,7 +56,7 @@ export default async function TenantHome({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">ما الذي تحتاجه قبل البدء</CardTitle>
+          <CardTitle className="text-lg">ما الذي تحتاجه عند مراجعة البلدية</CardTitle>
         </CardHeader>
         <CardContent>
           <ul className="space-y-3 text-muted-foreground">

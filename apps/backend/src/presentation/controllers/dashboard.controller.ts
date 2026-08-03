@@ -14,6 +14,19 @@ export class DashboardController {
     return this.reporting.getDashboardCounters();
   }
 
+  /**
+   * Everything the analytics dashboard plots, in one payload.
+   *
+   * Deliberately one endpoint rather than one per widget: the KPI tiles and
+   * the charts have to agree, and separately-cached fetches guarantee a window
+   * where a rate computed from one response contradicts a total from another.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Get('analytics')
+  async analytics() {
+    return this.reporting.getAnalytics();
+  }
+
   /** Marker coordinates for the MapLibre panel. */
   @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
   @Get('map')
