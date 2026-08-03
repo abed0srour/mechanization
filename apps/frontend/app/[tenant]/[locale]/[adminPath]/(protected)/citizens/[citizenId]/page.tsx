@@ -30,12 +30,10 @@ import {
   UserCheck,
   Users,
   Wallet,
-  XCircle,
 } from 'lucide-react';
-import { ar, REJECTABLE_FIELDS, type RejectableField } from '@mechanization/shared-schemas';
+import { ar } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
-  changeRegistrationStatus,
   getCitizenProfile,
   getDocumentViewUrl,
   logApiError,
@@ -48,15 +46,7 @@ import type {
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { findLocatedProperty, mapHref } from '@/lib/map-link';
-import { acceptStatusFor, isReviewable } from '@/lib/registration-status';
-import {
-  FieldFlag,
-  FieldReviewProvider,
-  flaggedClass,
-  useFieldReview,
-} from '@/components/admin/field-review';
-import { ReviewBar } from '@/components/admin/review-bar';
-import { Badge, StatusBadge } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
@@ -76,9 +66,6 @@ interface FactItem {
   value?: React.ReactNode;
   /** Latin-script content (numbers, phones) that must not mirror in RTL. */
   ltr?: boolean;
-  /** Makes this value flaggable during a rejection. Omitted for fields the
-   *  applicant cannot correct — a reference number, a system timestamp. */
-  rejectKey?: RejectableField;
 }
 
 /**
@@ -123,72 +110,10 @@ export default function CitizenProfilePage({
   /** Mirrors the server's write roles; the server is the enforcement. */
   const canEdit = role === 'SUPER_ADMIN' || role === 'FIELD_INSPECTOR';
 
-  /** Registration whose rejection is being composed, if any. */
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [flagged, setFlagged] = useState<Set<RejectableField>>(new Set());
-  const [note, setNote] = useState('');
-  /** Default: the citizen fixes the flagged fields online themselves. */
-  const [allowCorrection, setAllowCorrection] = useState(true);
-  const [revisitAt, setRevisitAt] = useState('');
-  const [deciding, setDeciding] = useState(false);
-
-  const toggleFlag = useCallback((field: RejectableField) => {
-    setFlagged((previous) => {
-      const next = new Set(previous);
-      if (next.has(field)) next.delete(field);
-      else next.add(field);
-      return next;
-    });
-  }, []);
-
-  const resetReview = useCallback(() => {
-    setRejectingId(null);
-    setFlagged(new Set());
-    setNote('');
-    setAllowCorrection(true);
-    setRevisitAt('');
-  }, []);
-
   const reload = useCallback(async () => {
     if (!token) return;
     setCitizen(await getCitizenProfile(tenant, token, citizenId));
   }, [tenant, token, citizenId]);
-
-  /** One path for both decisions — they differ only in payload. */
-  const decide = useCallback(
-    async (registrationId: string, status: string) => {
-      if (!token) return;
-      setDeciding(true);
-      try {
-        await changeRegistrationStatus(tenant, token, registrationId, {
-          status,
-          ...(status === 'REJECTED'
-            ? {
-                reason: note.trim(),
-                rejectedFields: [...flagged],
-                allowCitizenCorrection: allowCorrection,
-                // `datetime-local` has no zone; the browser's own offset is
-                // the right one to assume for a visit to the town hall.
-                ...(!allowCorrection && revisitAt
-                  ? { revisitAt: new Date(revisitAt).toISOString() }
-                  : {}),
-              }
-            : {}),
-        });
-        resetReview();
-        await reload();
-      } catch (caught) {
-        logApiError(caught);
-        // Left open on failure so a note that was just written is not lost.
-        setError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث حالة الطلب.',
-        );
-      } finally {
-        setDeciding(false);
-      }
-    },
-    [tenant, token, note, flagged, resetReview, reload],
-  );
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -271,9 +196,6 @@ export default function CitizenProfilePage({
   };
 
   return (
-    <FieldReviewProvider
-      value={{ active: rejectingId !== null, flagged, toggle: toggleFlag }}
-    >
     <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       {/* Its own row above the header. Inside it, the avatar aligned to this
           link rather than to the name it belongs to, which is what left the
@@ -365,38 +287,32 @@ export default function CitizenProfilePage({
                 icon: User,
                 label: 'الاسم',
                 value: citizen.fullName,
-                rejectKey: 'personal.name',
               },
               {
                 icon: User,
                 label: 'الجنس',
                 value: ar.gender[citizen.gender as never],
-                rejectKey: 'personal.gender',
               },
               {
                 icon: Flag,
                 label: 'الجنسية',
                 value: citizen.nationality,
-                rejectKey: 'personal.nationality',
               },
               {
                 icon: Home,
                 label: 'صفة الإقامة',
                 value: ar.residentStatus[citizen.residentStatus as never],
-                rejectKey: 'personal.residentStatus',
               },
               {
                 icon: IdCard,
                 label: 'نوع وثيقة الإثبات',
                 value: ar.identityDocType[citizen.identityDocType as never],
-                rejectKey: 'personal.identityDocType',
               },
               {
                 icon: FileDigit,
                 label: 'رقم الوثيقة',
                 value: citizen.identityDocNumber,
                 ltr: true,
-                rejectKey: 'personal.identityDocNumber',
               },
               citizen.isLebanese
                 ? {
@@ -404,14 +320,12 @@ export default function CitizenProfilePage({
                     label: 'رقم السجل',
                     value: citizen.civilRecordNumber,
                     ltr: true,
-                    rejectKey: 'personal.civilRecordNumber' as const,
                   }
                 : {
                     icon: FileDigit,
                     label: 'رقم الإقامة',
                     value: citizen.residencyNumber,
                     ltr: true,
-                    rejectKey: 'personal.residencyNumber' as const,
                   },
             ]}
           />
@@ -432,13 +346,11 @@ export default function CitizenProfilePage({
                   icon: Phone,
                   label: 'الهاتف',
                   value: citizen.phone ? <PhoneLink phone={citizen.phone} /> : null,
-                  rejectKey: 'contact.phone',
                 },
                 {
                   icon: MessageCircle,
                   label: 'واتساب',
                   value: citizen.whatsapp ? <PhoneLink phone={citizen.whatsapp} /> : null,
-                  rejectKey: 'contact.whatsapp',
                 },
               ]}
             />
@@ -453,13 +365,11 @@ export default function CitizenProfilePage({
                   value: citizen.maritalStatus
                     ? (ar.maritalStatus?.[citizen.maritalStatus as never] ?? citizen.maritalStatus)
                     : undefined,
-                  rejectKey: 'contact.maritalStatus',
                 },
                 {
                   icon: Users,
                   label: 'عدد أفراد الأسرة',
                   value: citizen.familySize?.toString(),
-                  rejectKey: 'contact.familySize',
                 },
               ]}
             />
@@ -501,10 +411,6 @@ export default function CitizenProfilePage({
                   {new Date(registration.submittedAt).toLocaleDateString('ar-LB')}
                 </p>
               </div>
-              <StatusBadge
-                status={registration.status}
-                label={ar.reportStatus[registration.status as never] ?? registration.status}
-              />
             </CardHeader>
 
             <CardContent className="space-y-4 pt-6">
@@ -519,7 +425,6 @@ export default function CitizenProfilePage({
               <div className="space-y-2 border-t pt-4">
                 <SubHeading icon={FileText}>
                   المرفقات {registration.documents.length > 0 ? `(${registration.documents.length})` : ''}
-                  <FieldFlag field="documents.other" />
                 </SubHeading>
                 {registration.documents.length === 0 ? (
                   <p className="text-sm text-muted-foreground">لا توجد مرفقات لهذا الطلب.</p>
@@ -551,69 +456,17 @@ export default function CitizenProfilePage({
                 )}
               </div>
 
-              {/*
-                The decision, at the bottom of the thing being decided. Only
-                shown while the claim is still open — an approved or already
-                refused one has no move left, and the aggregate would refuse
-                the transition anyway.
-              */}
-              {isReviewable(registration.status) ? (
-                <div className="border-t pt-4">
-                  <ReviewBar
-                    acceptLabel={
-                      ar.reportStatus[acceptStatusFor(registration.status) as never] ?? undefined
-                    }
-                    rejecting={rejectingId === registration.id}
-                    flagged={[...flagged]}
-                    note={note}
-                    allowCitizenCorrection={allowCorrection}
-                    revisitAt={revisitAt}
-                    submitting={deciding}
-                    onNoteChange={setNote}
-                    onAllowCitizenCorrectionChange={setAllowCorrection}
-                    onRevisitAtChange={setRevisitAt}
-                    onStartRejecting={() => setRejectingId(registration.id)}
-                    onCancelRejecting={resetReview}
-                    onAccept={() => {
-                      const next = acceptStatusFor(registration.status);
-                      if (next) void decide(registration.id, next);
-                    }}
-                    onConfirmReject={() => void decide(registration.id, 'REJECTED')}
-                    onUnflag={toggleFlag}
-                  />
-                </div>
-              ) : null}
-
-              {/* What was said last time, for a claim already refused. */}
-              {registration.status === 'REJECTED' && registration.rejectionReason ? (
-                <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-                  <SubHeading icon={XCircle}>سبب الرفض</SubHeading>
-                  <p className="text-sm">{registration.rejectionReason}</p>
-                  {registration.rejectedFields.length > 0 ? (
-                    <ul className="flex flex-wrap gap-1.5">
-                      {registration.rejectedFields.map((field) => (
-                        <li key={field}>
-                          <Badge variant="destructive">
-                            {REJECTABLE_FIELDS[field as RejectableField] ?? field}
-                          </Badge>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
             </CardContent>
           </Card>
         ))}
 
         {citizen.registrations.length === 0 ? (
           <p className="rounded-lg border p-6 text-center text-muted-foreground">
-            لا توجد طلبات مسجّلة لهذا المواطن.
+            لا توجد عقارات مسجّلة لهذا المواطن.
           </p>
         ) : null}
       </section>
     </div>
-    </FieldReviewProvider>
   );
 }
 
@@ -798,19 +651,16 @@ function PropertyCard({
       label: 'رقم العقار',
       value: property.propertyNumber,
       ltr: true,
-      rejectKey: 'property.propertyNumber',
     },
     {
       icon: MapPin,
       label: 'الحي',
       value: property.neighborhood,
-      rejectKey: 'property.neighborhood',
     },
     {
       icon: Building2,
       label: 'اسم المبنى',
       value: property.buildingName,
-      rejectKey: 'property.buildingName',
     },
     {
       icon: Trees,
@@ -818,7 +668,6 @@ function PropertyCard({
       value: property.landType
         ? (ar.landType[property.landType as never] ?? property.landType)
         : null,
-      rejectKey: 'property.propertyType',
     },
     {
       icon: Home,
@@ -826,27 +675,23 @@ function PropertyCard({
       value: property.unitType
         ? (ar.unitType[property.unitType as never] ?? property.unitType)
         : null,
-      rejectKey: 'property.propertyType',
     },
-    { icon: Layers, label: 'الطابق', value: property.floor, rejectKey: 'property.units' },
-    { icon: MapPin, label: 'الجهة', value: property.side, rejectKey: 'property.units' },
+    { icon: Layers, label: 'الطابق', value: property.floor },
+    { icon: MapPin, label: 'الجهة', value: property.side },
     {
       icon: Ruler,
       label: 'المساحة',
       value: property.unitArea != null ? `${property.unitArea} م²` : null,
-      rejectKey: 'property.unitArea',
     },
     {
       icon: Tent,
       label: 'موقع الخيمة',
       value: property.tentLocation,
-      rejectKey: 'property.location',
     },
     {
       icon: Key,
       label: 'الحقوق المشتركة',
       value: property.sharedRights.length > 0 ? property.sharedRights.join('، ') : null,
-      rejectKey: 'property.units',
     },
   ]);
 
@@ -855,13 +700,11 @@ function PropertyCard({
       icon: User,
       label: 'اسم المالك',
       value: property.landlordName,
-      rejectKey: 'property.landlord',
     },
     {
       icon: Phone,
       label: 'هاتف المالك',
       value: property.landlordPhone ? <PhoneLink phone={property.landlordPhone} /> : null,
-      rejectKey: 'property.landlord',
     },
   ]);
 
@@ -886,11 +729,9 @@ function PropertyCard({
               <Badge variant="secondary">
                 {ar.propertyType[property.propertyType as never] ?? property.propertyType}
               </Badge>
-              <FieldFlag field="property.propertyType" />
               <Badge variant={isTenant ? 'warning' : 'outline'}>
                 {ar.occupancyType[property.occupancyType as never] ?? property.occupancyType}
               </Badge>
-              <FieldFlag field="property.occupancyType" />
             </div>
           </div>
         </div>
@@ -933,7 +774,6 @@ function PropertyCard({
         <div className="space-y-3 p-4">
           <SubHeading icon={Layers}>
             الوحدات ({property.units.length})
-            <FieldFlag field="property.units" />
           </SubHeading>
           <ul className="divide-y rounded-lg border bg-background">
             {property.units.map((unit) => (
@@ -1027,14 +867,12 @@ function PhoneLink({ phone }: { phone: string }) {
 
 /** One labelled value: caption above, value below, so long Arabic labels and
  *  Latin numbers never have to share a baseline. */
-function Fact({ icon: Icon, label, value, ltr, rejectKey }: FactItem) {
-  const review = useFieldReview();
+function Fact({ icon: Icon, label, value, ltr }: FactItem) {
   return (
-    <div className={cn('min-w-0', flaggedClass(review, rejectKey))}>
+    <div className="min-w-0">
       <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Icon className="size-3.5 shrink-0" aria-hidden />
         {label}
-        {rejectKey ? <FieldFlag field={rejectKey} /> : null}
       </dt>
       <dd className="mt-1 break-words font-medium">
         {/*

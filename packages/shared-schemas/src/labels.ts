@@ -6,7 +6,6 @@ import type {
   MaritalStatus,
   OccupancyType,
   PropertyType,
-  ReportStatus,
   ResidentStatus,
   StaffRole,
   UnitType,
@@ -109,14 +108,6 @@ export const ar = {
     AGRICULTURAL: 'زراعي',
     INDUSTRIAL: 'صناعي',
   } satisfies Record<LandType, string>,
-
-  reportStatus: {
-    PENDING: 'قيد الانتظار',
-    UNDER_REVIEW: 'قيد المراجعة',
-    VERIFIED: 'تم التحقق',
-    APPROVED: 'مقبول',
-    REJECTED: 'مرفوض',
-  } satisfies Record<ReportStatus, string>,
 
   documentType: {
     IDENTITY: 'وثيقة الإثبات',

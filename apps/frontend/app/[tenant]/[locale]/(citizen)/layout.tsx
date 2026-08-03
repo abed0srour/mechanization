@@ -17,12 +17,12 @@ async function getTenant(slug: string): Promise<PublicTenantConfig | null> {
 }
 
 /**
- * The citizen wizard's chrome: municipality header, a `max-w-3xl` reading
- * column sized for a single-column form, and a support-phone footer.
+ * The citizen portal's chrome: municipality header, a `max-w-3xl` reading
+ * column, and a support-phone footer.
  *
- * Scoped to this route group on purpose — `/report`, `/login`, `/my-account`
- * and the landing page all want a citizen reading someone their phone at
- * arm's length. The staff portal under `[adminPath]/**` sits outside this
+ * Scoped to this route group on purpose — `/login`, `/my-account`,
+ * `/payments` and the landing page all want a citizen reading their own phone
+ * at arm's length. The staff portal under `[adminPath]/**` sits outside this
  * group entirely and provides its own full-width shell.
  */
 export default async function CitizenLayout({

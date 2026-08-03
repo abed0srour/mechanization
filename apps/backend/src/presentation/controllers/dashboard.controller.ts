@@ -60,11 +60,11 @@ export class DashboardController {
   async exportCsv(
     @Param('tenantSlug') tenantSlug: string,
     @CurrentUser() user: SessionClaims,
-    @Query('status') status?: string,
   ) {
+    // The `status` filter is gone with the review workflow — there is one
+    // export now, of everything on file.
     const csv = await this.reporting.exportCsv({
       tenantSlug,
-      status,
       actor: { id: user.sub, role: user.role ?? '' },
     });
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, UserPlus } from 'lucide-react';
-import type { RegistrationListItem } from '@/lib/api-client';
+import type { CitizenListItem } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -47,7 +47,7 @@ export function ChargeCitizenDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  citizens: RegistrationListItem[];
+  citizens: CitizenListItem[];
   submitting: boolean;
   error: string | null;
   onSubmit: (values: ChargeValues) => void;
@@ -69,13 +69,13 @@ export function ChargeCitizenDialog({
     ? citizens
         .filter(
           (row) =>
-            row.citizenName.includes(query.trim()) ||
-            row.referenceNumber.toUpperCase().includes(query.trim().toUpperCase()),
+            row.fullName.includes(query.trim()) ||
+            (row.referenceNumber ?? '').toUpperCase().includes(query.trim().toUpperCase()),
         )
         .slice(0, 6)
     : [];
 
-  const chosen = citizens.find((row) => row.citizenId === values.citizenId);
+  const chosen = citizens.find((row) => row.id === values.citizenId);
 
   const complete =
     values.citizenId !== '' &&
@@ -111,7 +111,7 @@ export function ChargeCitizenDialog({
               <Input
                 id="charge-citizen"
                 placeholder="اسم المواطن أو الرقم المرجعي"
-                value={chosen ? `${chosen.citizenName} — ${chosen.referenceNumber}` : query}
+                value={chosen ? `${chosen.fullName} — ${chosen.referenceNumber}` : query}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   if (values.citizenId) set({ citizenId: '' });
@@ -120,16 +120,16 @@ export function ChargeCitizenDialog({
               {!chosen && matches.length > 0 ? (
                 <ul className="overflow-hidden rounded-lg border">
                   {matches.map((row) => (
-                    <li key={row.citizenId}>
+                    <li key={row.id}>
                       <button
                         type="button"
                         onClick={() => {
-                          set({ citizenId: row.citizenId });
+                          set({ citizenId: row.id });
                           setQuery('');
                         }}
                         className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm transition-colors hover:bg-accent"
                       >
-                        <span className="font-medium">{row.citizenName}</span>
+                        <span className="font-medium">{row.fullName}</span>
                         <span className="font-mono text-xs text-muted-foreground" dir="ltr">
                           {row.referenceNumber}
                         </span>

@@ -28,7 +28,7 @@ import {
   getMunicipalitySettings,
   getPendingPayments,
   issueFeeNotice,
-  listForReview,
+  listCitizens,
   logApiError,
   reviewPayment,
   runRecurringBilling,
@@ -38,11 +38,11 @@ import {
 } from '@/lib/api-client';
 import type {
   AdminPaymentItem,
+  CitizenListItem,
   FeeNoticeSummary,
   FeeSummary,
   MunicipalitySettings,
   PendingPayment,
-  RegistrationListItem,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
@@ -87,7 +87,7 @@ export default function FeesPage({
   const [summary, setSummary] = useState<FeeSummary | null>(null);
   const [notices, setNotices] = useState<FeeNoticeSummary[]>([]);
   const [pending, setPending] = useState<PendingPayment[]>([]);
-  const [citizens, setCitizens] = useState<RegistrationListItem[]>([]);
+  const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
   const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
   const [settingsDraft, setSettingsDraft] = useState({
     whishMoneyNumber: '',
@@ -135,7 +135,7 @@ export default function FeesPage({
         getFeeNotices(tenant, token),
         getPendingPayments(tenant, token),
         getMunicipalitySettings(tenant, token),
-        listForReview(tenant, token, { limit: 100 }),
+        listCitizens(tenant, token, { limit: 200 }),
         getAllPayments(tenant, token, { search: ledgerSearch || undefined }),
       ]);
 

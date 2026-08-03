@@ -58,15 +58,20 @@ export const LAND_TYPE = ['AGRICULTURAL', 'INDUSTRIAL'] as const;
 export const landTypeSchema = arabicEnum(LAND_TYPE, 'نوع الأرض مطلوب');
 export type LandType = z.infer<typeof landTypeSchema>;
 
-export const REPORT_STATUS = [
-  'PENDING',
-  'UNDER_REVIEW',
-  'VERIFIED',
-  'APPROVED',
-  'REJECTED',
-] as const;
-export const reportStatusSchema = arabicEnum(REPORT_STATUS, 'حالة الطلب غير صالحة');
-export type ReportStatus = z.infer<typeof reportStatusSchema>;
+/*
+ * `REPORT_STATUS` / `reportStatusSchema` / `ReportStatus` were here.
+ *
+ * The review workflow they described — قيد الانتظار → قيد المراجعة → تم
+ * التحقق → مقبول, with مرفوض and a correction round-trip — existed because
+ * citizens filed their own طلبات and the municipality had to adjudicate them.
+ * Records are now entered by staff directly, so there is nothing to
+ * adjudicate: a row exists because a clerk put it there, which is the same
+ * thing "مقبول" used to mean.
+ *
+ * The `ReportStatus` enum and the `registrations.status` column still exist in
+ * the tenant schema, defaulted and unread — dropping them is a separate,
+ * irreversible migration across every municipality's schema.
+ */
 
 export const STAFF_ROLE = ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'] as const;
 export const staffRoleSchema = arabicEnum(STAFF_ROLE, 'الصلاحية غير صالحة');

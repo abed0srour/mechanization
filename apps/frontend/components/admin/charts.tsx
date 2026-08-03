@@ -7,12 +7,12 @@ import { cn } from '@/lib/utils';
  * Chart primitives, drawn as plain SVG.
  *
  * No charting library on purpose. This project already dropped deck.gl from
- * the map for bundle weight, and the three forms this dashboard needs —
- * columns, grouped columns, a stacked track — are a few dozen lines of path
- * maths each. Recharts would add ~100kB gzipped (it carries d3-scale, -shape,
- * -array) to buy layout code we would then have to fight to meet the mark
- * specs below: capped bar thickness, 2px surface gaps, hairline grid, labels
- * that are selective rather than on every point.
+ * the map for bundle weight, and the two forms this dashboard needs — columns
+ * and grouped columns — are a few dozen lines of path maths each. Recharts
+ * would add ~100kB gzipped (it carries d3-scale, -shape, -array) to buy layout
+ * code we would then have to fight to meet the mark specs below: capped bar
+ * thickness, 2px surface gaps, hairline grid, labels that are selective rather
+ * than on every point.
  *
  * ── Conventions every chart here obeys ──────────────────────────────────
  *
@@ -600,171 +600,6 @@ export function GroupedColumnChart({
       ) : (
         <div style={{ height: PLOT_H + AXIS_H }} />
       )}
-    </div>
-  );
-}
-
-export interface StackSegment {
-  label: string;
-  value: number;
-  color: string;
-  /** Rendered beside the label in the breakdown list — status never colour-alone. */
-  icon?: React.ComponentType<{ className?: string }>;
-}
-
-/**
- * A horizontal part-to-whole track, with its breakdown listed beneath.
- *
- * Chosen over a doughnut deliberately. The categories here are Arabic status
- * names — «قيد المراجعة», «تم التحقق» — which do not fit around a ring without
- * leader lines, and the reader's actual job is comparing segment sizes, which
- * a pie makes harder than a bar for anything but the most lopsided splits. The
- * track doubles as the progress meter the brief asked for.
- *
- * Segments are separated by a 2px gap in the surface colour and the whole
- * track is clipped to one rounded rectangle, so the ends are round and the
- * joins are clean without a stroke around any segment.
- */
-export function StackedTrack({
-  segments,
-  total,
-  formatValue,
-}: {
-  segments: StackSegment[];
-  total: number;
-  formatValue: (value: number) => string;
-}) {
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const [hover, setHover] = React.useState<HoverState | null>(null);
-
-  const H = 28;
-  const GAP = 2;
-  const shown = segments.filter((segment) => segment.value > 0);
-  const clipId = React.useId();
-
-  /**
-   * Whether the segments actually account for the whole.
-   *
-   * When they do, the last one runs to the far edge so the accumulated 2px
-   * gaps come out of the segments rather than leaving a stub of empty track.
-   * When they *don't* — a status outside the known set, a total counted from a
-   * different query — the remainder has to stay visible as bare track. Letting
-   * the last segment absorb an unexplained difference would silently
-   * misreport it as belonging to that category.
-   */
-  const accounted = shown.reduce((sum, segment) => sum + segment.value, 0);
-  const complete = total > 0 && accounted === total;
-
-  let cursor = 0;
-  const placed = shown.map((segment, index) => {
-    const raw = total > 0 ? (segment.value / total) * width : 0;
-    const isLast = index === shown.length - 1;
-    const w = isLast && complete ? Math.max(width - cursor, 0) : Math.max(raw - GAP, 0);
-    // Right-anchored, matching every other chart on this page.
-    const x = width - cursor - w;
-    cursor += w + GAP;
-    return { ...segment, x, w };
-  });
-
-  return (
-    <div className="space-y-4">
-      <div ref={ref} className="relative">
-        {width > 0 ? (
-          <>
-            <svg width={width} height={H} role="img" aria-label="توزيع حالات الطلبات">
-              <defs>
-                <clipPath id={clipId}>
-                  <rect x={0} y={0} width={width} height={H} rx={6} />
-                </clipPath>
-              </defs>
-              <g clipPath={`url(#${clipId})`}>
-                <rect x={0} y={0} width={width} height={H} className="fill-muted" />
-                {placed.map((segment) => (
-                  <rect
-                    key={segment.label}
-                    x={segment.x}
-                    y={0}
-                    width={segment.w}
-                    height={H}
-                    fill={segment.color}
-                  />
-                ))}
-              </g>
-
-              {/* Hit targets sit above the clip so a 3px segment is still
-                  reachable — each is widened to a usable minimum. */}
-              {placed.map((segment) => {
-                const hitW = Math.max(segment.w, 24);
-                const hitX = Math.min(segment.x, width - hitW);
-                return (
-                  <rect
-                    key={`hit-${segment.label}`}
-                    x={Math.max(hitX, 0)}
-                    y={0}
-                    width={hitW}
-                    height={H}
-                    fill="transparent"
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`${segment.label}: ${formatValue(segment.value)}`}
-                    onMouseEnter={() =>
-                      setHover({
-                        x: segment.x + segment.w / 2,
-                        y: 0,
-                        title: segment.label,
-                        rows: [
-                          { label: 'العدد', value: formatValue(segment.value), color: segment.color },
-                          {
-                            label: 'النسبة',
-                            value: `${total > 0 ? Math.round((segment.value / total) * 100) : 0}%`,
-                          },
-                        ],
-                      })
-                    }
-                    onMouseLeave={() => setHover(null)}
-                    onBlur={() => setHover(null)}
-                    className="cursor-pointer outline-none"
-                  />
-                );
-              })}
-            </svg>
-            <ChartTooltip hover={hover} width={width} />
-          </>
-        ) : (
-          <div style={{ height: H }} />
-        )}
-      </div>
-
-      {/*
-        The breakdown doubles as the legend and as the direct labels the track
-        itself has no room for — an interior segment has no free end to hang a
-        label off, so the value lives here instead of being clipped inside a
-        3px sliver.
-      */}
-      <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        {segments.map((segment) => {
-          const Icon = segment.icon;
-          return (
-            <li key={segment.label} className="flex items-center justify-between gap-3 text-sm">
-              <span className="inline-flex min-w-0 items-center gap-2 text-muted-foreground">
-                <span
-                  aria-hidden
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ background: segment.color }}
-                />
-                {Icon ? <Icon className="size-3.5 shrink-0" aria-hidden /> : null}
-                <span className="truncate">{segment.label}</span>
-              </span>
-              <span className="shrink-0 font-medium tabular-nums">
-                {formatValue(segment.value)}
-                <span className="ms-1.5 text-xs text-muted-foreground">
-                  {total > 0 ? Math.round((segment.value / total) * 100) : 0}%
-                </span>
-              </span>
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
