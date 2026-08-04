@@ -56,6 +56,7 @@ import {
   ChargeCitizenDialog,
   type ChargeValues,
 } from '@/components/admin/charge-citizen-dialog';
+import { ConfirmCashPaymentDialog } from '@/components/admin/confirm-cash-payment-dialog';
 
 /**
  * LBP has no minor unit in practice — whole pounds, grouped.
@@ -109,6 +110,8 @@ export default function FeesPage({
   const [savingSettings, setSavingSettings] = useState(false);
   const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cashTarget, setCashTarget] = useState<AdminPaymentItem | null>(null);
+  const [cashError, setCashError] = useState<string | null>(null);
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -231,27 +234,29 @@ export default function FeesPage({
     [tenant, token, load],
   );
 
+  /** Opens the confirmation modal — the actual settlement happens on its confirm. */
+  const recordCash = useCallback((payment: AdminPaymentItem) => {
+    setCashError(null);
+    setCashTarget(payment);
+  }, []);
+
   /** Money handed over at the counter — straight to PAID, no review step. */
-  const recordCash = useCallback(
-    async (payment: AdminPaymentItem) => {
-      if (!token) return;
-      if (!confirm(`تسجيل استلام ${lbp(payment.amount)} نقداً من ${payment.citizenName}؟`)) {
-        return;
-      }
-      setBusyPaymentId(payment.id);
-      try {
-        await settlePayment(tenant, token, payment.id, { method: 'CASH' });
-        setNotice('تم تسجيل الدفعة.');
-        await load();
-      } catch (caught) {
-        logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.');
-      } finally {
-        setBusyPaymentId(null);
-      }
-    },
-    [tenant, token, load],
-  );
+  const confirmCashPayment = useCallback(async () => {
+    if (!token || !cashTarget) return;
+    setBusyPaymentId(cashTarget.id);
+    setCashError(null);
+    try {
+      await settlePayment(tenant, token, cashTarget.id, { method: 'CASH' });
+      setNotice('تم تسجيل الدفعة.');
+      setCashTarget(null);
+      await load();
+    } catch (caught) {
+      logApiError(caught);
+      setCashError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.');
+    } finally {
+      setBusyPaymentId(null);
+    }
+  }, [tenant, token, cashTarget, load]);
 
   /**
    * Runs tonight's biller now. Safe to press twice — the job is idempotent
@@ -554,7 +559,7 @@ export default function FeesPage({
                           variant="outline"
                           size="sm"
                           disabled={busyPaymentId === payment.id}
-                          onClick={() => void recordCash(payment)}
+                          onClick={() => recordCash(payment)}
                         >
                           {busyPaymentId === payment.id ? (
                             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -758,6 +763,17 @@ export default function FeesPage({
         submitting={charging}
         error={chargeError}
         onSubmit={(values) => void submitCharge(values)}
+      />
+
+      <ConfirmCashPaymentDialog
+        open={cashTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setCashTarget(null);
+        }}
+        payment={cashTarget}
+        submitting={busyPaymentId === cashTarget?.id}
+        error={cashError}
+        onConfirm={() => void confirmCashPayment()}
       />
     </div>
   );

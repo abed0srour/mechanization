@@ -48,7 +48,7 @@ export class PrismaAuditRepository implements AuditRepository {
    */
   async query(query: AuditQuery): Promise<{ items: AuditRow[]; total: number }> {
     const conditions: Prisma.Sql[] = [];
-    if (query.actorId) conditions.push(Prisma.sql`"actorId" = ${query.actorId}`);
+    if (query.actorId) conditions.push(Prisma.sql`"actorId" = ${query.actorId}::uuid`);
     if (query.entityType) conditions.push(Prisma.sql`"entityType" = ${query.entityType}`);
     if (query.entityId) conditions.push(Prisma.sql`"entityId" = ${query.entityId}`);
     if (query.from) conditions.push(Prisma.sql`"createdAt" >= ${query.from}`);

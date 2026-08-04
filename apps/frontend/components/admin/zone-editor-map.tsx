@@ -326,6 +326,18 @@ export function ZoneEditorMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Resize with the container ──────────────────────────────────────
+  // Same fix as FullscreenMap: Mapbox's canvas keeps its last pixel size
+  // until told otherwise, so a sidebar collapse that widens this container
+  // otherwise leaves the map cut off or surrounded by blank space.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => mapRef.current?.resize());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   // ── Click, hover and box select ────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
