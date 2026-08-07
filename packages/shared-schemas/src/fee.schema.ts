@@ -120,6 +120,20 @@ export const systemSettingsSchema = z.object({
     .or(z.literal('')),
   cashOfficeHours: z.string().trim().max(200).optional().or(z.literal('')),
   cashOfficeAddress: z.string().trim().max(300).optional().or(z.literal('')),
+
+  /** The municipality's public number, printed on receipts. */
+  contactPhone: z.string().trim().max(30, 'الرقم طويل جداً').optional().or(z.literal('')),
+
+  /**
+   * The office WhatsApp account.
+   *
+   * Stored as typed rather than normalised to E.164 for the same reason as
+   * `whishMoneyNumber`: it is printed for a human to read and dial, and
+   * rewriting `03 123456` into `+96170123456` makes it unrecognisable to the
+   * person who gave it to you. The `wa.me` link builder normalises its own
+   * copy at the point of use.
+   */
+  whatsappNumber: z.string().trim().max(30, 'الرقم طويل جداً').optional().or(z.literal('')),
 });
 
 export type SystemSettingsInput = z.infer<typeof systemSettingsSchema>;
@@ -183,6 +197,20 @@ export const noticeActiveSchema = z.object({ isActive: z.boolean() });
 
 export const settlePaymentSchema = z.object({
   method: paymentMethodSchema.default('CASH'),
+  /**
+   * How much was actually handed over.
+   *
+   * Optional, and omitting it means "the whole outstanding balance" — the
+   * common case at the counter, and the behaviour before partial payments
+   * existed, so an older client keeps working unchanged. A value below the
+   * balance is a partial; above it is refused server-side rather than banked
+   * as credit, because nothing here can carry an overpayment forward.
+   */
+  amount: z.coerce
+    .number({ invalid_type_error: 'المبلغ يجب أن يكون رقماً' })
+    .positive('المبلغ يجب أن يكون أكبر من صفر')
+    .max(1_000_000_000_000, 'المبلغ كبير جداً')
+    .optional(),
   note: z.string().trim().max(500).optional(),
 });
 

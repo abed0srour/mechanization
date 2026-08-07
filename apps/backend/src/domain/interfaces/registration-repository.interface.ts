@@ -1,5 +1,5 @@
 import { PropertyEntry } from '../entities/property-entry.entity';
-import { Registration, ReportStatus } from '../entities/registration.entity';
+import { Registration } from '../entities/registration.entity';
 import { CitizenIdentityInput } from './user-repository.interface';
 
 export interface SubmitRegistrationInput {
@@ -16,94 +16,27 @@ export interface SubmitRegistrationResult {
   propertyIds: string[];
 }
 
-/** A rejected claim plus the values the citizen is being asked to fix. */
-export interface CorrectionContext {
-  registrationId: string;
-  referenceNumber: string;
-  status: string;
-  rejectionReason: string | null;
-  rejectedFields: string[];
-  citizenCanCorrect: boolean;
-  revisitAt: string | null;
-  personal: Record<string, unknown>;
-  contact: Record<string, unknown>;
-  properties: Array<Record<string, unknown>>;
-}
-
-export interface RegistrationListItem {
-  id: string;
-  referenceNumber: string;
-  status: ReportStatus;
-  submittedAt: Date;
-  /** Carried so the staff table can link a row straight to the citizen's page. */
-  citizenId: string;
-  citizenName: string;
-  propertyCount: number;
-  /**
-   * The citizen's contact number. Carried on the row because the staff table's
-   * first move on a questionable claim is to phone the person who filed it —
-   * previously that meant opening their profile to read one field.
-   */
-  citizenPhone: string | null;
-  /** Reviewer's note on a refused claim — what the applicant must fix. */
-  rejectionReason: string | null;
-  /** Dot-paths from `REJECTABLE_FIELDS`; empty unless refused field-by-field. */
-  rejectedFields: string[];
-  /** False when the citizen must come in person instead of correcting online. */
-  citizenCanCorrect: boolean;
-  /** Optional appointment for that visit, ISO-8601. */
-  revisitAt: string | null;
-}
+/*
+ * `RegistrationListItem` was here — one row of a طلبات list, carrying `status`,
+ * `rejectionReason`, `rejectedFields`, `citizenCanCorrect` and `revisitAt`.
+ *
+ * Both the lists it served are gone: the staff review queue (there is nothing
+ * to adjudicate) and the citizen's «طلباتي» page (which now reads their
+ * properties and fees through the profile projection instead). Its
+ * status-free remnant had no caller left, so it goes rather than sitting here
+ * as a shape nothing produces.
+ */
 
 export interface RegistrationRepository {
   /**
    * Citizen upsert + registration + property rows in one transaction. A partial
-   * submission is worse than a failed one: the citizen sees an error, retries,
-   * and hits a uniqueness conflict on a property they never successfully filed.
+   * write is worse than a failed one: the clerk sees an error, retries, and
+   * collides with the property rows their "failed" attempt already committed.
    */
   submit(input: SubmitRegistrationInput): Promise<SubmitRegistrationResult>;
 
   /** Rehydrates the aggregate, properties included. */
   findById(id: string): Promise<Registration | null>;
-  /** The lookup behind a citizen quoting their رقم مرجعي at the counter. */
-  findByReferenceNumber(reference: string): Promise<Registration | null>;
-  /** Every submission one citizen has filed, newest first. */
-  listByCitizen(citizenId: string): Promise<RegistrationListItem[]>;
-  listForReview(filter: {
-    status?: ReportStatus;
-    limit: number;
-    offset: number;
-  }): Promise<{ items: RegistrationListItem[]; total: number }>;
-
-  /** The rejected claim as its own citizen sees it, for the correction form. */
-  findCorrectionContext(input: {
-    registrationId: string;
-    citizenId: string;
-  }): Promise<CorrectionContext | null>;
-
-  /**
-   * Applies a citizen's corrections and puts the claim back in the queue, in
-   * one transaction: a correction that updated the person but not the status
-   * would leave a fixed claim sitting in REJECTED forever.
-   */
-  applyCorrection(input: {
-    registrationId: string;
-    citizenId: string;
-    personal: Record<string, unknown>;
-    contact: Record<string, unknown>;
-    properties: Array<{ id: string } & Record<string, unknown>>;
-  }): Promise<void>;
-
-  persistStatusChange(input: {
-    registrationId: string;
-    status: ReportStatus;
-    reason?: string;
-    /** Dot-paths from `REJECTABLE_FIELDS`; only meaningful on a rejection. */
-    rejectedFields?: string[];
-    allowCitizenCorrection?: boolean;
-    revisitAt?: string;
-    reviewedById: string;
-  }): Promise<void>;
 
   /**
    * How many citizens are already registered on this parcel. Context for the

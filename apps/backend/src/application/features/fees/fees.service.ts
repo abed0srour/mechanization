@@ -7,7 +7,7 @@ import type {
 } from '@mechanization/shared-schemas';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
-import { ConflictError, NotFoundError } from '../../common/exceptions';
+import { ConflictError, NotFoundError, ValidationError } from '../../common/exceptions';
 
 /** Property categories that live on `PropertyEntry.propertyType`. */
 const PROPERTY_TYPE_CATEGORIES = new Set(['BUILDING', 'HOUSE', 'LAND', 'TENT']);
@@ -83,6 +83,10 @@ export interface PaymentSummary {
   id: string;
   title: string;
   amount: number;
+  /** Received so far. Below `amount` on a part-settled invoice. */
+  paidAmount: number;
+  /** `amount - paidAmount`, floored at zero — what is still owed. */
+  remaining: number;
   currency: string;
   dueDate: string;
   paymentStatus: string;
@@ -133,6 +137,8 @@ export class FeesService {
       whishMoneyNumber: row?.whishMoneyNumber ?? null,
       cashOfficeHours: row?.cashOfficeHours ?? null,
       cashOfficeAddress: row?.cashOfficeAddress ?? null,
+      contactPhone: row?.contactPhone ?? null,
+      whatsappNumber: row?.whatsappNumber ?? null,
       updatedAt: row?.updatedAt?.toISOString() ?? null,
     };
   }
@@ -147,6 +153,8 @@ export class FeesService {
       whishMoneyNumber: blankToNull(input.whishMoneyNumber),
       cashOfficeHours: blankToNull(input.cashOfficeHours),
       cashOfficeAddress: blankToNull(input.cashOfficeAddress),
+      contactPhone: blankToNull(input.contactPhone),
+      whatsappNumber: blankToNull(input.whatsappNumber),
       updatedById: actor.id,
     };
 
@@ -422,6 +430,8 @@ export class FeesService {
       id: row.id,
       title: row.title,
       amount: Number(row.amount),
+      paidAmount: Number(row.paidAmount),
+      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
       currency: row.currency,
       dueDate: row.dueDate.toISOString(),
       // OVERDUE is derived on read rather than written by a nightly job: a
@@ -504,6 +514,8 @@ export class FeesService {
       id: row.id,
       title: row.title,
       amount: Number(row.amount),
+      paidAmount: Number(row.paidAmount),
+      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
       currency: row.currency,
       dueDate: row.dueDate.toISOString(),
       paymentMethod: row.paymentMethod,
@@ -524,7 +536,7 @@ export class FeesService {
   }) {
     const payment = await this.db.citizenPayment.findUnique({
       where: { id: input.paymentId },
-      select: { id: true, paymentStatus: true, citizenId: true },
+      select: { id: true, paymentStatus: true, citizenId: true, amount: true },
     });
     if (!payment) throw new NotFoundError('Payment', input.paymentId);
 
@@ -537,6 +549,10 @@ export class FeesService {
       data: input.confirmed
         ? {
             paymentStatus: 'PAID',
+            // A citizen declares a transfer for the whole invoice — the portal
+            // offers no way to declare part of one — so confirming it receives
+            // the whole invoice.
+            paidAmount: payment.amount,
             paidAt: new Date(),
             reviewedById: input.actor.id,
             reviewNote: input.note ?? null,
@@ -544,6 +560,8 @@ export class FeesService {
         : {
             // Back to UNPAID, and the method/reference are cleared with it —
             // they described a transfer the municipality could not find.
+            // `paidAmount` is deliberately untouched: a refused *transfer* says
+            // nothing about cash already taken at the counter on the same row.
             paymentStatus: 'UNPAID',
             paymentMethod: null,
             whishTransactionRef: null,
@@ -603,12 +621,13 @@ export class FeesService {
    * who owes it — a clerk taking cash at the counter needs to find the row by
    * the name in front of them.
    */
-  async listAllPayments(filter: { status?: string; search?: string } = {}) {
+  async listAllPayments(filter: { status?: string; search?: string; citizenId?: string } = {}) {
     const search = filter.search?.trim();
 
     const rows = await withConnectionRetry(() =>
       this.db.citizenPayment.findMany({
         where: {
+          ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
           ...(filter.status ? { paymentStatus: filter.status as never } : {}),
           ...(search
             ? {
@@ -624,7 +643,10 @@ export class FeesService {
             : {}),
         },
         orderBy: [{ paymentStatus: 'asc' }, { dueDate: 'asc' }],
-        take: 200,
+        // A single citizen's full history must never be truncated by the
+        // municipality-wide page size — the drill-down is where a clerk
+        // reconciles arrears one by one.
+        take: filter.citizenId ? 500 : 200,
         include: {
           citizen: {
             select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
@@ -639,6 +661,8 @@ export class FeesService {
       id: row.id,
       title: row.title,
       amount: Number(row.amount),
+      paidAmount: Number(row.paidAmount),
+      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
       currency: row.currency,
       dueDate: row.dueDate.toISOString(),
       paymentStatus:
@@ -655,22 +679,36 @@ export class FeesService {
   }
 
   /**
-   * A clerk recording money taken at the counter.
+   * A clerk recording money taken at the counter — in full, or in part.
    *
    * Goes straight to PAID with no PENDING_REVIEW in between, and that is the
    * point: the person confirming it is the person who took the notes. The
    * review step exists to verify a transfer nobody in the building witnessed —
    * applying it to cash in hand would ask a clerk to verify themselves.
+   *
+   * `amount` is optional and defaults to whatever is still outstanding, so the
+   * common case (someone paying the lot) needs no figure typed. Anything less
+   * is a partial: `paidAmount` moves, the row stays UNPAID, and the balance
+   * carries. Anything *more* is refused rather than quietly recorded as
+   * credit — this system has no notion of an overpayment to carry forward, so
+   * accepting one would silently lose the difference.
    */
   async settleInPerson(input: {
     paymentId: string;
+    amount?: number;
     method: 'CASH' | 'WHISH_MONEY';
     note?: string;
     actor: { id: string; role: string };
   }) {
     const payment = await this.db.citizenPayment.findUnique({
       where: { id: input.paymentId },
-      select: { id: true, paymentStatus: true, citizenId: true },
+      select: {
+        id: true,
+        paymentStatus: true,
+        citizenId: true,
+        amount: true,
+        paidAmount: true,
+      },
     });
     if (!payment) throw new NotFoundError('Payment', input.paymentId);
 
@@ -678,12 +716,40 @@ export class FeesService {
       throw new ConflictError('هذه الدفعة مسدّدة بالفعل');
     }
 
+    const total = Number(payment.amount);
+    const alreadyPaid = Number(payment.paidAmount);
+    const outstanding = total - alreadyPaid;
+
+    const received = input.amount ?? outstanding;
+
+    if (!Number.isFinite(received) || received <= 0) {
+      throw new ValidationError('المبلغ المستلم يجب أن يكون أكبر من صفر', {
+        amount: String(input.amount ?? ''),
+      });
+    }
+    // LBP is whole pounds in practice, so a half-pound tolerance is enough to
+    // absorb float noise from the Decimal round-trip without ever letting a
+    // real overpayment through.
+    if (received > outstanding + 0.5) {
+      throw new ConflictError(
+        `المبلغ المستلم (${received.toLocaleString('en-US')}) أكبر من الرصيد المستحق (${outstanding.toLocaleString('en-US')})`,
+      );
+    }
+
+    const paidAmount = alreadyPaid + received;
+    const fullySettled = paidAmount >= total - 0.5;
+
     await this.db.citizenPayment.update({
       where: { id: payment.id },
       data: {
-        paymentStatus: 'PAID',
+        paidAmount,
+        // Only a fully covered invoice becomes PAID. A partial one stays
+        // UNPAID on purpose: every "what is outstanding" query in this system
+        // keys off that status, and a half-paid row marked PAID would drop out
+        // of the arrears the municipality is chasing.
+        paymentStatus: fullySettled ? 'PAID' : 'UNPAID',
         paymentMethod: input.method as never,
-        paidAt: new Date(),
+        paidAt: fullySettled ? new Date() : null,
         reviewedById: input.actor.id,
         reviewNote: input.note ?? null,
       },
@@ -698,31 +764,40 @@ export class FeesService {
       actorRole: input.actor.role,
     });
 
-    return { paymentStatus: 'PAID' as const };
+    return {
+      paymentStatus: fullySettled ? ('PAID' as const) : ('UNPAID' as const),
+      received,
+      paidAmount,
+      remaining: Math.max(total - paidAmount, 0),
+    };
   }
 
   /** Headline numbers for the admin fee screen. */
   async summary() {
-    const [unpaid, pending, paid] = await Promise.all([
+    const [unpaid, pending, collected, settledCount] = await Promise.all([
       this.db.citizenPayment.aggregate({
         where: { paymentStatus: 'UNPAID' },
-        _sum: { amount: true },
+        // Both sums, because a part-paid invoice owes its *balance*, not its
+        // face value — charging the full amount again would double-count every
+        // pound already taken at the counter.
+        _sum: { amount: true, paidAmount: true },
         _count: { _all: true },
       }),
       this.db.citizenPayment.count({ where: { paymentStatus: 'PENDING_REVIEW' } }),
-      this.db.citizenPayment.aggregate({
-        where: { paymentStatus: 'PAID' },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
+      // Deliberately unfiltered: money received on a *partly* settled invoice
+      // is still in the municipality's drawer, and a PAID-only sum would leave
+      // it out of "collected" entirely.
+      this.db.citizenPayment.aggregate({ _sum: { paidAmount: true } }),
+      this.db.citizenPayment.count({ where: { paymentStatus: 'PAID' } }),
     ]);
 
     return {
-      unpaidTotal: Number(unpaid._sum.amount ?? 0),
+      unpaidTotal:
+        Number(unpaid._sum.amount ?? 0) - Number(unpaid._sum.paidAmount ?? 0),
       unpaidCount: unpaid._count._all,
       pendingReviewCount: pending,
-      paidTotal: Number(paid._sum.amount ?? 0),
-      paidCount: paid._count._all,
+      paidTotal: Number(collected._sum.paidAmount ?? 0),
+      paidCount: settledCount,
     };
   }
 }

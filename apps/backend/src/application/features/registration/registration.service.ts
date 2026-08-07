@@ -1,27 +1,16 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { SubmitRegistration } from '@mechanization/shared-schemas';
-import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
-import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
+import type { AdminCreateCitizen } from '@mechanization/shared-schemas';
 import { PropertyEntry, PropertyType } from '../../../domain/entities/property-entry.entity';
-import { Registration, ReportStatus } from '../../../domain/entities/registration.entity';
+import { Registration } from '../../../domain/entities/registration.entity';
 import { ReferenceNumber } from '../../../domain/value-objects/reference-number.vo';
 import {
   PARCEL_REPOSITORY,
   REGISTRATION_REPOSITORY,
 } from '../../../domain/interfaces/base-repository.interface';
 import type { ParcelRepository } from '../../../domain/interfaces/parcel-repository.interface';
-import {
-  RegistrationListItem,
-  RegistrationRepository,
-} from '../../../domain/interfaces/registration-repository.interface';
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  ValidationError,
-} from '../../common/exceptions';
+import { RegistrationRepository } from '../../../domain/interfaces/registration-repository.interface';
+import { ConflictError, ValidationError } from '../../common/exceptions';
 import { TenantService } from '../tenant/tenant.service';
 
 /** How many alternative parcel numbers to offer when a number is not found. */
@@ -52,18 +41,19 @@ export interface SubmitResult {
   registrationId: string;
   citizenId: string;
   referenceNumber: string;
-  status: ReportStatus;
   propertyCount: number;
   propertyIds: string[];
 }
 
 /**
- * One service, both reads and writes.
+ * Writing a citizen's property filing, and the cadastre lookup behind it.
  *
- * v1 split this into SubmitRegistrationCommand / ChangeStatusCommand /
- * GetByIdQuery / CheckPropertyNumberQuery — four classes, four files, four
- * handler registrations for what is four methods. CQRS earns that when the read
- * and write models genuinely diverge; here they are the same tables.
+ * The review half of this service — `changeStatus`, `getCorrectionContext`,
+ * `applyCorrection`, `listForReview` — is gone with the طلب workflow it
+ * served. What is left is the write path (`submit`, still the single place a
+ * citizen + registration + property rows are created, now driven by
+ * `CitizensService`) and the رقم العقار check the staff entry form calls on
+ * every keystroke.
  */
 @Injectable()
 export class RegistrationService {
@@ -72,14 +62,11 @@ export class RegistrationService {
     @Inject(PARCEL_REPOSITORY) private readonly parcels: ParcelRepository,
     private readonly tenants: TenantService,
     private readonly events: EventEmitter2,
-    private readonly cache: RedisCacheService,
-    private readonly config: ConfigService,
-    private readonly tenantContext: TenantContextService,
   ) {}
 
   async submit(input: {
     tenantSlug: string;
-    payload: SubmitRegistration;
+    payload: AdminCreateCitizen;
   }): Promise<SubmitResult> {
     const tenant = await this.tenants.resolve(input.tenantSlug);
 
@@ -173,166 +160,9 @@ export class RegistrationService {
       registrationId: result.registrationId,
       citizenId: result.citizenId,
       referenceNumber: result.referenceNumber,
-      status: 'PENDING',
       propertyCount: properties.length,
       propertyIds: result.propertyIds,
     };
-  }
-
-  /**
-   * Staff transition. The legality of the move is decided by the aggregate, not
-   * by whichever controller happened to call this.
-   */
-  async changeStatus(input: {
-    tenantSlug: string;
-    registrationId: string;
-    status: ReportStatus;
-    reason?: string;
-    /** Specific fields at fault, for the applicant's correction view. */
-    rejectedFields?: string[];
-    /** False routes the citizen to the counter instead of the online form. */
-    allowCitizenCorrection?: boolean;
-    revisitAt?: string;
-    actor: { id: string; role: string };
-  }): Promise<{ from: ReportStatus; to: ReportStatus }> {
-    const registration = await this.registrations.findById(input.registrationId);
-    if (!registration) {
-      throw new NotFoundError('Registration', input.registrationId);
-    }
-
-    // FIELD_INSPECTOR may progress a report through review but not approve it —
-    // final approval is what releases a claim, so it stays with SUPER_ADMIN.
-    if (input.status === 'APPROVED' && input.actor.role !== 'SUPER_ADMIN') {
-      throw new ForbiddenError('الموافقة النهائية تتطلب صلاحية المدير');
-    }
-
-    const transition = registration.changeStatus(input.status, input.actor, input.reason);
-
-    await this.registrations.persistStatusChange({
-      registrationId: registration.id,
-      status: transition.to,
-      reason: input.reason,
-      rejectedFields: input.rejectedFields,
-      allowCitizenCorrection: input.allowCitizenCorrection,
-      revisitAt: input.revisitAt,
-      reviewedById: input.actor.id,
-    });
-
-    for (const event of registration.pullEvents()) {
-      this.events.emit(event.name, { ...event.payload, tenantSlug: input.tenantSlug });
-    }
-
-    return transition;
-  }
-
-  /** The rejected claim as its own citizen sees it, for the correction form. */
-  async getCorrectionContext(registrationId: string, citizenId: string) {
-    const context = await this.registrations.findCorrectionContext({
-      registrationId,
-      citizenId,
-    });
-    if (!context) throw new NotFoundError('Registration', registrationId);
-    return context;
-  }
-
-  /**
-   * A citizen's corrections to their own refused claim.
-   *
-   * The submitted values are filtered against `rejectedFields` before anything
-   * is written. That filter is the security boundary of this endpoint, not a
-   * convenience: the payload arrives from a browser, so without it "fix your
-   * الحي" would double as permission to rewrite an identity document number on
-   * a submission a reviewer has already inspected. What was never flagged is
-   * silently dropped rather than rejected — a stale form from before a partial
-   * re-review should not fail wholesale.
-   */
-  async applyCorrection(input: {
-    tenantSlug: string;
-    registrationId: string;
-    citizenId: string;
-    personal: Record<string, unknown>;
-    contact: Record<string, unknown>;
-    properties: Array<{ id: string } & Record<string, unknown>>;
-  }): Promise<{ from: string; to: string }> {
-    const context = await this.registrations.findCorrectionContext({
-      registrationId: input.registrationId,
-      citizenId: input.citizenId,
-    });
-    if (!context) throw new NotFoundError('Registration', input.registrationId);
-
-    // The municipality can require this claim be fixed in person — an original
-    // document to inspect, an identity to confirm at the counter. Enforced
-    // here and not only by hiding the form: the endpoint is reachable
-    // regardless of what the page chose to render.
-    if (!context.citizenCanCorrect) {
-      throw new ForbiddenError('يجب مراجعة البلدية لتصحيح هذا الطلب');
-    }
-
-    const registration = await this.registrations.findById(input.registrationId);
-    if (!registration) throw new NotFoundError('Registration', input.registrationId);
-
-    const flags = new Set(context.rejectedFields);
-    const allowed = <T extends Record<string, unknown>>(
-      values: T,
-      permittedBy: Record<string, string>,
-    ): Record<string, unknown> =>
-      Object.fromEntries(
-        Object.entries(values).filter(
-          ([key]) => permittedBy[key] && flags.has(permittedBy[key]),
-        ),
-      );
-
-    const personal = allowed(input.personal, {
-      firstName: 'personal.name',
-      middleName: 'personal.name',
-      lastName: 'personal.name',
-      gender: 'personal.gender',
-      nationality: 'personal.nationality',
-      residentStatus: 'personal.residentStatus',
-      identityDocType: 'personal.identityDocType',
-      identityDocNumber: 'personal.identityDocNumber',
-      civilRecordNumber: 'personal.civilRecordNumber',
-      residencyNumber: 'personal.residencyNumber',
-    });
-
-    const contact = allowed(input.contact, {
-      phone: 'contact.phone',
-      whatsapp: 'contact.whatsapp',
-      maritalStatus: 'contact.maritalStatus',
-      familySize: 'contact.familySize',
-    });
-
-    const properties = input.properties
-      .map(({ id, ...values }) => ({
-        id,
-        ...allowed(values, {
-          neighborhood: 'property.neighborhood',
-          propertyNumber: 'property.propertyNumber',
-          buildingName: 'property.buildingName',
-          unitArea: 'property.unitArea',
-          landlordName: 'property.landlord',
-          landlordPhone: 'property.landlord',
-        }),
-      }))
-      .filter((property) => Object.keys(property).length > 1);
-
-    // Refuses the resubmission unless the claim is actually REJECTED — the
-    // aggregate owns that rule, not this method.
-    const transition = registration.resubmit(context.rejectedFields);
-
-    await this.registrations.applyCorrection({
-      registrationId: input.registrationId,
-      citizenId: input.citizenId,
-      personal,
-      contact,
-      properties,
-    });
-
-    for (const event of registration.pullEvents()) {
-      this.events.emit(event.name, { ...event.payload, tenantSlug: input.tenantSlug });
-    }
-
-    return transition;
   }
 
   /**
@@ -399,59 +229,4 @@ export class RegistrationService {
     };
   }
 
-  /**
-   * One registration for staff review. Throws rather than returning null —
-   * callers here have no meaningful "not found" branch.
-   */
-  async getById(id: string): Promise<Registration> {
-    const registration = await this.registrations.findById(id);
-    if (!registration) {
-      throw new NotFoundError('Registration', id);
-    }
-    return registration;
-  }
-
-  /**
-   * Citizen-facing lookup by رقم مرجعي. Scoped to the caller's own id so a
-   * guessed reference number does not open someone else's report.
-   */
-  async getForCitizen(referenceNumber: string, citizenId: string): Promise<Registration> {
-    const registration = await this.registrations.findByReferenceNumber(
-      ReferenceNumber.parse(referenceNumber).value,
-    );
-
-    if (!registration || registration.citizenId !== citizenId) {
-      // Same error either way: distinguishing "not found" from "not yours"
-      // confirms which reference numbers exist.
-      throw new NotFoundError('Registration');
-    }
-
-    return registration;
-  }
-
-  /**
-   * A citizen's own submissions, scoped to their id rather than filtered
-   * after the fact.
-   */
-  async listMine(citizenId: string): Promise<RegistrationListItem[]> {
-    return this.registrations.listByCitizen(citizenId);
-  }
-
-  /**
-   * The dashboard's main table — every registration, optionally filtered by
-   * status. Cached under the same `dashboard:{tenant}:` namespace the
-   * counters and map parcels use (see ReportingService), so the one
-   * event-driven invalidation there clears this too without a second
-   * listener to keep in sync.
-   */
-  async listForReview(filter: { status?: ReportStatus; limit: number; offset: number }) {
-    const key = `dashboard:${this.tenantContext.tenantSlug}:list:${filter.status ?? 'ALL'}:${filter.limit}:${filter.offset}`;
-    const cached = await this.cache.get<Awaited<ReturnType<RegistrationRepository['listForReview']>>>(key);
-    if (cached) return cached;
-
-    const result = await this.registrations.listForReview(filter);
-    const ttl = this.config.get<number>('DASHBOARD_CACHE_TTL_SECONDS') ?? 60;
-    await this.cache.set(key, result, ttl);
-    return result;
-  }
 }

@@ -4,26 +4,27 @@ import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  BadgeCheck,
   Banknote,
-  CheckCircle2,
+  BarChart3,
+  Building,
+  Building2,
   ChevronLeft,
-  Clock,
   Download,
-  Eye,
-  FileText,
+  Home,
   Layers,
   Map as MapIcon,
   Receipt,
   RefreshCw,
+  Store,
+  Stethoscope,
+  Tent,
+  Trees,
   TrendingUp,
   TriangleAlert,
   Users,
   UsersRound,
   Wallet,
-  XCircle,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   getDashboardAnalytics,
@@ -32,6 +33,7 @@ import {
 import type { DashboardAnalytics } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
+import { useSectionNav } from '@/lib/use-section-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Money } from '@/components/ui/money';
@@ -39,7 +41,6 @@ import {
   ChartCard,
   ColumnChart,
   GroupedColumnChart,
-  StackedTrack,
   type SeriesKey,
 } from '@/components/admin/charts';
 import { cn } from '@/lib/utils';
@@ -50,16 +51,34 @@ import { cn } from '@/lib/utils';
  */
 const FAMILY_BUCKET_CAP = 8;
 
-/** The review pipeline, in order. مرفوض is deliberately not in it. */
-const PIPELINE = ['PENDING', 'UNDER_REVIEW', 'VERIFIED', 'APPROVED'] as const;
+/** Sections the jump bar scrolls between. */
+const SECTIONS = [
+  { id: 'overview', label: 'المؤشرات', icon: TrendingUp },
+  { id: 'units', label: 'الوحدات والعقارات', icon: Building2 },
+  { id: 'analytics', label: 'التحليلات', icon: BarChart3 },
+] as const;
 
-const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  PENDING: Clock,
-  UNDER_REVIEW: Eye,
-  VERIFIED: BadgeCheck,
-  APPROVED: CheckCircle2,
-  REJECTED: XCircle,
-};
+const SECTION_IDS = SECTIONS.map((section) => section.id);
+
+/**
+ * The unit cards, in display order.
+ *
+ * `unitsByType` is keyed by `UnitType` (شقة / عيادة / محل) and
+ * `propertiesByType` by `PropertyType` (مبنى / منزل / أرض / خيمة) — two
+ * different enums, so each card names which of the two it reads. Labels are
+ * spelled out here rather than taken from `ar.unitType` because these are
+ * municipal-register categories ("مستوصف / عيادة"), which read differently
+ * from the single word a citizen picks in a form.
+ */
+const UNIT_CARDS = [
+  { source: 'unit', key: 'APARTMENT', label: 'شقق سكنية', icon: Building2 },
+  { source: 'property', key: 'HOUSE', label: 'منازل مستقلة', icon: Home },
+  { source: 'unit', key: 'SHOP', label: 'أقسام ووحدات تجارية', icon: Store },
+  { source: 'unit', key: 'CLINIC', label: 'مستوصفات وعيادات', icon: Stethoscope },
+  { source: 'property', key: 'BUILDING', label: 'مبانٍ مسجّلة', icon: Building },
+  { source: 'property', key: 'LAND', label: 'أراضٍ', icon: Trees },
+  { source: 'property', key: 'TENT', label: 'خيام', icon: Tent },
+] as const;
 
 /**
  * Picks one unit for a whole money axis.
@@ -187,26 +206,16 @@ export default function StaffDashboard({
     [monthly],
   );
 
-  const statusSegments = useMemo(() => {
-    if (!data) return [];
-    // The ordinal ramp, light → dark, in pipeline order: the stage reads out
-    // of the colour itself, which a set of unrelated hues could not do.
-    const ramp = ['--viz-step-1', '--viz-step-2', '--viz-step-3', '--viz-step-4'];
-    return [
-      ...PIPELINE.map((status, index) => ({
-        label: ar.reportStatus[status] ?? status,
-        value: data.byStatus[status] ?? 0,
-        color: `var(${ramp[index]})`,
-        icon: STATUS_ICON[status],
+  /** Resolves each unit card against whichever of the two maps it reads. */
+  const unitCards = useMemo(
+    () =>
+      UNIT_CARDS.map((card) => ({
+        ...card,
+        value:
+          (card.source === 'unit' ? data?.unitsByType : data?.propertiesByType)?.[card.key] ?? 0,
       })),
-      {
-        label: ar.reportStatus.REJECTED ?? 'REJECTED',
-        value: data.byStatus.REJECTED ?? 0,
-        color: 'var(--viz-critical)',
-        icon: STATUS_ICON.REJECTED,
-      },
-    ];
-  }, [data]);
+    [data],
+  );
 
   const collectionRate =
     data && data.billedTotal > 0 ? data.collectedTotal / data.billedTotal : 0;
@@ -215,6 +224,11 @@ export default function StaffDashboard({
     { label: 'محصّل', color: 'var(--viz-series-1)' },
     { label: 'متأخر', color: 'var(--viz-series-2)' },
   ];
+
+  // Re-observed once data lands: the sections keep their ids, but the page
+  // grows by several hundred pixels when the cards fill in, and a stale
+  // observer would highlight against the empty layout.
+  const { active, jumpTo } = useSectionNav(SECTION_IDS, [data !== null]);
 
   if (!token) return null;
 
@@ -252,6 +266,55 @@ export default function StaffDashboard({
         </div>
       </div>
 
+      {/*
+        Jump links. The page is four screens tall on a laptop, and the section
+        an admin wants is rarely the one at the top — so the bar both says
+        where they are and gets them there. The last entry leaves the page
+        entirely: «المواطنون» is where every number here is actually acted on,
+        and putting it in the same row is what makes this a control panel
+        rather than a report.
+      */}
+      <nav
+        aria-label="أقسام اللوحة"
+        className="sticky top-0 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
+      >
+        <ul className="flex flex-wrap items-center gap-2">
+          {SECTIONS.map((section) => {
+            const Icon = section.icon;
+            const isActive = active === section.id;
+            return (
+              <li key={section.id}>
+                <button
+                  type="button"
+                  onClick={() => jumpTo(section.id)}
+                  aria-current={isActive ? 'true' : undefined}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-transparent bg-muted/60 text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                  )}
+                >
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <span className="whitespace-nowrap">{section.label}</span>
+                </button>
+              </li>
+            );
+          })}
+
+          <li className="ms-auto">
+            <Link
+              href={`${base}/citizens`}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary/40 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+            >
+              <Users className="size-4 shrink-0" aria-hidden />
+              <span className="whitespace-nowrap">إدارة المواطنين</span>
+              <ChevronLeft className="size-4 shrink-0 rtl:rotate-180" aria-hidden />
+            </Link>
+          </li>
+        </ul>
+      </nav>
+
       {error ? (
         <p
           role="alert"
@@ -268,7 +331,7 @@ export default function StaffDashboard({
       */}
       <div className={cn('space-y-8 transition-opacity', refreshing && 'opacity-60')}>
         {/* ── Headline ──────────────────────────────────────────────── */}
-        <section className="grid gap-4 lg:grid-cols-3">
+        <section id="overview" className="grid scroll-mt-24 gap-4 lg:grid-cols-3">
           {/*
             The hero figure, and the only one on this page. عدد السكان rather
             than the record count, because one registration speaks for a whole
@@ -309,7 +372,10 @@ export default function StaffDashboard({
               label="إجمالي الرسوم"
               icon={<Receipt className="size-5 text-primary" aria-hidden />}
               value={data ? <Money amount={data.billedTotal} /> : '—'}
-              note={`${data?.registrationTotal.toLocaleString('en-US') ?? '—'} طلب مسجّل`}
+              // Was "N طلب مسجّل". A طلب is no longer a thing a citizen files
+              // and tracks — records are entered by staff — so the supporting
+              // line now counts what the fee is actually levied against.
+              note={`على ${data?.propertyTotal.toLocaleString('en-US') ?? '—'} عقار مسجّل`}
               loading={loading}
             />
             <StatTile
@@ -375,8 +441,53 @@ export default function StaffDashboard({
           </div>
         </section>
 
+        {/* ── Municipal units ───────────────────────────────────────── */}
+        <section id="units" className="scroll-mt-24 space-y-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <Building2 className="size-5 text-primary" aria-hidden />
+              عدد الوحدات السكنية والتجارية
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {loading
+                ? '—'
+                : `${data!.propertyTotal.toLocaleString('en-US')} عقار · ${data!.unitTotal.toLocaleString('en-US')} وحدة`}
+            </p>
+          </div>
+
+          {/*
+            Counts, not a chart. Seven categories on one bar axis would put a
+            municipality's whole building stock on a scale set by its largest
+            category — with 5 buildings against 1 tent the four small ones
+            become invisible slivers. Each number is the point here, and the
+            form for "the number is the point" is a tile.
+          */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {unitCards.map((card) => (
+              <UnitTile
+                key={`${card.source}:${card.key}`}
+                label={card.label}
+                value={card.value}
+                icon={card.icon}
+                loading={loading}
+              />
+            ))}
+          </div>
+
+          {/*
+            Said plainly rather than left for someone to discover: a شقة inside
+            a registered building and a property registered as a single unit
+            are counted the same way here, so the two figures above do not add
+            up to each other and are not meant to.
+          */}
+          <p className="text-xs text-muted-foreground">
+            تُحتسب الوحدات داخل المباني المسجّلة والوحدات المسجّلة بذاتها معاً. «مبانٍ
+            مسجّلة» تعدّ العقار الواحد مرة واحدة مهما بلغ عدد وحداته.
+          </p>
+        </section>
+
         {/* ── Charts ────────────────────────────────────────────────── */}
-        <section className="grid gap-4 lg:grid-cols-2">
+        <section id="analytics" className="grid scroll-mt-24 gap-4 lg:grid-cols-2">
           <ChartCard
             title="توزيع أحجام الأسر"
             description="عدد الأسر المسجّلة حسب عدد أفرادها"
@@ -424,25 +535,6 @@ export default function StaffDashboard({
             />
           </ChartCard>
 
-          <ChartCard
-            className="lg:col-span-2"
-            title="حالات الطلبات"
-            description="مسار المراجعة من قيد الانتظار حتى القبول، والمرفوض خارجه"
-            icon={FileText}
-            table={{
-              columns: ['الحالة', 'عدد الطلبات'],
-              rows: statusSegments.map((segment) => [
-                segment.label,
-                segment.value.toLocaleString('en-US'),
-              ]),
-            }}
-          >
-            <StackedTrack
-              segments={statusSegments}
-              total={data?.registrationTotal ?? 0}
-              formatValue={(value) => value.toLocaleString('en-US')}
-            />
-          </ChartCard>
         </section>
 
         {/* ── Shortcuts ─────────────────────────────────────────────── */}
@@ -509,6 +601,55 @@ function StatTile({
         <div className={`shrink-0 rounded-lg p-2.5 ${accent}`}>{icon}</div>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">{note}</p>
+    </div>
+  );
+}
+
+/**
+ * One municipal-unit count.
+ *
+ * Deliberately quieter than the financial tiles above: these are register
+ * counts, read in a group of seven, and giving each the same weight as
+ * إجمالي الرسوم would flatten the page into one long row of equally loud
+ * numbers. A zero is muted rather than hidden — "no clinics registered" is
+ * itself a fact about the municipality, and dropping the card would make the
+ * grid's shape depend on the data.
+ */
+function UnitTile({
+  label,
+  value,
+  icon: Icon,
+  loading,
+}: {
+  label: string;
+  value: number;
+  icon: React.ComponentType<{ className?: string }>;
+  loading: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
+      <span
+        aria-hidden
+        className={cn(
+          'flex size-10 shrink-0 items-center justify-center rounded-lg',
+          value > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+        )}
+      >
+        <Icon className="size-5" />
+      </span>
+      {/* `min-w-0` so a four-digit count widens the text block rather than
+          pushing the icon chip out of the card. */}
+      <div className="min-w-0">
+        <p
+          className={cn(
+            'text-2xl font-bold leading-tight',
+            value === 0 && 'text-muted-foreground',
+          )}
+        >
+          {loading ? '—' : value.toLocaleString('en-US')}
+        </p>
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+      </div>
     </div>
   );
 }

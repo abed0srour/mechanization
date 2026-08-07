@@ -458,6 +458,17 @@ model SystemSettings {
   cashOfficeHours   String?
   cashOfficeAddress String?
 
+  /// The municipality's public landline/mobile, printed on receipts.
+  contactPhone String?
+
+  /// The office WhatsApp account.
+  ///
+  /// Printed on the receipt as the number a citizen may reply to, and shown on
+  /// the settings screen as the account a clerk should be signed into before
+  /// sending one. It cannot *make* a `wa.me` link send from this number —
+  /// no link can; the sender is whichever account the browser is signed into.
+  whatsappNumber String?
+
   updatedAt   DateTime @updatedAt
   updatedById String?  @db.Uuid
 
@@ -540,7 +551,17 @@ model CitizenPayment {
   feeNotice   FeeNotice? @relation(fields: [feeNoticeId], references: [id], onDelete: SetNull)
 
   title    String
+  /// What the invoice was raised for. Never mutated on receipt — see paidAmount.
   amount   Decimal  @db.Decimal(14, 2)
+  /// What has actually been received against it.
+  ///
+  /// Separate from `amount` so a partial payment is representable at all: a
+  /// citizen paying half is `paidAmount < amount` with the row still UNPAID,
+  /// rather than the clerk having to choose between refusing the money and
+  /// marking a debt settled that is not. Reducing `amount` instead would erase
+  /// what was originally owed and quietly change the answer of every report
+  /// that sums it.
+  paidAmount Decimal @default(0) @db.Decimal(14, 2)
   currency String   @default("LBP")
   dueDate  DateTime
 

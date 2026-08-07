@@ -158,3 +158,49 @@
   padding: 0.625rem 0.875rem;
   box-shadow: 0 4px 12px hsl(222.2 84% 4.9% / 0.15);
 }
+/**
+ * Printing a وصل قبض.
+ *
+ * The receipt is rendered inside a modal, so "print this dialog" would
+ * otherwise put the whole dashboard — sidebar, overlay, action bar — on the
+ * page behind it. Rather than duplicate the receipt into a separate print-only
+ * route, everything is hidden and only the receipt's own subtree is un-hidden
+ * and lifted to the top of the page.
+ *
+ * `visibility` rather than `display: none` on the ancestors: hiding a parent
+ * outright takes its children with it no matter what they declare, so the
+ * receipt could never re-show itself. Visibility is inherited but *overridable*
+ * by a descendant, which is exactly the property this needs.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #receipt-print-area,
+  #receipt-print-area * {
+    visibility: visible;
+  }
+
+  #receipt-print-area {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    border: 2px solid #000;
+    box-shadow: none;
+  }
+
+  /* The dialog's own scroll container clips the receipt to the viewport
+     height; on paper there is no viewport to clip to. */
+  #receipt-print-area,
+  #receipt-print-area * {
+    overflow: visible !important;
+  }
+
+  @page {
+    size: A5 landscape;
+    margin: 10mm;
+  }
+}

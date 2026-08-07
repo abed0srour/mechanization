@@ -15,6 +15,7 @@ import {
   Sun,
   Languages,
   Receipt,
+  Settings,
   Users,
   UsersRound,
 } from 'lucide-react';
@@ -125,6 +126,14 @@ export function AdminSidebar({
       label: 'سجل النشاطات',
       icon: ShieldCheck,
       roles: ['SUPER_ADMIN', 'AUDITOR'],
+    },
+    {
+      href: `${base}/settings`,
+      label: 'إعدادات البلدية',
+      icon: Settings,
+      // Every /fees/settings write is SUPER_ADMIN-guarded server-side; this
+      // keeps a page that can only refuse an auditor out of their sidebar.
+      roles: ['SUPER_ADMIN'],
     },
     {
       href: `${base}/staff`,

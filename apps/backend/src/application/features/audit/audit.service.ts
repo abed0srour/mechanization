@@ -51,27 +51,17 @@ export class AuditService {
     });
   }
 
-  @OnEvent('registration.status-changed')
-  async onStatusChanged(payload: {
-    registrationId: string;
-    referenceNumber: string;
-    from: string;
-    to: string;
-    reason?: string;
-    actorId: string;
-    actorRole: string;
-  }): Promise<void> {
-    await this.record({
-      actorId: payload.actorId,
-      actorType: 'STAFF',
-      actorRole: payload.actorRole as never,
-      action: 'STATUS_CHANGE',
-      entityType: 'Registration',
-      entityId: payload.registrationId,
-      before: { status: payload.from },
-      after: { status: payload.to, reason: payload.reason },
-    });
-  }
+  /*
+   * `registration.status-changed` (STATUS_CHANGE) and
+   * `registration.resubmitted` were recorded here. Both described the
+   * adjudication of a طلب — a reviewer moving a claim through the pipeline,
+   * and a citizen answering a rejection with corrected values — and neither
+   * event is emitted any more.
+   *
+   * Existing rows carrying those actions stay in the trail. It is append-only
+   * by database trigger, and a decision that really was taken in 2026 does not
+   * stop having been taken because the workflow was retired.
+   */
 
   /**
    * Every change to a staff account, under one subscriber.
@@ -106,63 +96,6 @@ export class AuditService {
         ...(payload.role ? { role: payload.role } : {}),
         ...(payload.changed ? { changed: payload.changed } : {}),
       },
-    });
-  }
-
-  /**
-   * A citizen answering a rejection with corrected values.
-   *
-   * The counterpart to `STATUS_CHANGE` — a claim moving back to PENDING with
-   * no reviewer behind it is otherwise an unexplained gap in the sequence.
-   */
-  @OnEvent('registration.resubmitted')
-  async onResubmitted(payload: {
-    registrationId: string;
-    citizenId: string;
-    referenceNumber: string;
-    correctedFields: string[];
-  }): Promise<void> {
-    await this.record({
-      actorId: payload.citizenId,
-      actorType: 'CITIZEN',
-      action: 'REGISTRATION_RESUBMITTED',
-      entityType: 'Registration',
-      entityId: payload.registrationId,
-      after: {
-        referenceNumber: payload.referenceNumber,
-        correctedFields: payload.correctedFields,
-      },
-    });
-  }
-
-  /**
-   * Staff writes against the citizen registry.
-   *
-   * The counterpart to `staff.changed`, and the reason the admin citizens
-   * screen can exist at all: since the public wizard was removed, a clerk
-   * types other people's identity data on their behalf, so every create, edit
-   * and deletion has to name who did it. Values are summarised, never copied —
-   * an audit row that mirrored a citizen's document number would spread the
-   * data the registry exists to keep in one place.
-   */
-  @OnEvent('citizen.changed')
-  async onCitizenChanged(payload: {
-    citizenId: string;
-    action: string;
-    before?: Record<string, unknown>;
-    after?: Record<string, unknown>;
-    actorId: string;
-    actorRole: string;
-  }): Promise<void> {
-    await this.record({
-      actorId: payload.actorId,
-      actorType: 'STAFF',
-      actorRole: payload.actorRole as never,
-      action: payload.action,
-      entityType: 'User',
-      entityId: payload.citizenId,
-      before: payload.before,
-      after: payload.after,
     });
   }
 
