@@ -256,18 +256,21 @@ export default function ZonesPage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-        <div className="space-y-1">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b bg-background px-4 py-3">
+        <div className="min-w-0 space-y-1">
           <h1 className="flex items-center gap-2 text-lg font-bold">
-            <Layers className="size-5 text-primary" aria-hidden />
+            <Layers className="size-5 shrink-0 text-primary" aria-hidden />
             إدارة القطاعات
           </h1>
-          <p className="text-xs text-muted-foreground">
+          {/* Hidden on the narrowest screens: on a phone this page is already
+              two panels fighting for height, and a subtitle that only restates
+              the title is the first thing that should give the space back. */}
+          <p className="hidden text-xs text-muted-foreground sm:block">
             قسّم عقارات البلدية إلى قطاعات إدارية على الخريطة
           </p>
         </div>
         {canEdit && !editorOpen ? (
-          <Button onClick={startNew}>
+          <Button onClick={startNew} className="shrink-0">
             <Plus className="size-4" aria-hidden />
             قطاع جديد
           </Button>
@@ -280,9 +283,19 @@ export default function ZonesPage({
         </p>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sector list — a fixed rail beside the map, not a table page. */}
-        <aside className="flex w-72 shrink-0 flex-col border-e bg-background">
+      {/*
+        Side by side from `lg`, stacked below it.
+
+        The two panels have to stay visible together — a sector is a shape
+        before it is a record, and the list means nothing without the parcels
+        beside it — so the narrow layout stacks them rather than putting one
+        behind a tab. The list takes a capped share of the height and scrolls
+        inside it; the map takes the rest, with a floor of its own so a long
+        sector list cannot squeeze it down to a stripe.
+      */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* Sector list — a rail beside the map at `lg`, a panel above it below. */}
+        <aside className="flex max-h-[40dvh] shrink-0 flex-col border-b bg-background lg:max-h-none lg:w-72 lg:border-b-0 lg:border-e">
           {editorOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="border-b px-4 py-3">
@@ -396,7 +409,7 @@ export default function ZonesPage({
           )}
         </aside>
 
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-h-[50dvh] min-w-0 flex-1 lg:min-h-0">
           {token ? (
             <ZoneEditorMap
               tenant={tenant}
@@ -408,8 +421,8 @@ export default function ZonesPage({
           ) : null}
 
           {!editorOpen && !loading ? (
-            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
-              <p className="rounded-lg border bg-card/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur">
+            <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4">
+              <p className="rounded-lg border bg-card/95 px-3 py-1.5 text-center text-xs text-muted-foreground shadow-sm backdrop-blur">
                 {canEdit
                   ? 'اختر «قطاع جديد» أو «تعديل» لبدء تحديد العقارات'
                   : 'عرض فقط — تعديل القطاعات متاح لمدير النظام'}
@@ -422,7 +435,10 @@ export default function ZonesPage({
               role="status"
               // Stacks above the editor's own hint pill, which itself clears the
               // basemap switcher — three floating things share this column.
-              className="absolute bottom-36 left-1/2 z-20 -translate-x-1/2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
+              // `max-w` keeps a long notice inside the map instead of running
+              // off both edges of a phone, since it is centred by transform and
+              // has nothing else bounding its width.
+              className="absolute bottom-36 left-1/2 z-20 max-w-[calc(100%-2rem)] -translate-x-1/2 rounded-lg border bg-card px-4 py-2 text-center text-sm shadow-lg"
             >
               {notice}
             </div>

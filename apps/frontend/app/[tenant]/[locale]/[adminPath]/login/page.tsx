@@ -73,9 +73,12 @@ export default function StaffLogin({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-muted/50 to-muted/10 p-4">
+    // `dvh`, and `min-h` rather than `h`: with a phone keyboard raised the
+    // visible viewport halves, and a card centred in a fixed `100vh` box put
+    // the password field behind the keyboard with nothing to scroll.
+    <div className="flex min-h-[100dvh] items-center justify-center bg-gradient-to-b from-muted/50 to-muted/10 p-4">
       <Card className="w-full max-w-sm shadow-lg">
-        <CardContent className="space-y-6 p-8">
+        <CardContent className="space-y-6 p-6 sm:p-8">
           <div className="flex flex-col items-center gap-3 text-center">
             <div className="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary">
               <ShieldCheck className="size-7" aria-hidden />

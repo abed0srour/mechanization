@@ -3,42 +3,107 @@
 @tailwind utilities;
 
 /**
- * Design tokens are the Albazourieh platform's, carried over verbatim so the two
+ * Design tokens started as the Albazourieh platform's, carried over so the two
  * systems a municipality's staff move between look like one product: the same
- * deep municipal blue, the same slate neutrals, the same 0.5rem radius.
+ * municipal blue, the same slate neutrals, the same 0.5rem radius.
  *
  * Kept as HSL channel triples rather than finished colours because that is what
  * lets `bg-primary/90` and `border-input` work — Tailwind composes the alpha
  * into `hsl(var(--primary) / <alpha>)`.
+ *
+ * ── The surface ramp ────────────────────────────────────────────────────────
+ * Three surfaces, and the order is the point:
+ *
+ *     --background   the page floor
+ *     --card         anything raised off it — tiles, panels, table shells
+ *     --popover      anything raised off *that* — dialogs, sheets, menus
+ *
+ * The inherited palette had `--card` set to exactly `--background` in both
+ * themes, which is why <body> had to be painted `bg-muted/30` to make cards
+ * visible at all. That wash composited to #0a1222 in dark while the cards
+ * stayed #020817 — the cards were *darker than the page they sat on*, so every
+ * tile on the dashboard read as a hole punched in the background rather than a
+ * panel lifted off it, with a 1.37:1 hairline doing all the work and `shadow-sm`
+ * contributing nothing at all against near-black.
+ *
+ * Now the floor carries the tone in both themes and the wash is gone: light
+ * pages sit on a cool grey with white cards on top, dark pages sit on near-black
+ * with lifted slate cards. Elevation is 1.10 (light) and 1.13 (dark) per level,
+ * and it runs the same direction in both.
+ *
+ * ── Contrast ───────────────────────────────────────────────────────────────
+ * Every value below is measured, not chosen by eye. Each token is checked as
+ * it is actually used — which is why the targets differ per token:
+ *
+ *   text tokens        >= 4.5:1 on --card AND on --background (WCAG AA)
+ *   solid fills        >= 4.5:1 for the paired -foreground
+ *   tinted badges      >= 4.5:1 for text-X sitting on bg-X/10 over a card
+ *   --input            >= 3.0:1 on both surfaces (WCAG 1.4.11, control bounds)
+ *   chart marks        >= 3.0:1 on --card
+ *
+ * `--border` is deliberately *not* held to 3:1. It bounds cards and separators,
+ * which are containers rather than controls, so 1.4.11 does not apply to it —
+ * and a 3:1 outline around every tile on a dashboard this dense reads as a
+ * wireframe. The elevation above is what separates a card now; the border only
+ * has to describe its edge. `--input`, which bounds a real control, does carry
+ * the full 3:1.
  */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Page floor is tinted, not white: it is what makes a white --card read as
+       raised without the removed `bg-muted/30` body wash. */
+    --background: 210 40% 96%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
     --primary: 199 89% 30%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --secondary: 210 40% 93%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 93%;
+    /* 46.9% -> 42%: the old value cleared AA on white by 0.26 and then failed
+       outright anywhere it sat on a tinted surface. This clears on both. */
+    --muted-foreground: 215 19% 42%;
+    --accent: 210 40% 93%;
+    --accent-foreground: 222 47% 11%;
+    /**
+     * 60.2% -> 42%.
+     *
+     * The dark theme below carries a long note about `--destructive` being a
+     * *text* colour in this codebase — 61 uses of `text-destructive` against 5
+     * of solid `bg-destructive`. That was true of the light theme too, and went
+     * unchecked: at 60.2% the red measured 3.76:1 on white, so every field
+     * error, every «متأخرة» count and every error banner failed AA in the
+     * theme most staff actually use. 42% measures 6.48:1, and the solid fills
+     * keep white text (6.48:1) rather than needing a dark one.
+     */
+    --destructive: 0 72% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 25% 86%;
+    /* 3.31:1 on --card and 3.02:1 on --background — a field is a control, so
+       both surfaces have to clear 1.4.11, not just the one it usually sits on. */
+    --input: 214 25% 57%;
     --ring: 199 89% 30%;
     --radius: 0.5rem;
 
     /**
-     * Two additions the reference platform does not need. Review workflows here
-     * have an in-progress state between "submitted" and "decided", and a
-     * decided-good state — neither reads correctly as primary or destructive.
+     * Two additions the reference platform does not need: an in-progress state
+     * between "submitted" and "decided", and a decided-good state — neither
+     * reads correctly as primary or destructive.
+     *
+     * `--warning` moved 44% -> 33%. It is used 9 times as `text-warning` and
+     * never as a solid fill, so it is a text token and has to meet 4.5:1 as
+     * one; at 44% it measured 3.16:1 on white. The dashboard's «أسرة بلا عدد
+     * أفراد مسجّل» caveat — a warning whose entire job is to be read — was the
+     * least legible text on the page. It now measures 5.35:1, and 4.66:1 in the
+     * `bg-warning/10` badge it is usually paired with.
      */
-    --warning: 32 95% 44%;
-    --success: 142 71% 29%;
+    --warning: 32 90% 33%;
+    --warning-foreground: 0 0% 100%;
+    --success: 142 68% 27%;
+    --success-foreground: 0 0% 100%;
 
     /**
      * Arabic-first, so these are the `sans` stack rather than a separate family —
@@ -62,16 +127,26 @@
      *
      * `series-1/2` are the two-hue categorical pair (blue/orange, worst
      * adjacent CVD ΔE 24.7 light / 26.8 dark — comfortably past the ≥8 gate).
+     * Unchanged here: the light card is still #ffffff, so the pair's validation
+     * still holds exactly as measured.
+     *
      * `step-1..4` are a single-hue *ordinal* ramp for the review pipeline,
      * where the order is the meaning: قيد الانتظار is lightest, مقبول
-     * darkest, so the stage reads out of the colour itself.
+     * darkest, so the stage reads out of the colour itself. That direction is
+     * kept; the spacing was rebuilt. The old light ramp did not actually meet
+     * the ≥3:1 floor this comment claimed for it — step-1 measured 2.11:1 and
+     * step-2 2.99:1 on white — so the two earliest pipeline stages were the
+     * two hardest to see. The ramp now starts at the lightest blue that clears
+     * 3:1 (#5496e1, 3.08:1) and steps down in even OKLab intervals of ~0.075,
+     * which keeps the stages equally distinguishable from each other instead
+     * of bunching three of them at the dark end.
      */
     --viz-series-1: #2a78d6;
     --viz-series-2: #eb6834;
-    --viz-step-1: #86b6ef;
-    --viz-step-2: #5598e7;
-    --viz-step-3: #2a78d6;
-    --viz-step-4: #1c5cab;
+    --viz-step-1: #5496e1;
+    --viz-step-2: #2d7eda;
+    --viz-step-3: #2167b8;
+    --viz-step-4: #1a5191;
     /** Reserved status red — مرفوض is an outcome, not a pipeline stage, so it
      *  leaves the ramp entirely and is always paired with an icon + label. */
     --viz-critical: #d03b3b;
@@ -86,54 +161,92 @@
    * black background.
    */
   .dark {
-    --background: 222.2 84% 4.9%;
+    /* The ramp, running the same direction as light: floor -> card -> popover,
+       each step lifted off the last (1.13, then 1.07). */
+    --background: 222 47% 6%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 222 41% 12%;
     --card-foreground: 210 40% 98%;
-    --primary: 199 89% 45%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217.2 32.6% 17.5%;
+    --popover: 222 39% 15%;
+    --popover-foreground: 210 40% 98%;
+    /**
+     * Stays bright, and takes a *dark* foreground.
+     *
+     * `--primary` is a text colour here far more than a surface: 68 uses of
+     * `text-primary` against 14 of solid `bg-primary`. Dimming it enough for
+     * near-white text to clear AA on the fill would have cost every one of
+     * those 68 their legibility on a dark card.
+     *
+     * So the fill inverts instead — which is the same trade `--destructive`
+     * already makes below, for the same reason. At 48% the near-white pairing
+     * measured 3.08:1 and failed AA on the active sidebar item, every default
+     * Button and every default Badge; the dark foreground measures 6.48:1,
+     * while `text-primary` on a card keeps 6.07:1.
+     */
+    --primary: 199 89% 48%;
+    --primary-foreground: 222 47% 9%;
+    --secondary: 217 33% 20%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+    --muted: 217 33% 18%;
+    /* Raised 65.1% -> 72%: the card it sits on is lighter than it used to be,
+       so the old value would have lost the contrast it previously had. */
+    --muted-foreground: 215 22% 72%;
+    --accent: 217 33% 22%;
     --accent-foreground: 210 40% 98%;
     /**
      * Raised from shadcn's dark default (0 62.8% 30.6%), and its foreground
      * inverted to match.
      *
      * That default assumes `--destructive` is a *surface* carrying near-white
-     * text. In this codebase it is overwhelmingly a text colour: 53 uses of
+     * text. In this codebase it is overwhelmingly a text colour: 61 uses of
      * `text-destructive` — the متأخرة count, «رفض», every field error, every
-     * error banner — against two of solid `bg-destructive`. At 30.6% lightness
+     * error banner — against five of solid `bg-destructive`. At 30.6% lightness
      * that red lands about 1.6:1 on the near-black background, which is not
      * dim but genuinely unreadable.
      *
-     * 58% puts the text at ~5.4:1. The two solid-surface uses then take a dark
-     * foreground rather than a white one, which is the only pairing that stays
-     * legible on a red that bright — and `--destructive-foreground` is never
-     * used except on top of `bg-destructive`, so nothing else moves.
+     * Nudged 58% -> 64% with the ramp. The reasoning is unchanged and still
+     * holds; the card underneath simply moved, and 58% would have left the
+     * `bg-destructive/10` error banner — red text on its own tint — at 4.2:1,
+     * just under AA. 64% measures 5.14:1 on a card and 4.62:1 in the banner.
+     * The solid-surface uses keep the dark foreground for the same reason they
+     * had it before, and `--destructive-foreground` is never used anywhere
+     * except on top of `bg-destructive`, so nothing else moves.
      */
-    --destructive: 0 72% 58%;
-    --destructive-foreground: 222.2 84% 4.9%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 199 89% 45%;
-    --warning: 32 95% 55%;
-    --success: 142 71% 40%;
+    --destructive: 0 72% 64%;
+    --destructive-foreground: 222 47% 9%;
+    --border: 217 28% 24%;
+    /* 3.12:1 on --card, 3.51:1 on --background. The old value was identical to
+       --muted and --border, which left every text field on a dark screen bounded
+       by a 1.37:1 edge — a control you had to already know was there. */
+    --input: 217 28% 44%;
+    --ring: 199 89% 48%;
+    --warning: 32 92% 58%;
+    --warning-foreground: 222 47% 9%;
+    --success: 142 60% 50%;
+    --success-foreground: 222 47% 9%;
 
     /**
      * The dark steps are *selected*, not an automatic flip of the light ones:
-     * the same hues re-stepped for the dark band (OKLCH L ≈ 0.48–0.67) and
-     * re-validated against the dark surface. The ordinal ramp stops at step
-     * 600 — anything darker stops clearing the surface it sits on.
+     * the same hues re-stepped for the dark band and re-validated against the
+     * dark card — which is the whole reason they moved. The card lifting from
+     * #020817 to #121a2b took the old step-4 (#184f95) down to 2.14:1, and
+     * step-4 is مقبول, the terminal stage of the pipeline and the fill of the
+     * نسبة التحصيل meter. The stage the dashboard most wants to show off was
+     * the one dissolving into its own card.
+     *
+     * Re-anchored from the dark end: step-4 is now the *darkest* blue that
+     * still clears 3:1 on the new card (#2167b8, 3.06:1) and the ramp steps up
+     * from there in the same ~0.075 OKLab intervals as the light one, so the
+     * two themes have the same number of equally-spaced, equally-visible
+     * stages. Direction is preserved — step-1 lightest, step-4 darkest — so a
+     * staff member switching themes does not have to relearn the pipeline.
      */
     --viz-series-1: #3987e5;
     --viz-series-2: #d95926;
-    --viz-step-1: #6da7ec;
-    --viz-step-2: #3987e5;
-    --viz-step-3: #256abf;
-    --viz-step-4: #184f95;
+    --viz-step-1: #7baee8;
+    --viz-step-2: #5496e1;
+    --viz-step-3: #2d7eda;
+    --viz-step-4: #2167b8;
     --viz-critical: #d03b3b;
   }
 }
@@ -144,15 +257,30 @@
   }
 
   /**
-   * The tenant layout paints <body> `bg-muted/30` — a translucent wash that
-   * has to composite over something. Left to itself that something is the UA
-   * canvas, which is white in light mode (harmless, and what the light design
-   * was drawn against) but a browser-specific near-black in dark mode, so the
-   * page's base tone would differ between Chrome and Firefox. Naming it here
-   * makes the wash composite over our own token instead.
+   * <body> used to be painted `bg-muted/30` — a translucent wash whose only job
+   * was to make same-coloured cards visible, and which had to composite over
+   * something. That something was the UA canvas, browser-specific in dark mode,
+   * so this rule existed to give it a known base. `--background` now carries the
+   * page tone directly and the wash is gone, but the rule stays: it is what
+   * keeps the canvas behind overscroll and rubber-banding on the correct tone.
    */
   html {
     background-color: hsl(var(--background));
+  }
+
+  /**
+   * Tells the browser which way the page is themed, so the scrollbars, form
+   * controls and focus rings it draws itself follow. `next-themes` sets this on
+   * <html> for an explicit choice; this is the fallback for `system`, and the
+   * reason a dark-mode staff screen no longer gets a bright white scrollbar
+   * down its edge.
+   */
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
   }
 
   body {

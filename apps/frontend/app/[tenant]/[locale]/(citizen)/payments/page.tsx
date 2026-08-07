@@ -3,11 +3,9 @@
 import { use, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  AlertTriangle,
   BadgeCheck,
   CalendarClock,
   CheckCircle2,
-  Clock,
   Receipt,
   Wallet,
   XCircle,
@@ -23,6 +21,7 @@ import {
 import type { CitizenPaymentItem, MunicipalitySettings } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
+import { PaymentStatusBadge } from '@/components/payment-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PayDialog } from '@/components/citizen/pay-dialog';
@@ -32,24 +31,13 @@ function lbp(amount: number): string {
   return `${amount.toLocaleString('en-US')} ل.ل`;
 }
 
-/**
- * Status colours, mirroring the admin side's vocabulary: amber while the
- * municipality still expects money, red once the date has passed, and green
- * only when a clerk has actually confirmed it.
+/*
+ * `STATUS_TONE` and `STATUS_ICON` were here — this screen's own copy of the
+ * payment-status vocabulary, on hardcoded palette colours that never responded
+ * to the theme, and the one copy that never received the dark-mode correction
+ * its admin-side twin had. Both now come from `PaymentStatusBadge`, so the
+ * resident and the clerk are looking at the same four colours.
  */
-const STATUS_TONE: Record<string, string> = {
-  UNPAID: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-  OVERDUE: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-300',
-  PENDING_REVIEW: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300',
-  PAID: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-300',
-};
-
-const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  UNPAID: Clock,
-  OVERDUE: AlertTriangle,
-  PENDING_REVIEW: Clock,
-  PAID: CheckCircle2,
-};
 
 /** A resident's own bills, and how to settle them. */
 export default function CitizenPayments({
@@ -215,7 +203,6 @@ export default function CitizenPayments({
 
         <div className="space-y-3">
           {items.map((item) => {
-            const Icon = STATUS_ICON[item.paymentStatus] ?? Clock;
             const payable =
               item.paymentStatus === 'UNPAID' || item.paymentStatus === 'OVERDUE';
 
@@ -240,13 +227,7 @@ export default function CitizenPayments({
 
                     <div className="flex flex-col items-end gap-2">
                       <p className="text-xl font-bold">{lbp(item.amount)}</p>
-                      <Badge
-                        variant="outline"
-                        className={cn('gap-1.5 py-1', STATUS_TONE[item.paymentStatus])}
-                      >
-                        <Icon className="size-3.5" aria-hidden />
-                        {ar.paymentStatus[item.paymentStatus as never] ?? item.paymentStatus}
-                      </Badge>
+                      <PaymentStatusBadge status={item.paymentStatus} className="py-1" />
                     </div>
                   </div>
 

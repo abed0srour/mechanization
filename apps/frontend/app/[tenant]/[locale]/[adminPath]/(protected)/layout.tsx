@@ -1,4 +1,4 @@
-import { AdminSidebar } from '@/components/admin/admin-sidebar';
+import { AdminShell } from '@/components/admin/admin-shell';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 /**
@@ -29,10 +29,12 @@ export default async function ProtectedAdminLayout({
     // crossing a row of icons, short enough to feel immediate on the one
     // being aimed at.
     <TooltipProvider delayDuration={200}>
-      <div className="flex h-screen overflow-hidden">
-        <AdminSidebar tenant={tenant} locale={locale} adminPath={adminPath} />
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
-      </div>
+      {/* The sidebar-or-drawer decision, the bar that opens the drawer and the
+          scroll container for the page all share one piece of state, so they
+          share one client component. See admin-shell.tsx. */}
+      <AdminShell tenant={tenant} locale={locale} adminPath={adminPath}>
+        {children}
+      </AdminShell>
     </TooltipProvider>
   );
 }

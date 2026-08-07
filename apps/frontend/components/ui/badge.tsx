@@ -14,8 +14,21 @@ const badgeVariants = cva(
         destructive:
           'border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80',
         outline: 'text-foreground',
-        success: 'border-transparent bg-emerald-600 text-white hover:bg-emerald-600/80',
-        warning: 'border-transparent bg-amber-500 text-white hover:bg-amber-500/80',
+        /**
+         * These two were `bg-emerald-600 text-white` and `bg-amber-500
+         * text-white` — the only two variants reaching past the token layer
+         * into Tailwind's stock palette, which meant they were the only two
+         * that did not change at all between light and dark mode. Both also
+         * failed AA on their own text: emerald measured 3.77:1 and amber 2.15:1,
+         * the worst contrast anywhere in the app.
+         *
+         * On the tokens they follow the theme and pair with a foreground chosen
+         * for the surface: 5.85:1 / 5.35:1 light, 8.83:1 / 8.47:1 dark.
+         */
+        success:
+          'border-transparent bg-success text-success-foreground hover:bg-success/80',
+        warning:
+          'border-transparent bg-warning text-warning-foreground hover:bg-warning/80',
       },
     },
     defaultVariants: {

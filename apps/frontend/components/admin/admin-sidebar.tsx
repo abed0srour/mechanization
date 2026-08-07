@@ -16,9 +16,11 @@ import {
   Settings,
   Users,
   UsersRound,
+  X,
 } from 'lucide-react';
 import { clearSession, loadSession } from '@/lib/session';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { DESKTOP_QUERY, useMediaQuery } from '@/lib/use-media-query';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -37,21 +39,41 @@ const COLLAPSE_STORAGE_KEY = 'mechanization.sidebar.collapsed';
  * repeating "الخريطة" / "سجل النشاطات" / "رجوع إلى اللوحة" as its own button
  * row). One sidebar, one place that knows the section list and who can see
  * which — a page's header is left with only the actions specific to it.
+ *
+ * Two forms, one component. At `lg` and up it is a rail in the layout's flex
+ * row, 256px wide or 72px folded. Below `lg` a 256px rail would eat two thirds
+ * of a phone, so it becomes an off-canvas drawer over the page, opened from the
+ * bar in `AdminShell` and closed by the scrim, the Escape key, or picking a
+ * destination.
  */
 export function AdminSidebar({
   tenant,
   locale,
   adminPath,
+  mobileOpen,
+  onMobileClose,
 }: {
   tenant: string;
   locale: string;
   adminPath: string;
+  /** Drawer state — meaningful below `lg` only; `AdminShell` owns it. */
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const base = `/${tenant}/${locale}/${adminPath}`;
   const [role, setRole] = useState<string | undefined>();
   const [collapsed, setCollapsed] = useState(false);
+
+  /**
+   * Folding is a desktop affordance: the drawer is already a deliberate,
+   * dismissable thing, and a 72px icon rail floating over a phone answers a
+   * question nobody asked. Below `lg` the stored preference is ignored rather
+   * than cleared, so it is still there when the same person opens a laptop.
+   */
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  const folded = collapsed && isDesktop;
 
   // Re-read on every route change rather than once: signing out and back in
   // as a different role (or a session expiring) should update which links
@@ -83,6 +105,17 @@ export function AdminSidebar({
       return next;
     });
   }
+
+  // Escape closes the drawer, matching every other overlay in the app. Bound
+  // only while it is open so the key stays free for the page underneath.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onMobileClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [mobileOpen, onMobileClose]);
 
   function switchLanguage() {
     const otherLocale = locale === 'ar' ? 'en' : 'ar';
@@ -135,102 +168,139 @@ export function AdminSidebar({
   ];
 
   return (
-    <aside
-      className={cn(
-        'flex h-screen shrink-0 flex-col border-e bg-background transition-[width] duration-200',
-        collapsed ? 'w-[72px]' : 'w-64',
-      )}
-    >
-      <div
+    <>
+      {/* Scrim, below `lg` only. Rendered from `mobileOpen` rather than kept in
+          the tree at opacity 0 so it cannot swallow clicks on the desktop rail. */}
+      {mobileOpen ? (
+        <button
+          type="button"
+          aria-label="إغلاق القائمة"
+          onClick={onMobileClose}
+          className="fixed inset-0 z-40 cursor-default bg-black/50 animate-in fade-in lg:hidden"
+        />
+      ) : null}
+
+      <aside
+        // `h-full` inside the shell's `h-[100dvh]` row rather than `h-screen`:
+        // `vh` on a phone is the *large* viewport, so with the browser's own
+        // toolbars showing, a `h-screen` rail put its sign-out button below the
+        // fold with nothing to scroll.
         className={cn(
-          'flex items-center gap-2.5 border-b px-4 py-4',
-          collapsed && 'justify-center px-2',
+          'flex shrink-0 flex-col border-e bg-background',
+          // Below `lg`: an overlay drawer pinned to the reading-start edge,
+          // sliding out along whichever edge that resolves to.
+          'fixed inset-y-0 start-0 z-50 w-64 max-w-[85vw] transition-transform duration-200',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full',
+          // At `lg`: back in the flow, no transform, width animates instead.
+          'lg:static lg:z-auto lg:h-full lg:max-w-none lg:translate-x-0 lg:transition-[width] rtl:lg:translate-x-0',
+          folded ? 'lg:w-[72px]' : 'lg:w-64',
         )}
       >
-        {!collapsed ? (
-          <>
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <ShieldCheck className="size-5" aria-hidden />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">لوحة البلدية</p>
-              {role ? <p className="truncate text-xs text-muted-foreground">{role}</p> : null}
-            </div>
-          </>
-        ) : null}
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
-          title={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          {collapsed ? (
-            <PanelLeftOpen className="size-5" />
-          ) : (
-            <PanelLeftClose className="size-5" />
-          )}
-        </button>
-      </div>
-
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {items
-          .filter((item) => !item.roles || (role && item.roles.includes(role)))
-          .map((item) => {
-            const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                title={collapsed ? item.label : undefined}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                  collapsed && 'justify-center px-0',
-                  active
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                )}
-              >
-                <Icon className="size-5 shrink-0" />
-                {!collapsed ? item.label : null}
-              </Link>
-            );
-          })}
-      </nav>
-
-      <div className="space-y-1 border-t p-3">
-        {/* Full-width so the three segments line up with the nav rows above
-            rather than floating in the middle of the footer. */}
-        <ThemeToggle collapsed={collapsed} className={collapsed ? undefined : 'flex w-full'} />
-
-        <button
-          type="button"
-          onClick={switchLanguage}
-          title="لا يترجم النصوص بعد — يبدّل الاتجاه والتاريخ فقط"
+        <div
           className={cn(
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
-            collapsed && 'justify-center px-0',
+            'flex items-center gap-2.5 border-b px-4 py-4',
+            folded && 'lg:justify-center lg:px-2',
           )}
         >
-          <Languages className="size-5 shrink-0" />
-          {!collapsed ? (locale === 'ar' ? 'English' : 'عربي') : null}
-        </button>
+          {!folded ? (
+            <>
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <ShieldCheck className="size-5" aria-hidden />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">لوحة البلدية</p>
+                {role ? <p className="truncate text-xs text-muted-foreground">{role}</p> : null}
+              </div>
+            </>
+          ) : null}
 
-        <button
-          type="button"
-          onClick={signOut}
-          title="تسجيل الخروج"
-          className={cn(
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive',
-            collapsed && 'justify-center px-0',
-          )}
-        >
-          <LogOut className="size-5 shrink-0" />
-          {!collapsed ? 'تسجيل الخروج' : null}
-        </button>
-      </div>
-    </aside>
+          {/* Two different jobs at two widths, so two controls rather than one
+              that changes meaning: fold/unfold the rail on a desktop, dismiss
+              the drawer on a phone. */}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={folded ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
+            title={folded ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
+            className="hidden size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground lg:flex"
+          >
+            {folded ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
+          </button>
+          <button
+            type="button"
+            onClick={onMobileClose}
+            aria-label="إغلاق القائمة"
+            className="flex size-touch shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground lg:hidden"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+          {items
+            .filter((item) => !item.roles || (role && item.roles.includes(role)))
+            .map((item) => {
+              const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  title={folded ? item.label : undefined}
+                  // Closing on the link rather than only on the route change:
+                  // tapping the section you are already on changes no pathname,
+                  // and leaving the drawer open there reads as a dead control.
+                  onClick={onMobileClose}
+                  className={cn(
+                    // 44px tall on a phone, back to the tighter desktop rhythm
+                    // once a pointer is doing the aiming.
+                    'flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors lg:py-2.5',
+                    folded && 'lg:justify-center lg:px-0',
+                    active
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                  )}
+                >
+                  <Icon className="size-5 shrink-0" />
+                  {!folded ? item.label : null}
+                </Link>
+              );
+            })}
+        </nav>
+
+        <div className="space-y-1 border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {/* Full-width so the three segments line up with the nav rows above
+              rather than floating in the middle of the footer. */}
+          <ThemeToggle collapsed={folded} className={folded ? undefined : 'flex w-full'} />
+
+          <button
+            type="button"
+            onClick={switchLanguage}
+            title="لا يترجم النصوص بعد — يبدّل الاتجاه والتاريخ فقط"
+            className={cn(
+              'flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground lg:py-2.5',
+              folded && 'lg:justify-center lg:px-0',
+            )}
+          >
+            <Languages className="size-5 shrink-0" />
+            {!folded ? (locale === 'ar' ? 'English' : 'عربي') : null}
+          </button>
+
+          <button
+            type="button"
+            onClick={signOut}
+            title="تسجيل الخروج"
+            className={cn(
+              'flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive lg:py-2.5',
+              folded && 'lg:justify-center lg:px-0',
+            )}
+          >
+            <LogOut className="size-5 shrink-0" />
+            {!folded ? 'تسجيل الخروج' : null}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

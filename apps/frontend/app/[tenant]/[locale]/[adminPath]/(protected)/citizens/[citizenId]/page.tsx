@@ -58,6 +58,7 @@ import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
+import { PaymentStatusBadge } from '@/components/payment-status-badge';
 import {
   SettlePaymentDialog,
   type SettleValues,
@@ -375,7 +376,7 @@ export default function CitizenProfilePage({
             them side by side, each as a narrow column of two, fills the same
             width once instead of three times.
           */}
-          <div className="grid gap-x-6 gap-y-6 p-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-x-6 gap-y-6 p-4 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
             <FactSection
               stack
               title="التواصل"
@@ -523,15 +524,13 @@ export default function CitizenProfilePage({
   );
 }
 
-/** Tone per payment state, matching the fees screen's vocabulary. */
-const PAYMENT_TONE: Record<string, string> = {
-  PAID: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
-  PENDING_REVIEW:
-    'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
-  UNPAID:
-    'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-  OVERDUE: 'border-red-600/30 bg-red-600/10 text-red-700 dark:bg-red-500/15 dark:text-red-300',
-};
+/*
+ * `PAYMENT_TONE` was here. It claimed to match the fees screen's vocabulary and
+ * did not — that screen used tokens, this one hardcoded palette colours — so
+ * the two drifted on both the colours and, for قيد المراجعة, the meaning.
+ * `PaymentStatusBadge` is now the single definition; its blue for
+ * PENDING_REVIEW is the choice this file had made.
+ */
 
 /**
  * The citizen's ledger — totals, then every invoice, each settleable on its own.
@@ -619,14 +618,14 @@ function FeesPanel({
               <Money amount={fees.outstandingTotal} /> مستحق
             </span>
           ) : (
-            <span className="text-emerald-600">لا مستحقات</span>
+            <span className="text-success">لا مستحقات</span>
           )
         }
       >
         <div className="space-y-6">
           <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Total label="إجمالي الرسوم" value={fees.feesTotal} />
-            <Total label="المسدَّد" value={fees.paidTotal} tone="text-emerald-600" />
+            <Total label="المسدَّد" value={fees.paidTotal} tone="text-success" />
             <Total label="غير المسدَّد" value={fees.outstandingTotal} />
             <Total
               label={`المتأخرات${fees.overdueCount > 0 ? ` (${fees.overdueCount})` : ''}`}
@@ -636,8 +635,8 @@ function FeesPanel({
           </dl>
 
           {fees.pendingReviewCount > 0 ? (
-            <p className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm">
-              <Clock3 className="size-4 shrink-0 text-blue-600" aria-hidden />
+            <p className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+              <Clock3 className="size-4 shrink-0 text-primary" aria-hidden />
               {fees.pendingReviewCount} دفعة بانتظار تحقق الموظف — راجعها من صفحة إدارة الرسوم.
             </p>
           ) : null}
@@ -657,13 +656,7 @@ function FeesPanel({
                       <div className="min-w-0 space-y-1">
                         <p className="flex flex-wrap items-center gap-2 font-medium">
                           <span className="truncate">{payment.title}</span>
-                          <Badge
-                            variant="outline"
-                            className={cn('shrink-0', PAYMENT_TONE[payment.paymentStatus])}
-                          >
-                            {ar.paymentStatus?.[payment.paymentStatus as never] ??
-                              payment.paymentStatus}
-                          </Badge>
+                          <PaymentStatusBadge status={payment.paymentStatus} />
                           {partly ? (
                             <Badge variant="outline" className="shrink-0">
                               مسدَّد جزئياً
@@ -682,7 +675,7 @@ function FeesPanel({
                             </span>
                           ) : null}
                           {payment.paidAt ? (
-                            <span className="text-emerald-600">
+                            <span className="text-success">
                               سُدّد {new Date(payment.paidAt).toLocaleDateString('ar-LB')}
                             </span>
                           ) : null}

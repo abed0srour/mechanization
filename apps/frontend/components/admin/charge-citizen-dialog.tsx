@@ -85,7 +85,7 @@ export function ChargeCitizenDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel="إغلاق" className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
+      <DialogContent closeLabel="إغلاق" className="flex max-h-[85dvh] flex-col gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="shrink-0 space-y-1 border-b p-6 text-start">
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="size-5 text-primary" aria-hidden />

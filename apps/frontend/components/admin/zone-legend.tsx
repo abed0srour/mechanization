@@ -31,7 +31,10 @@ export function ZoneLegend({
     /* Physical right, below the registered-parcel counter. Not the logical
        `end-3`: under RTL that resolves to the left edge, where Mapbox's own
        zoom and compass controls live, and the panel covered them. */
-    <div className="absolute right-3 top-24 z-10 w-56 overflow-hidden rounded-lg border bg-card/95 shadow-sm backdrop-blur">
+    /* `top-36` below `sm`: the parcel counter drops to a second row on a phone
+       (see fullscreen-map.tsx), so this has to clear a row that is not there on
+       a desktop. */
+    <div className="absolute right-3 top-36 z-10 w-44 overflow-hidden rounded-lg border bg-card/95 shadow-sm backdrop-blur sm:top-24 sm:w-56">
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
         <span className="flex items-center gap-1.5 text-sm font-bold">
           <Layers className="size-4 text-primary" aria-hidden />
@@ -54,7 +57,10 @@ export function ZoneLegend({
       </div>
 
       {visible ? (
-        <ul className="max-h-64 overflow-y-auto py-1">
+        // A quarter of the map's height rather than a fixed 256px: on a phone
+        // the map itself is only ~50dvh, and a legend with twenty sectors in it
+        // covered the thing it was explaining.
+        <ul className="max-h-[25dvh] overflow-y-auto overscroll-contain py-1 sm:max-h-64">
           {zones.map((zone) => {
             const active = activeZoneId === zone.id;
             return (

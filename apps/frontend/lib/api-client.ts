@@ -1,3 +1,5 @@
+import type { PaymentStatus } from '@mechanization/shared-schemas';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
 export interface ApiError {
@@ -439,7 +441,7 @@ export interface CitizenProfilePayment {
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived server-side from the due date, never stored. */
-  paymentStatus: string;
+  paymentStatus: PaymentStatus;
   paymentMethod: string | null;
   whishTransactionRef: string | null;
   paidAt: string | null;
@@ -917,7 +919,7 @@ export function reviewPayment(
   id: string,
   input: { confirmed: boolean; note?: string },
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  return apiFetch<{ paymentStatus: PaymentStatus }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/review`,
     { token, method: 'PATCH', body: JSON.stringify(input) },
@@ -933,7 +935,7 @@ export interface CitizenPaymentItem {
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived server-side from the due date, never stored. */
-  paymentStatus: string;
+  paymentStatus: PaymentStatus;
   paymentMethod: string | null;
   whishTransactionRef: string | null;
   paidAt: string | null;
@@ -953,7 +955,7 @@ export function declarePayment(
   id: string,
   input: { method: string; whishTransactionRef?: string },
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  return apiFetch<{ paymentStatus: PaymentStatus }>(
     tenant,
     `/fees/payments/mine/${encodeURIComponent(id)}/declare`,
     { token, method: 'POST', body: JSON.stringify(input) },
@@ -983,7 +985,7 @@ export interface AdminPaymentItem {
   remaining: number;
   currency: string;
   dueDate: string;
-  paymentStatus: string;
+  paymentStatus: PaymentStatus;
   paymentMethod: string | null;
   whishTransactionRef: string | null;
   paidAt: string | null;
@@ -1031,7 +1033,7 @@ export function settlePayment(
   id: string,
   input: { method?: string; amount?: number; note?: string } = {},
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  return apiFetch<{ paymentStatus: PaymentStatus }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/settle`,
     { token, method: 'PATCH', body: JSON.stringify({ method: 'CASH', ...input }) },

@@ -78,7 +78,7 @@ export function Sheet({
       />
       <div
         className={cn(
-          'relative z-10 flex h-full w-full max-w-md flex-col bg-background shadow-xl',
+          'relative z-10 flex h-full w-full max-w-md flex-col bg-popover text-popover-foreground shadow-xl',
           side === 'left'
             ? 'border-e animate-in slide-in-from-left'
             : side === 'right'
@@ -90,9 +90,9 @@ export function Sheet({
           className,
         )}
       >
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b p-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold">{title}</h2>
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b p-4 sm:p-6">
+          <div className="min-w-0 space-y-1">
+            <h2 className="text-lg font-semibold sm:text-xl">{title}</h2>
             {description ? (
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}
@@ -104,9 +104,17 @@ export function Sheet({
 
         {/* Only the body scrolls, so a long co-owner list never pushes the
             header or the footer action out of reach. */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          {children}
+        </div>
 
-        {footer ? <div className="shrink-0 border-t p-4">{footer}</div> : null}
+        {/* The footer is the last thing above the bottom edge of the screen, so
+            it is the one element that has to clear a home indicator. */}
+        {footer ? (
+          <div className="shrink-0 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -42,21 +42,34 @@ export default async function CitizenLayout({
   return (
     <>
       <header className="border-b bg-background">
-        <div className="container flex items-center gap-4 py-4">
+        <div className="container flex items-center gap-3 py-4 sm:gap-4">
           {branding.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={branding.logoUrl} alt="" className="h-12 w-12 object-contain" />
+            <img
+              src={branding.logoUrl}
+              alt=""
+              className="size-10 shrink-0 object-contain sm:size-12"
+            />
           ) : (
             <div
               aria-hidden
-              className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground"
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground sm:size-12"
             >
               {config.nameAr.slice(0, 2)}
             </div>
           )}
+          {/* `truncate` on both lines, not just `min-w-0` on the box: at 320px
+              the municipality's name and the segmented theme control are
+              competing for the same row, and the name is the half that may
+              clip. The strapline drops out entirely rather than clipping to a
+              fragment. */}
           <div className="min-w-0">
-            <p className="text-lg font-bold leading-tight">{config.nameAr}</p>
-            <p className="text-sm text-muted-foreground">تسجيل العقارات والوحدات السكنية</p>
+            <p className="truncate text-base font-bold leading-tight sm:text-lg">
+              {config.nameAr}
+            </p>
+            <p className="hidden truncate text-sm text-muted-foreground sm:block">
+              تسجيل العقارات والوحدات السكنية
+            </p>
           </div>
 
           {/* `ms-auto` rather than `justify-between` on the row: the header has
@@ -66,9 +79,9 @@ export default async function CitizenLayout({
         </div>
       </header>
 
-      <main className="container max-w-3xl py-8">{children}</main>
+      <main className="container max-w-3xl py-6 sm:py-8">{children}</main>
 
-      <footer className="mt-16 border-t py-6 text-center text-sm text-muted-foreground">
+      <footer className="mt-12 border-t py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-center text-sm text-muted-foreground sm:mt-16">
         {config.supportPhone ? (
           <p>
             للمساعدة اتصل بالبلدية:{' '}
