@@ -420,6 +420,19 @@ export function FullscreenMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Resize with the container ──────────────────────────────────────
+  // Mapbox caches the canvas's pixel size at init/last-resize; it has no way
+  // to know the sidebar's collapse toggled the container wider or narrower,
+  // so without this the canvas keeps its old size and a blank strip appears
+  // (or the map stays cut off) until something else forces a resize.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => mapRef.current?.resize());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   // ── Basemap switching ──────────────────────────────────────────────
   // Only a genuine change touches `setStyle`. Mapbox's style-diffing assumes a
   // settled style to diff against, and calling it against a map still building
