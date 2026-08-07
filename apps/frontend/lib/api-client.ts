@@ -101,7 +101,7 @@ export interface PublicTenantConfig {
 
 /**
  * The municipality's public branding and enabled property types.
- * Unauthenticated — it renders the citizen wizard before anyone signs in.
+ * Unauthenticated — the staff entry form reads it before a tenant is known.
  */
 export function getTenantConfig(tenant: string) {
   return apiFetch<PublicTenantConfig>(tenant, '/tenant/config');
@@ -116,33 +116,17 @@ export interface PropertyNumberCheck {
   suggestions: string[];
   /**
    * Neighbours already registered on this parcel. Informational only — a
-   * building shares one cadastral number, so this never blocks a submission.
+   * building shares one cadastral number, so this never blocks an entry.
    */
   registeredCount: number;
 }
 
-/** Blur-check for رقم العقار while the citizen is still typing. */
+/** Blur-check for رقم العقار while it is being typed into the entry form. */
 export function checkPropertyNumber(tenant: string, propertyNumber: string) {
   return apiFetch<PropertyNumberCheck>(
     tenant,
     `/registrations/property-number/${encodeURIComponent(propertyNumber)}/availability`,
   );
-}
-
-export interface SubmitResponse {
-  registrationId: string;
-  referenceNumber: string;
-  status: string;
-  propertyCount: number;
-  documentCount: number;
-}
-
-/** The whole wizard in one multipart request — JSON payload plus the files. */
-export function submitRegistration(tenant: string, formData: FormData) {
-  return apiFetch<SubmitResponse>(tenant, '/registrations', {
-    method: 'POST',
-    body: formData,
-  });
 }
 
 export interface Session {
@@ -210,53 +194,8 @@ export function loginStaff(
   });
 }
 
-export interface RegistrationListItem {
-  id: string;
-  referenceNumber: string;
-  status: string;
-  submittedAt: string;
-  /** Lets a table row link straight to the citizen's profile page. */
-  citizenId: string;
-  citizenName: string;
-  propertyCount: number;
-  /** Contact number, so the staff table can call without opening the profile. */
-  citizenPhone: string | null;
-  /** Reviewer's note on a refused claim — what the applicant must fix. */
-  rejectionReason: string | null;
-  /** Dot-paths from `REJECTABLE_FIELDS`; empty unless refused field-by-field. */
-  rejectedFields: string[];
-  /** False when the citizen must come in person instead of correcting online. */
-  citizenCanCorrect: boolean;
-  /** Optional appointment for that visit, ISO-8601. */
-  revisitAt: string | null;
-}
-
-/** The signed-in citizen's own submissions, for متابعة طلبي. */
-export function listMyRegistrations(tenant: string, token: string) {
-  return apiFetch<{ items: RegistrationListItem[] }>(tenant, '/registrations/mine', { token });
-}
-
-/** The staff review queue, newest first. `status` narrows it to one state. */
-export function listForReview(
-  tenant: string,
-  token: string,
-  filter: { status?: string; limit?: number; offset?: number } = {},
-) {
-  const query = new URLSearchParams();
-  if (filter.status) query.set('status', filter.status);
-  query.set('limit', String(filter.limit ?? 25));
-  query.set('offset', String(filter.offset ?? 0));
-
-  return apiFetch<{ items: RegistrationListItem[]; total: number }>(
-    tenant,
-    `/registrations?${query}`,
-    { token },
-  );
-}
-
 export interface DashboardCounters {
   total: number;
-  byStatus: Record<string, number>;
   byPropertyType: Record<string, number>;
   byResidentStatus: Record<string, number>;
   submittedLast7Days: number;
@@ -296,8 +235,17 @@ export interface DashboardAnalytics {
   householdsWithoutSize: number;
   familySizes: Array<{ size: number; households: number }>;
 
-  byStatus: Record<string, number>;
-  registrationTotal: number;
+  /** Building stock by نوع العقار — مبنى / منزل / أرض / خيمة. */
+  propertiesByType: Record<string, number>;
+  propertyTotal: number;
+
+  /**
+   * Units by نوع الوحدة — شقة / عيادة / محل, counted across both places a
+   * unit type is stored (a building's units, and properties registered as a
+   * single unit). Counting only the first drops every standalone unit.
+   */
+  unitsByType: Record<string, number>;
+  unitTotal: number;
 
   billedTotal: number;
   collectedTotal: number;
@@ -474,11 +422,7 @@ export interface CitizenProfileDocument {
 export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
-  status: string;
   submittedAt: string;
-  /** Reviewer's note, and the fields they flagged — see `REJECTABLE_FIELDS`. */
-  rejectionReason: string | null;
-  rejectedFields: string[];
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
 }
@@ -488,6 +432,10 @@ export interface CitizenProfilePayment {
   id: string;
   title: string;
   amount: number;
+  /** Received so far — below `amount` on a part-settled invoice. */
+  paidAmount: number;
+  /** `amount - paidAmount`, floored at zero: what is still owed. */
+  remaining: number;
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived server-side from the due date, never stored. */
@@ -548,6 +496,27 @@ export function getCitizenProfile(tenant: string, token: string, citizenId: stri
   return apiFetch<CitizenProfile>(tenant, `/citizens/${encodeURIComponent(citizenId)}`, { token });
 }
 
+/**
+ * The signed-in citizen's own record: what they own and what they owe.
+ *
+ * Replaces `listMyRegistrations`, which reported the review status of each
+ * طلب. Properties arrive flattened across filings — a citizen has no reason to
+ * care that their four properties were entered in two sittings, which was an
+ * artefact of the submission workflow rather than anything about the property.
+ */
+export interface MyCitizenSummary {
+  fullName: string;
+  referenceNumber: string | null;
+  registeredAt: string;
+  properties: CitizenProfileProperty[];
+  payments: CitizenProfilePayment[];
+  fees: CitizenFeeTotals;
+}
+
+export function getMySummary(tenant: string, token: string) {
+  return apiFetch<MyCitizenSummary>(tenant, '/citizens/me/summary', { token });
+}
+
 // ─────────────────────  Citizens registry (staff CRUD)  ─────────────────────
 
 /** One row of the admin citizens table — pre-aggregated, including fee totals. */
@@ -565,8 +534,7 @@ export interface CitizenListItem {
 
   registrationCount: number;
   propertyCount: number;
-  /** Status of the most recent registration; null for a citizen with none. */
-  latestStatus: string | null;
+  /** When this citizen last filed, if ever. */
   latestSubmittedAt: string | null;
 
   feesTotal: number;
@@ -826,77 +794,18 @@ export function importCadastre(tenant: string, token: string, file: File) {
   });
 }
 
-/** A rejected claim plus the values the citizen is being asked to fix. */
-export interface CorrectionContext {
-  registrationId: string;
-  referenceNumber: string;
-  status: string;
-  rejectionReason: string | null;
-  rejectedFields: string[];
-  personal: Record<string, unknown>;
-  contact: Record<string, unknown>;
-  properties: Array<Record<string, unknown>>;
-}
-
-/**
- * The reviewer's note, the flagged fields, and the values behind them.
- * Scoped to the signed-in citizen server-side.
- */
-export function getCorrection(tenant: string, token: string, registrationId: string) {
-  return apiFetch<CorrectionContext>(
-    tenant,
-    `/registrations/mine/${encodeURIComponent(registrationId)}/correction`,
-    { token },
-  );
-}
-
-/**
- * Sends corrected values and returns the claim to the review queue. The
- * server ignores any field the reviewer did not flag.
- */
-export function submitCorrection(
-  tenant: string,
-  token: string,
-  registrationId: string,
-  body: {
-    personal?: Record<string, unknown>;
-    contact?: Record<string, unknown>;
-    properties?: Array<{ id: string } & Record<string, unknown>>;
-  },
-) {
-  return apiFetch<{ registrationId: string; from: string; to: string }>(
-    tenant,
-    `/registrations/mine/${encodeURIComponent(registrationId)}/correction`,
-    { token, method: 'PATCH', body: JSON.stringify(body) },
-  );
-}
-
-/**
- * Moves a claim through the review lifecycle. Rejection additionally carries
- * the reviewer's note and the fields they flagged.
- */
-export function changeRegistrationStatus(
-  tenant: string,
-  token: string,
-  id: string,
-  body: {
-    status: string;
-    reason?: string;
-    rejectedFields?: string[];
-    allowCitizenCorrection?: boolean;
-    revisitAt?: string;
-  },
-) {
-  return apiFetch<{ registrationId: string; from: string; to: string }>(
-    tenant,
-    `/registrations/${id}/status`,
-    { method: 'PATCH', token, body: JSON.stringify(body) },
-  );
-}
-
 // ─────────────────────────  Fees & payments  ─────────────────────────
 
 export interface MunicipalitySettings {
+  /** The municipality's public number, printed on receipts. */
+  contactPhone: string | null;
+  /**
+   * The office WhatsApp account: printed on the receipt for the citizen to
+   * reply to, and the account a clerk should be signed into before sending
+   * one. It cannot make a `wa.me` link send *from* this number — see the
+   * settings screen.
+   */
+  whatsappNumber: string | null;
   whishMoneyNumber: string | null;
   cashOfficeHours: string | null;
   cashOfficeAddress: string | null;
@@ -913,6 +822,8 @@ export function updateMunicipalitySettings(
   tenant: string,
   token: string,
   input: {
+    contactPhone?: string;
+    whatsappNumber?: string;
     whishMoneyNumber?: string;
     cashOfficeHours?: string;
     cashOfficeAddress?: string;
@@ -1017,6 +928,8 @@ export interface CitizenPaymentItem {
   id: string;
   title: string;
   amount: number;
+  paidAmount: number;
+  remaining: number;
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived server-side from the due date, never stored. */
@@ -1066,6 +979,8 @@ export interface AdminPaymentItem {
   id: string;
   title: string;
   amount: number;
+  paidAmount: number;
+  remaining: number;
   currency: string;
   dueDate: string;
   paymentStatus: string;
@@ -1083,11 +998,12 @@ export interface AdminPaymentItem {
 export function getAllPayments(
   tenant: string,
   token: string,
-  filter: { status?: string; search?: string } = {},
+  filter: { status?: string; search?: string; citizenId?: string } = {},
 ) {
   const query = new URLSearchParams();
   if (filter.status) query.set('status', filter.status);
   if (filter.search) query.set('search', filter.search);
+  if (filter.citizenId) query.set('citizenId', filter.citizenId);
   const suffix = query.toString() ? `?${query}` : '';
   return apiFetch<{ items: AdminPaymentItem[] }>(tenant, `/fees/payments${suffix}`, { token });
 }
@@ -1113,7 +1029,7 @@ export function settlePayment(
   tenant: string,
   token: string,
   id: string,
-  input: { method?: string; note?: string } = {},
+  input: { method?: string; amount?: number; note?: string } = {},
 ) {
   return apiFetch<{ paymentStatus: string }>(
     tenant,

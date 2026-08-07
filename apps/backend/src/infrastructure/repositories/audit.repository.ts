@@ -44,7 +44,9 @@ export class PrismaAuditRepository implements AuditRepository {
 
   /**
    * One round trip via `count(*) OVER()` rather than a `findMany` + `count`
-   * pair — see the identical rationale on `RegistrationRepository.listForReview`.
+   * pair: two queries meant two connections briefly competing for the same
+   * tenant schema's pool, which is what surfaced as pool-timeout errors under
+   * any concurrent request.
    */
   async query(query: AuditQuery): Promise<{ items: AuditRow[]; total: number }> {
     const conditions: Prisma.Sql[] = [];

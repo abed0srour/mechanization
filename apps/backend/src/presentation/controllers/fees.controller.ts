@@ -116,8 +116,10 @@ export class FeesController {
   async listPayments(
     @Query('status') status?: string,
     @Query('search') search?: string,
+    /** Narrows the ledger to one citizen — the «عرض» drill-down. */
+    @Query('citizenId') citizenId?: string,
   ) {
-    return { items: await this.fees.listAllPayments({ status, search }) };
+    return { items: await this.fees.listAllPayments({ status, search, citizenId }) };
   }
 
   /**
@@ -136,7 +138,12 @@ export class FeesController {
     });
   }
 
-  /** Records money taken at the counter. Goes straight to PAID. */
+  /**
+   * Records money taken at the counter — in full, or in part.
+   *
+   * An omitted `amount` settles the whole outstanding balance, which is both
+   * the common case and the pre-partial-payment behaviour.
+   */
   @Roles('SUPER_ADMIN')
   @Patch('payments/:id/settle')
   async settle(
@@ -146,6 +153,7 @@ export class FeesController {
   ) {
     return this.fees.settleInPerson({
       paymentId: id,
+      amount: body.amount,
       method: body.method,
       note: body.note,
       actor: { id: user.sub, role: user.role ?? '' },

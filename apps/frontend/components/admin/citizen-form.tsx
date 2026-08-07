@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ZodError } from 'zod';
 import {
   Building2,
@@ -28,6 +28,7 @@ import {
   type UnitDraft,
 } from '@/components/citizen/property-card';
 import { cn, scopeErrors } from '@/lib/utils';
+import { useSectionNav } from '@/lib/use-section-nav';
 
 export interface CitizenFormValues {
   personal: Record<string, unknown>;
@@ -54,6 +55,9 @@ const SECTIONS = [
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]['id'];
+
+/** Stable identity for the nav hook's observer dependency. */
+const SECTION_IDS = SECTIONS.map((section) => section.id) as readonly SectionId[];
 
 /** A brand new record — one blank property card, Lebanese by default. */
 export const EMPTY_CITIZEN: CitizenFormValues = {
@@ -165,64 +169,14 @@ export function CitizenForm({
   const [showErrors, setShowErrors] = useState(false);
   /** Which property cards are folded shut. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
-  /** Which section the jump bar highlights — whichever is nearest the top. */
-  const [active, setActive] = useState<SectionId>('personal');
-
   /**
-   * Suppresses the observer while a jump is in flight.
+   * The jump bar's highlight and scroll handler.
    *
-   * A smooth scroll passes *through* every section between here and the
-   * target, so without this the highlight flickers across all three on the
-   * way and lands on the right one only after the animation settles — which
-   * reads as the bar being broken rather than as it following the page.
+   * Re-observed when a property card is added or removed: the sections keep
+   * their ids, but the page height under them changes enough that a stale
+   * observer would highlight against the old layout.
    */
-  const jumping = useRef<SectionId | null>(null);
-
-  /**
-   * Highlights whichever section currently owns the top of the viewport.
-   *
-   * `rootMargin` narrows the observation band to a strip just under the
-   * sticky bar (`-96px` top) and well above the fold (`-55%` bottom), so
-   * "active" means "the heading you are reading" rather than "any section
-   * with a pixel on screen" — which, on a page where a short section and a
-   * tall one are both visible, would otherwise pick whichever came first.
-   */
-  useEffect(() => {
-    const nodes = SECTIONS.map((section) => document.getElementById(section.id)).filter(
-      (node): node is HTMLElement => node !== null,
-    );
-    if (nodes.length === 0) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const id = entry.target.id as SectionId;
-          // A jump owns the highlight until its own target arrives.
-          if (jumping.current && jumping.current !== id) continue;
-          jumping.current = null;
-          setActive(id);
-        }
-      },
-      { rootMargin: '-96px 0px -55% 0px', threshold: 0 },
-    );
-
-    for (const node of nodes) observer.observe(node);
-    return () => observer.disconnect();
-    // Re-observes when a property card is added or removed: the sections keep
-    // their ids, but the page height under them changes enough that a stale
-    // observer would highlight against the old layout.
-  }, [values.properties.length]);
-
-  const jumpTo = useCallback((id: SectionId) => {
-    const node = document.getElementById(id);
-    if (!node) return;
-    jumping.current = id;
-    setActive(id);
-    // `scroll-mt-24` on the section is what keeps the heading clear of the
-    // sticky bar this button lives in.
-    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+  const { active, jumpTo } = useSectionNav(SECTION_IDS, [values.properties.length]);
 
   // Re-seeds when the record finishes loading. Keyed on the object identity,
   // so a parent that fetches once does not clobber what has been typed since.

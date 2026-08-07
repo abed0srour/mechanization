@@ -21,7 +21,6 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   deleteCitizen,
@@ -31,7 +30,7 @@ import {
 } from '@/lib/api-client';
 import type { CitizenListItem } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
-import { Badge, StatusBadge } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
@@ -234,22 +233,25 @@ export default function CitizensPage({
         },
       },
       {
-        accessorKey: 'latestStatus',
-        header: 'الطلبات',
+        // Was «الطلبات» — a review-status badge over a filing count. A record
+        // has no status to report now, so the column says what the citizen
+        // actually has on the register: their properties, and when the
+        // municipality last recorded one.
+        accessorKey: 'propertyCount',
+        header: 'العقارات',
         cell: ({ row }) => {
           const citizen = row.original;
-          if (!citizen.latestStatus) {
-            return <span className="text-sm text-muted-foreground">لا توجد طلبات</span>;
+          if (citizen.propertyCount === 0) {
+            return <span className="text-sm text-muted-foreground">لا توجد عقارات</span>;
           }
           return (
-            <div className="space-y-1.5">
-              <StatusBadge
-                status={citizen.latestStatus}
-                label={ar.reportStatus[citizen.latestStatus as never] ?? citizen.latestStatus}
-              />
-              <p className="text-xs text-muted-foreground">
-                {citizen.registrationCount} طلب · {citizen.propertyCount} عقار
-              </p>
+            <div className="space-y-0.5">
+              <p className="font-medium tabular-nums">{citizen.propertyCount} عقار</p>
+              {citizen.latestSubmittedAt ? (
+                <p className="whitespace-nowrap text-xs text-muted-foreground">
+                  آخر تسجيل {new Date(citizen.latestSubmittedAt).toLocaleDateString('ar-LB')}
+                </p>
+              ) : null}
             </div>
           );
         },

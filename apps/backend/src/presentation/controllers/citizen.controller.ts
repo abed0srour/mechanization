@@ -69,6 +69,37 @@ export class CitizenController {
   }
 
   /**
+   * The signed-in citizen's own record: their properties and their fees.
+   *
+   * Deliberately **not** `@Roles`-guarded — those decorators list *staff*
+   * roles, and a citizen's token carries none, so adding one here would lock
+   * out the only people this route is for. `JwtAuthGuard` still applies, and
+   * the scoping is `user.sub` in the query rather than a check afterwards, so
+   * there is no id to tamper with.
+   *
+   * This replaces `GET /registrations/mine`, which reported the status of each
+   * طلب. What is left that a citizen can act on is what they own and what they
+   * owe.
+   */
+  @Get('me/summary')
+  async mySummary(@CurrentUser() user: SessionClaims) {
+    const citizen = await this.reporting.getCitizenProfile(user.sub);
+    if (!citizen) throw new NotFoundError('Citizen', user.sub);
+
+    return {
+      fullName: citizen.fullName,
+      referenceNumber: citizen.referenceNumber,
+      registeredAt: citizen.registeredAt,
+      // Flattened: a citizen has no reason to care that their four properties
+      // arrived in two separate filings — that grouping was an artefact of the
+      // submission workflow, which no longer exists.
+      properties: citizen.registrations.flatMap((registration) => registration.properties),
+      payments: citizen.payments,
+      fees: citizen.fees,
+    };
+  }
+
+  /**
    * FIELD_INSPECTOR is included: an inspector standing at the property needs
    * to know who filed for it. The identity numbers on this response are the
    * reason the route is role-gated at all.

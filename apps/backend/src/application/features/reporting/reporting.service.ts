@@ -7,7 +7,6 @@ import { withConnectionRetry } from '../../../infrastructure/prisma/with-connect
 
 export interface DashboardCounters {
   total: number;
-  byStatus: Record<string, number>;
   byPropertyType: Record<string, number>;
   byResidentStatus: Record<string, number>;
   submittedLast7Days: number;
@@ -44,8 +43,24 @@ export interface DashboardAnalytics {
   /** One entry per distinct declared household size. */
   familySizes: Array<{ size: number; households: number }>;
 
-  byStatus: Record<string, number>;
-  registrationTotal: number;
+  /**
+   * The municipality's building stock, by نوع العقار — مبنى / منزل / أرض / خيمة.
+   */
+  propertiesByType: Record<string, number>;
+  propertyTotal: number;
+
+  /**
+   * Individual units by نوع الوحدة — شقة / عيادة / محل.
+   *
+   * Counted across **both** places a unit type is stored, which is the whole
+   * subtlety here: a unit inside a registered building is a `building_units`
+   * row, but a property registered as a single unit carries its type on the
+   * property row itself. Counting only the first silently drops every
+   * standalone unit in the municipality — on the current data that is one of
+   * the two apartments on file, i.e. a 50% undercount of that category.
+   */
+  unitsByType: Record<string, number>;
+  unitTotal: number;
 
   billedTotal: number;
   collectedTotal: number;
@@ -69,7 +84,6 @@ export interface SpatialFeature {
   id: string;
   propertyNumber: string;
   propertyType: string;
-  status: string;
   latitude: number;
   longitude: number;
 }
@@ -86,7 +100,6 @@ export interface ParcelRegistrant {
   /** Which building this registrant's unit sits in — a parcel can carry more
    * than one, so this is what actually distinguishes them in the drawer. */
   buildingName: string | null;
-  status: string;
   registeredAt: string;
   /** Units inside this citizen's slice of the building, if any. */
   unitCount: number;
@@ -162,11 +175,7 @@ export interface CitizenProfileDocument {
 export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
-  status: string;
   submittedAt: string;
-  /** Reviewer's note, and the fields they flagged — see `REJECTABLE_FIELDS`. */
-  rejectionReason: string | null;
-  rejectedFields: string[];
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
 }
@@ -176,6 +185,10 @@ export interface CitizenProfilePayment {
   id: string;
   title: string;
   amount: number;
+  /** Received so far — below `amount` on a part-settled invoice. */
+  paidAmount: number;
+  /** `amount - paidAmount`, floored at zero. */
+  remaining: number;
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived from the due date on read, never stored. */
@@ -296,7 +309,6 @@ export class ReportingService {
         Array<{
           total: number;
           recent: number;
-          byStatus: Record<string, number>;
           byPropertyType: Record<string, number>;
           byResidentStatus: Record<string, number>;
         }>
@@ -304,9 +316,6 @@ export class ReportingService {
         SELECT
           (SELECT count(*)::int FROM registrations) AS total,
           (SELECT count(*)::int FROM registrations WHERE "submittedAt" >= ${sevenDaysAgo}) AS recent,
-          (SELECT COALESCE(json_object_agg(status, cnt), '{}'::json)
-             FROM (SELECT status, count(*)::int AS cnt FROM registrations GROUP BY status) s
-          ) AS "byStatus",
           (SELECT COALESCE(json_object_agg("propertyType", cnt), '{}'::json)
              FROM (SELECT "propertyType", count(*)::int AS cnt FROM property_entries GROUP BY "propertyType") p
           ) AS "byPropertyType",
@@ -322,7 +331,6 @@ export class ReportingService {
 
     return {
       total: row.total,
-      byStatus: row.byStatus,
       byPropertyType: row.byPropertyType,
       byResidentStatus: row.byResidentStatus,
       submittedLast7Days: row.recent,
@@ -373,23 +381,41 @@ export class ReportingService {
                     WHERE kind = 'CITIZEN' AND "familySize" IS NOT NULL
                     GROUP BY 1) f)
             AS "familySizes",
-          (SELECT COALESCE(json_object_agg(status, cnt), '{}'::json)
-             FROM (SELECT status, count(*)::int AS cnt FROM registrations GROUP BY status) s)
-            AS "byStatus",
-          (SELECT count(*)::int FROM registrations)
-            AS "registrationTotal",
+          (SELECT COALESCE(json_object_agg("propertyType", cnt), '{}'::json)
+             FROM (SELECT "propertyType", count(*)::int AS cnt
+                     FROM property_entries GROUP BY 1) p)
+            AS "propertiesByType",
+          (SELECT count(*)::int FROM property_entries)
+            AS "propertyTotal",
+          -- Unit types live in two tables: a unit inside a registered building
+          -- is a building_units row, while a property registered as a single
+          -- unit carries its type on the property row. Summing both is what
+          -- keeps standalone units from vanishing out of the count.
+          -- (No backticks in here — this is a tagged template literal, so one
+          --  would close the string and take the rest of the query with it.)
+          (SELECT COALESCE(json_object_agg(t, n), '{}'::json)
+             FROM (SELECT type AS t, sum(n)::int AS n
+                     FROM (SELECT "unitType"::text AS type, count(*)::int AS n
+                             FROM building_units GROUP BY 1
+                           UNION ALL
+                           SELECT "unitType"::text, count(*)::int
+                             FROM property_entries WHERE "unitType" IS NOT NULL GROUP BY 1) u
+                    GROUP BY 1) x)
+            AS "unitsByType",
+          (SELECT ((SELECT count(*) FROM building_units)
+                 + (SELECT count(*) FROM property_entries WHERE "unitType" IS NOT NULL))::int)
+            AS "unitTotal",
           COALESCE((SELECT sum(amount) FROM citizen_payments), 0)::float8
             AS "billedTotal",
-          COALESCE((SELECT sum(amount) FROM citizen_payments
-                     WHERE "paymentStatus" = 'PAID'), 0)::float8
+          COALESCE((SELECT sum("paidAmount") FROM citizen_payments), 0)::float8
             AS "collectedTotal",
-          COALESCE((SELECT sum(amount) FROM citizen_payments
+          COALESCE((SELECT sum(amount - "paidAmount") FROM citizen_payments
                      WHERE "paymentStatus" <> 'PAID'), 0)::float8
             AS "outstandingTotal",
           -- Derived from the due date on read, never stored: a flag written by
           -- a nightly job is wrong for every hour between a due date passing
           -- and the job next running.
-          COALESCE((SELECT sum(amount) FROM citizen_payments
+          COALESCE((SELECT sum(amount - "paidAmount") FROM citizen_payments
                      WHERE "paymentStatus" = 'UNPAID' AND "dueDate" < now()), 0)::float8
             AS "overdueTotal",
           (SELECT count(*)::int FROM citizen_payments
@@ -402,9 +428,8 @@ export class ReportingService {
              FROM (
                SELECT to_char(d.m, 'YYYY-MM') AS month,
                       COALESCE(sum(p.amount), 0)::float8 AS billed,
-                      COALESCE(sum(p.amount)
-                        FILTER (WHERE p."paymentStatus" = 'PAID'), 0)::float8 AS collected,
-                      COALESCE(sum(p.amount)
+                      COALESCE(sum(p."paidAmount"), 0)::float8 AS collected,
+                      COALESCE(sum(p.amount - p."paidAmount")
                         FILTER (WHERE p."paymentStatus" = 'UNPAID'
                                   AND p."dueDate" < now()), 0)::float8 AS overdue
                  -- A generated month spine, LEFT JOINed: a month in which the
@@ -450,7 +475,6 @@ export class ReportingService {
           propertyType: true,
           latitude: true,
           longitude: true,
-          registration: { select: { status: true } },
         },
         // A municipality that somehow has more than this has a data problem, and
         // a map with 5k markers is unusable anyway.
@@ -462,7 +486,6 @@ export class ReportingService {
       id: row.id,
       propertyNumber: row.propertyNumber,
       propertyType: row.propertyType,
-      status: row.registration.status,
       latitude: row.latitude!,
       longitude: row.longitude!,
     }));
@@ -524,6 +547,7 @@ export class ReportingService {
             id: true,
             title: true,
             amount: true,
+            paidAmount: true,
             currency: true,
             dueDate: true,
             paymentStatus: true,
@@ -539,10 +563,7 @@ export class ReportingService {
           select: {
             id: true,
             referenceNumber: true,
-            status: true,
             submittedAt: true,
-            rejectionReason: true,
-            rejectedFields: true,
             properties: {
               select: {
                 id: true,
@@ -608,6 +629,8 @@ export class ReportingService {
       id: payment.id,
       title: payment.title,
       amount: Number(payment.amount),
+      paidAmount: Number(payment.paidAmount),
+      remaining: Math.max(Number(payment.amount) - Number(payment.paidAmount), 0),
       currency: payment.currency,
       dueDate: payment.dueDate.toISOString(),
       paymentStatus:
@@ -625,8 +648,11 @@ export class ReportingService {
     // aggregate queries: the totals and the list a reviewer reads them against
     // then cannot disagree, which they could if one was cached a moment apart
     // from the other.
-    const sum = (rows: typeof payments) =>
-      rows.reduce((total, payment) => total + payment.amount, 0);
+    // `field` rather than always `amount`, because since partial payments the
+    // three totals below measure different columns: what was billed, what has
+    // been received, and what is still owed.
+    const sum = (rows: typeof payments, field: 'amount' | 'paidAmount' | 'remaining') =>
+      rows.reduce((total, payment) => total + payment[field], 0);
     const overdue = payments.filter((payment) => payment.paymentStatus === 'OVERDUE');
 
     return {
@@ -651,10 +677,17 @@ export class ReportingService {
       isActive: citizen.isActive,
       payments,
       fees: {
-        feesTotal: sum(payments),
-        paidTotal: sum(payments.filter((payment) => payment.paymentStatus === 'PAID')),
-        outstandingTotal: sum(payments.filter((payment) => payment.paymentStatus !== 'PAID')),
-        overdueTotal: sum(overdue),
+        feesTotal: sum(payments, 'amount'),
+        // Every pound received, across all rows — a part-payment sitting on an
+        // UNPAID invoice is money the municipality has, and filtering to PAID
+        // would leave it out.
+        paidTotal: sum(payments, 'paidAmount'),
+        // What is left on rows not fully settled, not their face value.
+        outstandingTotal: sum(
+          payments.filter((payment) => payment.paymentStatus !== 'PAID'),
+          'remaining',
+        ),
+        overdueTotal: sum(overdue, 'remaining'),
         overdueCount: overdue.length,
         pendingReviewCount: payments.filter(
           (payment) => payment.paymentStatus === 'PENDING_REVIEW',
@@ -663,10 +696,7 @@ export class ReportingService {
       registrations: citizen.registrations.map((registration) => ({
         id: registration.id,
         referenceNumber: registration.referenceNumber,
-        status: registration.status,
         submittedAt: registration.submittedAt.toISOString(),
-        rejectionReason: registration.rejectionReason,
-        rejectedFields: registration.rejectedFields,
         properties: registration.properties.map((property) => ({
           id: property.id,
           neighborhood: property.neighborhood,
@@ -748,7 +778,6 @@ export class ReportingService {
           registration: {
             select: {
               id: true,
-              status: true,
               submittedAt: true,
               citizen: {
                 select: {
@@ -791,7 +820,6 @@ export class ReportingService {
         occupancyType: row.occupancyType,
         propertyType: row.propertyType,
         buildingName: row.buildingName,
-        status: row.registration.status,
         registeredAt: row.registration.submittedAt.toISOString(),
         unitCount: row._count.units,
       });
@@ -808,13 +836,9 @@ export class ReportingService {
    */
   async exportCsv(input: {
     tenantSlug: string;
-    status?: string;
     actor: { id: string; role: string; email?: string };
   }): Promise<string> {
-    const where = input.status ? { status: input.status as never } : {};
-
     const rows = await this.db.registration.findMany({
-      where,
       include: {
         citizen: {
           select: {
@@ -844,7 +868,6 @@ export class ReportingService {
 
     const header = [
       'reference_number',
-      'status',
       'submitted_at',
       'citizen_name',
       'phone',
@@ -883,7 +906,6 @@ export class ReportingService {
           lines.push(
             [
               row.referenceNumber,
-              row.status,
               row.submittedAt.toISOString(),
               name,
               row.citizen.phone ?? '',
@@ -912,7 +934,6 @@ export class ReportingService {
       actorRole: input.actor.role,
       actorEmail: input.actor.email,
       rowCount: rows.length,
-      filter: { status: input.status ?? 'ALL' },
     });
 
     return lines.join('\n');
@@ -928,7 +949,6 @@ export class ReportingService {
    * app.module.ts), so this needs no tenant slug from the event payload.
    */
   @OnEvent('registration.submitted')
-  @OnEvent('registration.status-changed')
   @OnEvent('cadastre.imported')
   /** A staff edit rewrites the very profile this caches under `citizen:{id}`. */
   @OnEvent('citizen.changed')
