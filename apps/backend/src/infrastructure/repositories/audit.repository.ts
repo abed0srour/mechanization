@@ -6,8 +6,11 @@ import {
   AuditRepository,
   AuditRow,
 } from '../../domain/interfaces/audit-repository.interface';
+import { ValidationError } from '../../domain/errors/domain-error';
 import { TenantContextService } from '../context/tenant-context.service';
 import { withConnectionRetry } from '../prisma/with-connection-retry';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Append and read. There is deliberately no update or delete method — and the
@@ -50,7 +53,14 @@ export class PrismaAuditRepository implements AuditRepository {
    */
   async query(query: AuditQuery): Promise<{ items: AuditRow[]; total: number }> {
     const conditions: Prisma.Sql[] = [];
-    if (query.actorId) conditions.push(Prisma.sql`"actorId" = ${query.actorId}::uuid`);
+    if (query.actorId) {
+      // Postgres raises on `'not-a-uuid'::uuid`, which would surface as a 500
+      // for what is really a malformed filter the caller sent.
+      if (!UUID_PATTERN.test(query.actorId)) {
+        throw new ValidationError('actorId filter must be a valid UUID');
+      }
+      conditions.push(Prisma.sql`"actorId" = ${query.actorId}::uuid`);
+    }
     if (query.entityType) conditions.push(Prisma.sql`"entityType" = ${query.entityType}`);
     if (query.entityId) conditions.push(Prisma.sql`"entityId" = ${query.entityId}`);
     if (query.from) conditions.push(Prisma.sql`"createdAt" >= ${query.from}`);

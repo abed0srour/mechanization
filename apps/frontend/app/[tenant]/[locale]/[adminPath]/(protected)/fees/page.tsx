@@ -115,6 +115,7 @@ export default function FeesPage({
   /** Which citizen's itemised breakdown is open, if any. */
   const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
   const [settling, setSettling] = useState<AdminPaymentItem | null>(null);
+  const [recordingCash, setRecordingCash] = useState(false);
   const [settleError, setSettleError] = useState<string | null>(null);
   /**
    * The receipt shown after money is taken.
@@ -337,9 +338,9 @@ export default function FeesPage({
   const recordCash = useCallback(
     async ({ amount, note }: SettleValues) => {
       const target = settling;
-      if (!token || !target) return;
+      if (!token || !target || recordingCash) return;
 
-      setBusyPaymentId(target.id);
+      setRecordingCash(true);
       setSettleError(null);
       try {
         await settlePayment(tenant, token, target.id, { method: 'CASH', amount, note });
@@ -360,14 +361,14 @@ export default function FeesPage({
           caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.',
         );
       } finally {
-        setBusyPaymentId(null);
+        setRecordingCash(false);
       }
     },
     // `openReceipt` belongs here even though its own deps are a subset of
     // these: leaving it out is the kind of omission that stays harmless until
     // someone widens its dependencies and the receipt starts opening against
     // a stale token.
-    [tenant, token, load, settling, openReceipt],
+    [tenant, token, load, settling, recordingCash, openReceipt],
   );
 
   /**
@@ -726,13 +727,13 @@ export default function FeesPage({
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    disabled={busyPaymentId === payment.id}
+                                    disabled={recordingCash && settling?.id === payment.id}
                                     onClick={() => {
                                       setSettleError(null);
                                       setSettling(payment);
                                     }}
                                   >
-                                    {busyPaymentId === payment.id ? (
+                                    {recordingCash && settling?.id === payment.id ? (
                                       <Loader2 className="size-4 animate-spin" aria-hidden />
                                     ) : (
                                       <Banknote className="size-4" aria-hidden />
@@ -929,7 +930,7 @@ export default function FeesPage({
           if (!next) setSettling(null);
         }}
         payment={settling}
-        submitting={busyPaymentId !== null}
+        submitting={recordingCash}
         error={settleError}
         onSubmit={(values) => void recordCash(values)}
       />
