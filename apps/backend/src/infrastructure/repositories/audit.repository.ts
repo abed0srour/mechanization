@@ -53,7 +53,7 @@ export class PrismaAuditRepository implements AuditRepository {
    */
   async query(query: AuditQuery): Promise<{ items: AuditRow[]; total: number }> {
     const conditions: Prisma.Sql[] = [];
-    if (query.actorId) {
+    if (query.actorId !== undefined && query.actorId !== null) {
       // Postgres raises on `'not-a-uuid'::uuid`, which would surface as a 500
       // for what is really a malformed filter the caller sent.
       if (!UUID_PATTERN.test(query.actorId)) {
