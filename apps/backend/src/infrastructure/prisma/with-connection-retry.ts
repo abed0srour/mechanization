@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../../generated/tenant-client';
 
 const RETRY_DELAY_MS = 300;
 

@@ -136,6 +136,7 @@ export default function FeesPage({
   /** Which citizen's itemised breakdown is open, if any. */
   const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
   const [settling, setSettling] = useState<AdminPaymentItem | null>(null);
+  const [recordingCash, setRecordingCash] = useState(false);
   const [settleError, setSettleError] = useState<string | null>(null);
   /**
    * The receipt shown after money is taken.
@@ -424,9 +425,9 @@ export default function FeesPage({
   const recordCash = useCallback(
     async ({ amount, note }: SettleValues) => {
       const target = settling;
-      if (!token || !target) return;
+      if (!token || !target || recordingCash) return;
 
-      setBusyPaymentId(target.id);
+      setRecordingCash(true);
       setSettleError(null);
       try {
         await settlePayment(tenant, token, target.id, { method: 'CASH', amount, note });
@@ -447,14 +448,14 @@ export default function FeesPage({
           caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.',
         );
       } finally {
-        setBusyPaymentId(null);
+        setRecordingCash(false);
       }
     },
     // `openReceipt` belongs here even though its own deps are a subset of
     // these: leaving it out is the kind of omission that stays harmless until
     // someone widens its dependencies and the receipt starts opening against
     // a stale token.
-    [tenant, token, load, settling, openReceipt],
+    [tenant, token, load, settling, recordingCash, openReceipt],
   );
 
   /**
@@ -855,19 +856,139 @@ export default function FeesPage({
                         />
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="text-end">
-                        <p className="font-semibold tabular-nums">{lbp(group.outstanding)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          من أصل {lbp(group.billed)}
-                        </p>
-                      </div>
-                      {group.outstanding === 0 ? (
-                        <Badge
-                          variant="outline"
-                          className="border-success/40 bg-success/10 text-success"
-                        >
-                          مسدَّد بالكامل
+
+                    {/* The itemised breakdown: every posting on its own line,
+                        each settleable on its own. */}
+                    {expanded ? (
+                      <ul className="divide-y border-t bg-muted/20">
+                        {group.items.map((payment) => {
+                          const settled = payment.paymentStatus === 'PAID';
+                          const partly = !settled && payment.paidAmount > 0;
+                          return (
+                            <li
+                              key={payment.id}
+                              className="flex flex-wrap items-center justify-between gap-3 py-3 pe-4 ps-10"
+                            >
+                              <div className="min-w-0 space-y-0.5">
+                                <p className="text-sm font-medium">{payment.title}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  استحقاق{' '}
+                                  {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                                  {partly
+                                    ? ` · مسدَّد ${lbp(payment.paidAmount)} من ${lbp(payment.amount)}`
+                                    : ''}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold tabular-nums">
+                                  {lbp(settled ? payment.amount : payment.remaining)}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    payment.paymentStatus === 'PAID'
+                                      ? 'border-success/40 bg-success/10 text-success'
+                                      : payment.paymentStatus === 'OVERDUE'
+                                        ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                                        : 'border-warning/40 bg-warning/10 text-warning'
+                                  }
+                                >
+                                  {ar.paymentStatus[payment.paymentStatus as never] ??
+                                    payment.paymentStatus}
+                                </Badge>
+                                {canManage && !settled ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={recordingCash && settling?.id === payment.id}
+                                    onClick={() => {
+                                      setSettleError(null);
+                                      setSettling(payment);
+                                    }}
+                                  >
+                                    {recordingCash && settling?.id === payment.id ? (
+                                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                                    ) : (
+                                      <Banknote className="size-4" aria-hidden />
+                                    )}
+                                    تسجيل دفعة
+                                  </Button>
+                                ) : null}
+
+                                {/* Any invoice that has received money can be
+                                    receipted again — a citizen who lost the
+                                    first copy should not need a second
+                                    payment to get one. */}
+                                {canManage && payment.paidAmount > 0 ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      void openReceipt(
+                                        payment.citizenId,
+                                        payment.id,
+                                        payment.paidAmount,
+                                      )
+                                    }
+                                  >
+                                    <Receipt className="size-4" aria-hidden />
+                                    الوصل
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-col gap-3 border-b md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Banknote className="size-5" aria-hidden />
+              الرسوم المُصدرة
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              تُصدر الرسوم المتكرّرة تلقائياً كل دورة. يمكنك تشغيل الإصدار الآن بدل
+              انتظار التشغيل الليلي.
+            </p>
+          </div>
+          {canManage ? (
+            <Button variant="outline" onClick={() => void runBillingNow()} disabled={runningBilling}>
+              {runningBilling ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="size-4" aria-hidden />
+              )}
+              إصدار الدورة الحالية
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent className="p-0">
+          {notices.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">لم يتم إصدار أي رسم بعد.</p>
+          ) : (
+            <ul className="divide-y">
+              {notices.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                  <div className="min-w-0 space-y-1">
+                    <p className="font-medium">{item.title}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                      <Badge variant="secondary">
+                        {ar.feeFrequency[item.frequency as never] ?? item.frequency}
+                      </Badge>
+                      {item.frequency !== 'ONCE' && !item.isActive ? (
+                        <Badge variant="outline" className="gap-1 text-muted-foreground">
+                          <PauseCircle className="size-3" aria-hidden />
+                          متوقّف
                         </Badge>
                       ) : null}
                       <Button
@@ -1124,7 +1245,7 @@ export default function FeesPage({
           if (!next) setSettling(null);
         }}
         payment={settling}
-        submitting={busyPaymentId !== null}
+        submitting={recordingCash}
         error={settleError}
         onSubmit={(values) => void recordCash(values)}
       />
