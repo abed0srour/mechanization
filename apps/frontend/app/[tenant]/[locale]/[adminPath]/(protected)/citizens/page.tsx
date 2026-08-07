@@ -292,7 +292,7 @@ export default function CitizensPage({
           if (citizen.outstandingTotal === 0) {
             return (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600" aria-hidden />
+                <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-hidden />
                 لا متأخرات
               </span>
             );
@@ -499,7 +499,7 @@ export default function CitizensPage({
             إصدار رسوم جديدة ويُبقي السجل كما هو؛ الحذف النهائي يزيل كل شيء.
           </p>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <DataTable
             columns={columns}
             data={items}

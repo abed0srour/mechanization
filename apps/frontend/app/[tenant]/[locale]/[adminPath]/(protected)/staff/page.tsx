@@ -238,7 +238,7 @@ export default function StaffPage({
         header: 'الحالة',
         cell: ({ row }) =>
           row.original.isActive ? (
-            <Badge className="gap-1.5 border-emerald-600/30 bg-emerald-600/10 py-1 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" variant="outline">
+            <Badge className="gap-1.5 border-success/40 bg-success/10 py-1 text-success" variant="outline">
               <CheckCircle2 className="size-3.5" aria-hidden />
               فعّال
             </Badge>
@@ -376,7 +376,7 @@ export default function StaffPage({
             فقط لحساب لم يقم بأي إجراء.
           </p>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <DataTable
             columns={columns}
             data={items}

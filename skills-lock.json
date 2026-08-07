@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "skills": {
+    "anti-ui-slop": {
+      "source": "uizze.com",
+      "sourceUrl": "https://uizze.com/",
+      "sourceType": "well-known",
+      "computedHash": "6b9dd39aa002396961c2c8fff61c622e372a14216d537adc24322a17066ba672",
+      "wellKnownDigest": "sha256:95568167c89fe454591dad6ffce4c9807486a097bc1408831bde22b882654914"
+    },
+    "ui-design": {
+      "source": "uizze.com",
+      "sourceUrl": "https://uizze.com/",
+      "sourceType": "well-known",
+      "computedHash": "8ae9d5062940f66edd96e00330c2721879f0df843e09064833c44b83dc3f4d07",
+      "wellKnownDigest": "sha256:f5d380f5d82a53023ce85cca081d1732313e20efbbac0ed13318642819744334"
+    },
+    "ui-radar": {
+      "source": "uizze.com",
+      "sourceUrl": "https://uizze.com/",
+      "sourceType": "well-known",
+      "computedHash": "ffe3853075bd6c67ad3b63149761302b120f12a179f5ea95a4d2f6df13fd835d",
+      "wellKnownDigest": "sha256:cb362261efbff5de4abb89ea4c90341eb978d43da3314c7dea026381c5e842e5"
+    },
+    "ui-slop-score": {
+      "source": "uizze.com",
+      "sourceUrl": "https://uizze.com/",
+      "sourceType": "well-known",
+      "computedHash": "88f396b20e5e44af95ef0767c8c2b69dc167941d035b0fb4066e6d78d85ce867",
+      "wellKnownDigest": "sha256:39e567495a2d3e05715cfe471c8203a959f2288e6d90e229b5ba73e35b433565"
+    }
+  }
+}

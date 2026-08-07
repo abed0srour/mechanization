@@ -291,7 +291,11 @@ export function DatePicker({
       {open ? (
         <div
           role="dialog"
-          className="absolute z-50 mt-2 w-[300px] rounded-lg border bg-card p-3 shadow-lg"
+          // 300px is what the seven-column grid wants; the `max-w` is what
+          // keeps it on a 320px screen, where a fixed 300px panel opening from
+          // inside a padded form ran off the far edge with no way to scroll to
+          // the last column. The grid's 36px cells still fit either way.
+          className="absolute z-50 mt-2 w-[300px] max-w-[calc(100vw-2rem)] rounded-lg border bg-card p-3 shadow-lg"
         >
           {/* Month header — arrows step by one month; the two dropdowns jump straight to any month/year. */}
           <div className="mb-2 flex items-center justify-between gap-1">
@@ -358,7 +362,10 @@ export function DatePicker({
                   aria-pressed={isSelectedDay(day)}
                   onClick={() => pick(day)}
                   className={cn(
-                    'mx-auto flex h-8 w-8 items-center justify-center rounded-md text-sm tabular-nums transition-colors',
+                    // 36px rather than 32: a calendar is the densest grid of
+                    // tap targets in the app, and 32px cells are where a
+                    // thumb starts picking the neighbouring day.
+                    'mx-auto flex h-9 w-9 items-center justify-center rounded-md text-sm tabular-nums transition-colors',
                     isSelectedDay(day)
                       ? 'bg-primary font-semibold text-primary-foreground'
                       : dayDisabled

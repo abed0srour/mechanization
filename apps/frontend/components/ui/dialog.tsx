@@ -40,7 +40,20 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-xl',
+        'fixed left-1/2 top-1/2 z-50 grid -translate-x-1/2 -translate-y-1/2 gap-4 border bg-popover text-popover-foreground p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+        // A gutter instead of the usual full-bleed-below-`sm`. A panel that
+        // touches both edges but floats vertically reads as a broken page
+        // rather than as a sheet; 16px of floor on each side is what tells a
+        // reader this is a thing *over* the page. It also lets the corners
+        // stay rounded at every width instead of squaring off on a phone.
+        'w-[calc(100%-2rem)] max-w-lg rounded-xl',
+        // The ceiling every dialog gets whether or not it asked for one:
+        // nothing may extend past the visible viewport. Panels with a long
+        // body (the fee wizard, the receipt) still set their own `max-h` and
+        // scroll an inner region so their header and action bar stay put;
+        // this is the backstop for the short ones, which otherwise clipped
+        // their own buttons on a phone held sideways.
+        'max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain',
         className,
       )}
       {...props}
@@ -74,7 +87,10 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element => (
   <div
     className={cn(
-      'flex flex-col-reverse sm:flex-row sm:justify-end sm:gap-2',
+      // `gap-2` at every width, not only from `sm`. Stacked below `sm` the
+      // buttons were flush against each other, which on a touch screen puts
+      // "إلغاء" a millimetre from a destructive confirm.
+      'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
       className,
     )}
     {...props}

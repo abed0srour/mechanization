@@ -265,7 +265,7 @@ export default function AuditTrailPage({
           </div>
         </CardHeader>
 
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <DataTable
             columns={columns}
             data={entries}

@@ -334,7 +334,16 @@ export function DataTable<TData, TValue = unknown>({
         // The single scroll container for both axes — `overflow-x` for a wide
         // row of action buttons, `overflow-y` under `max-h` for a long page.
         // `Table` deliberately adds no wrapper of its own; see table.tsx.
-        <div className="max-h-[70vh] overflow-auto rounded-lg border">
+        //
+        // `dvh` rather than `vh`: on a phone the two differ by the height of
+        // the browser's own toolbars, and a table capped against the *large*
+        // viewport extends past the bottom of the screen — with the page's own
+        // scroll already spent, those rows were simply unreachable.
+        //
+        // `overscroll-contain` stops a swipe that reaches the end of this
+        // table's scroll from continuing into the page behind it, which on a
+        // touch screen otherwise reads as the table randomly refusing to move.
+        <div className="max-h-[70dvh] overflow-auto overscroll-contain rounded-lg border">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/95 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/80">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -429,7 +438,10 @@ export function DataTable<TData, TValue = unknown>({
           without the rule these controls float against the page and read as
           part of the last row. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        {/* `min-w-0` on both halves: at 320px the row wraps into two lines and
+            neither the row-count text nor the pager may push the other past
+            the edge — the total is allowed to truncate, the pager is not. */}
+        <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
           <span>{labels.rowsPerPage}</span>
           <Select
             value={String(pagination.pageSize)}

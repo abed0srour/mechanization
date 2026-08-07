@@ -146,18 +146,21 @@ export default function FullscreenMapPage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-        <div className="space-y-1">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b bg-background px-4 py-3">
+        <div className="min-w-0 space-y-1">
           <h1 className="flex items-center gap-2 text-lg font-bold">
-            <MapIcon className="size-5 text-primary" aria-hidden />
+            <MapIcon className="size-5 shrink-0 text-primary" aria-hidden />
             الخريطة العقارية
           </h1>
-          <p className="text-xs text-muted-foreground">
+          {/* The map itself is the point of this screen, and on a phone every
+              row above it is height taken from it — so the caption waits for a
+              width that can spare it. */}
+          <p className="hidden text-xs text-muted-foreground sm:block">
             نقاط تفاعلية فقط على العقارات التي لديها تسجيلات
           </p>
         </div>
         {session?.user.role === 'SUPER_ADMIN' ? (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"

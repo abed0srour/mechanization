@@ -797,7 +797,13 @@ export function FullscreenMap({
             }}
             placeholder="ابحث برقم العقار"
             aria-label="ابحث برقم العقار"
-            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            // 16px on a phone, `text-sm` once there is a pointer. Safari zooms
+            // the whole page when a text field under 16px takes focus, and on
+            // a map that zoom is unrecoverable — the viewport scale changes
+            // under a canvas that has its own gesture handling. Every other
+            // input in the app is already `text-base` for this reason; this
+            // one was sized down to fit the floating pill and missed it.
+            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
           />
           {query ? (
             <Button
@@ -988,8 +994,14 @@ export function FullscreenMap({
       {/* What the dots mean, stated plainly — the conditional-rendering rule
           is otherwise invisible. Pinned physically right: Mapbox's own nav
           control sits top-left, and the citizen drawer opens from this same
-          right edge but well below the header. */}
-      <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
+          right edge but well below the header.
+
+          Below `sm` it drops to a second row instead. The search pill above is
+          `min(22rem, 100%-1.5rem)` wide and centred, so on a phone it spans
+          very nearly the full width — this counter shared that row with it and
+          the two overlapped. The floating panels stack down the right edge
+          instead: search, then the count, then the legend. */}
+      <div className="pointer-events-none absolute right-3 top-16 z-10 max-w-[60%] rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur sm:top-3 sm:max-w-none">
         <p className="text-sm font-bold">
           {zoneParcelNumbers
             ? parcels.filter((parcel) => zoneParcelNumbers.has(parcel.propertyNumber)).length

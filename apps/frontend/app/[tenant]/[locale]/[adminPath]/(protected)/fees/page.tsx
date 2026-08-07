@@ -76,6 +76,7 @@ import {
   type SettleValues,
 } from '@/components/admin/settle-payment-dialog';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
+import { PaymentStatusBadge } from '@/components/payment-status-badge';
 
 /**
  * LBP has no minor unit in practice — whole pounds, grouped.
@@ -856,10 +857,40 @@ export default function FeesPage({
                         />
                       </div>
                     </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="text-end">
+                        <p className="font-semibold tabular-nums">{lbp(group.outstanding)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          من أصل {lbp(group.billed)}
+                        </p>
+                      </div>
+                      {group.outstanding === 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="border-success/40 bg-success/10 text-success"
+                        >
+                          مسدَّد بالكامل
+                        </Badge>
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-expanded={expanded}
+                        onClick={() => setExpandedCitizen(expanded ? null : group.citizenId)}
+                      >
+                        {expanded ? (
+                          <ChevronUp className="size-4" aria-hidden />
+                        ) : (
+                          <Eye className="size-4" aria-hidden />
+                        )}
+                        {expanded ? 'إخفاء' : 'عرض'}
+                      </Button>
+                    </div>
+                  </div>
 
-                    {/* The itemised breakdown: every posting on its own line,
-                        each settleable on its own. */}
-                    {expanded ? (
+                  {/* The itemised breakdown: every posting on its own line,
+                      each settleable on its own. */}
+                  {expanded ? (
                       <ul className="divide-y border-t bg-muted/20">
                         {group.items.map((payment) => {
                           const settled = payment.paymentStatus === 'PAID';
@@ -883,19 +914,7 @@ export default function FeesPage({
                                 <span className="text-sm font-semibold tabular-nums">
                                   {lbp(settled ? payment.amount : payment.remaining)}
                                 </span>
-                                <Badge
-                                  variant="outline"
-                                  className={
-                                    payment.paymentStatus === 'PAID'
-                                      ? 'border-success/40 bg-success/10 text-success'
-                                      : payment.paymentStatus === 'OVERDUE'
-                                        ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                        : 'border-warning/40 bg-warning/10 text-warning'
-                                  }
-                                >
-                                  {ar.paymentStatus[payment.paymentStatus as never] ??
-                                    payment.paymentStatus}
-                                </Badge>
+                                <PaymentStatusBadge status={payment.paymentStatus} />
                                 {canManage && !settled ? (
                                   <Button
                                     variant="outline"
@@ -946,156 +965,6 @@ export default function FeesPage({
               })}
             </ul>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex-col gap-3 border-b md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Banknote className="size-5" aria-hidden />
-              الرسوم المُصدرة
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              تُصدر الرسوم المتكرّرة تلقائياً كل دورة. يمكنك تشغيل الإصدار الآن بدل
-              انتظار التشغيل الليلي.
-            </p>
-          </div>
-          {canManage ? (
-            <Button variant="outline" onClick={() => void runBillingNow()} disabled={runningBilling}>
-              {runningBilling ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <RefreshCw className="size-4" aria-hidden />
-              )}
-              إصدار الدورة الحالية
-            </Button>
-          ) : null}
-        </CardHeader>
-        <CardContent className="p-0">
-          {notices.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">لم يتم إصدار أي رسم بعد.</p>
-          ) : (
-            <ul className="divide-y">
-              {notices.map((item) => (
-                <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div className="min-w-0 space-y-1">
-                    <p className="font-medium">{item.title}</p>
-                    <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-                      <Badge variant="secondary">
-                        {ar.feeFrequency[item.frequency as never] ?? item.frequency}
-                      </Badge>
-                      {item.frequency !== 'ONCE' && !item.isActive ? (
-                        <Badge variant="outline" className="gap-1 text-muted-foreground">
-                          <PauseCircle className="size-3" aria-hidden />
-                          متوقّف
-                        </Badge>
-                      ) : null}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        aria-expanded={expanded}
-                        onClick={() => setExpandedCitizen(expanded ? null : group.citizenId)}
-                      >
-                        {expanded ? (
-                          <ChevronUp className="size-4" aria-hidden />
-                        ) : (
-                          <Eye className="size-4" aria-hidden />
-                        )}
-                        {expanded ? 'إخفاء' : 'عرض'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* The itemised breakdown: every posting on its own line,
-                      each settleable on its own. */}
-                  {expanded ? (
-                    <ul className="divide-y border-t bg-muted/20">
-                      {group.items.map((payment) => {
-                        const paid = payment.paymentStatus === 'PAID';
-                        const partly = !paid && payment.paidAmount > 0;
-                        return (
-                          <li
-                            key={payment.id}
-                            className="flex flex-wrap items-center justify-between gap-3 py-3 pe-4 ps-10"
-                          >
-                            <div className="min-w-0 space-y-0.5">
-                              <p className="text-sm font-medium">{payment.title}</p>
-                              <p className="text-xs text-muted-foreground">
-                                استحقاق{' '}
-                                {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
-                                {partly
-                                  ? ` · مسدَّد ${lbp(payment.paidAmount)} من ${lbp(payment.amount)}`
-                                  : ''}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold tabular-nums">
-                                {lbp(paid ? payment.amount : payment.remaining)}
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  payment.paymentStatus === 'PAID'
-                                    ? 'border-success/40 bg-success/10 text-success'
-                                    : payment.paymentStatus === 'OVERDUE'
-                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                      : 'border-warning/40 bg-warning/10 text-warning'
-                                }
-                              >
-                                {ar.paymentStatus[payment.paymentStatus as never] ??
-                                  payment.paymentStatus}
-                              </Badge>
-                              {canManage && !paid ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={busyPaymentId === payment.id}
-                                  onClick={() => {
-                                    setSettleError(null);
-                                    setSettling(payment);
-                                  }}
-                                >
-                                  {busyPaymentId === payment.id ? (
-                                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  ) : (
-                                    <Banknote className="size-4" aria-hidden />
-                                  )}
-                                  تسجيل دفعة
-                                </Button>
-                              ) : null}
-
-                              {/* Any invoice that has received money can be
-                                  receipted again — a citizen who lost the
-                                  first copy should not need a second payment
-                                  to get one. */}
-                              {canManage && payment.paidAmount > 0 ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    void openReceipt(
-                                      payment.citizenId,
-                                      payment.id,
-                                      payment.paidAmount,
-                                    )
-                                  }
-                                >
-                                  <Receipt className="size-4" aria-hidden />
-                                  الوصل
-                                </Button>
-                              ) : null}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </WorkflowSection>
 
       {/* ─── ٣ ─── The only stage where someone outside the building is
@@ -1305,7 +1174,9 @@ function MetricCard({
           <p className="truncate text-2xl font-bold tabular-nums">{loading ? '—' : value}</p>
           {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
         </div>
-        <div className={`rounded-lg p-3 ${accent}`}>{icon}</div>
+        {/* `shrink-0`: at 320px an eight-figure total was squashing the chip
+            into an oval. The text block is the half that yields. */}
+        <div className={`shrink-0 rounded-lg p-3 ${accent}`}>{icon}</div>
       </button>
     </Card>
   );

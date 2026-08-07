@@ -47,8 +47,26 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        warning: 'hsl(var(--warning))',
-        success: 'hsl(var(--success))',
+        // The third rung of the surface ramp — dialogs, sheets and select menus,
+        // which sit above a card and previously had no token of their own to say
+        // so. They all painted `bg-background`, which worked only for as long as
+        // `--card` and `--background` were the same colour.
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        // Promoted from flat colours to pairs. `bg-warning/10` and `text-warning`
+        // still resolve exactly as before — this only adds the `-foreground` half,
+        // so a solid `bg-warning` finally has a legible text colour to pair with
+        // instead of the hardcoded `text-white` the badge used to reach for.
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
+        },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',

@@ -457,7 +457,7 @@ export function CitizenForm({
         otherwise be several screens below whatever is being typed — and a
         clerk with someone waiting should never have to hunt for it.
       */}
-      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6">
+      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6">
         {error ? (
           <p
             role="alert"

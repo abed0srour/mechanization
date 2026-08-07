@@ -208,16 +208,26 @@ export function PaymentReceipt({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         closeLabel="إغلاق"
-        className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-3xl"
+        className="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl"
       >
         {/* `receipt-print-area` is what the print stylesheet keeps; everything
             else on the page — including this dialog's own chrome — is hidden. */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {/*
+          Scrolls on both axes, unlike every other panel in the app.
+
+          This is a facsimile of the البلدية's printed receipt book — the
+          three-column signature block, the pill-shaped amount boxes and their
+          minimum widths are the paper form, not a layout choice, so reflowing
+          them on a narrow screen would produce a document that no longer
+          matches the one being signed. The receipt keeps its geometry and the
+          container scrolls to it instead.
+        */}
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-4 sm:p-6">
           <div
             id="receipt-print-area"
             ref={printRef}
             dir="rtl"
-            className="mx-auto max-w-[700px] border-2 border-black bg-white p-6 text-black"
+            className="mx-auto min-w-[34rem] max-w-[700px] border-2 border-black bg-white p-4 text-black sm:p-6"
           >
             <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
               <p className="text-lg font-bold">ايصال جباية بدل النفايات</p>

@@ -75,8 +75,16 @@ export default async function TenantLayout({
           about. Its storage key survives as `ThemeProvider`'s `storageKey`.
         */}
       </head>
+      {/*
+        `bg-muted/30` was here — a translucent wash that existed only because
+        `--card` was identical to `--background`, so without it no card had an
+        edge. It also inverted elevation in dark mode: the wash composited to
+        #0a1222 while the cards it was meant to reveal stayed #020817, leaving
+        every panel darker than the page behind it. The surface ramp in
+        globals.css does this properly now, so the body just takes the floor.
+      */}
       <body
-        className="min-h-screen bg-muted/30 font-sans antialiased"
+        className="min-h-[100dvh] bg-background font-sans antialiased"
         /**
          * Per-tenant branding overrides the primary hue only, and only when the
          * municipality supplied one. The rest of the palette is fixed so a

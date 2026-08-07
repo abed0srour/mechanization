@@ -29,7 +29,10 @@ export function MapLayerControl({
     <div
       className={cn(
         'pointer-events-auto absolute bottom-6 left-1/2 z-20 -translate-x-1/2',
-        'flex items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-lg backdrop-blur',
+        // Centred by transform, so nothing else bounds its width — the `max-w`
+        // is what keeps three basemap labels from running off both edges of a
+        // phone, and `flex-wrap` is what they do instead.
+        'flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-center gap-1 rounded-lg border bg-card/95 p-1 shadow-lg backdrop-blur',
       )}
       role="group"
       aria-label="نمط الخريطة"

@@ -19,8 +19,15 @@ const buttonVariants = cva(
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
         destructive:
           'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        // `bg-transparent`, not `bg-background`. Now that the page floor and a
+        // card are different colours, a button painting itself with the floor
+        // tone shows as a grey rectangle whenever it sits on a card — which is
+        // where most of them sit. Transparent inherits whichever surface it
+        // lands on, so the same variant works on a card, on the page, and in a
+        // dialog. The `border-input` edge is what makes it a button, and that
+        // now carries a real 3:1 against both surfaces.
         outline:
-          'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
+          'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground',
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
