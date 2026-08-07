@@ -10,15 +10,17 @@ import {
   ChevronUp,
   Clock,
   Eye,
+  Inbox,
   Loader2,
   PauseCircle,
   PlayCircle,
   Receipt,
   RefreshCw,
-  Save,
   Search,
+  Settings2,
   UserPlus,
   Wallet,
+  X,
   XCircle,
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
@@ -52,10 +54,18 @@ import type {
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
+import { cn } from '@/lib/utils';
+import { useSectionNav } from '@/lib/use-section-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  WorkflowEmpty,
+  WorkflowRail,
+  WorkflowSection,
+  type WorkflowStep,
+} from '@/components/admin/workflow';
 import { IssueFeeDialog, type IssueFeeValues } from '@/components/admin/issue-fee-dialog';
 import {
   ChargeCitizenDialog,
@@ -76,12 +86,22 @@ import { PaymentReceipt } from '@/components/admin/payment-receipt';
  */
 const lbp = formatLbp;
 
+type StageId = 'issue' | 'ledger' | 'verify' | 'closing';
+
 /**
  * إدارة الرسوم والمدفوعات.
  *
  * Three jobs on one screen because they are one job in practice: issue what
  * the municipality is owed, confirm what has arrived, and keep the transfer
  * details the citizen portal quotes correct.
+ *
+ * They are now laid out in the order money actually moves — إصدار، تحصيل،
+ * تأكيد، وصل — with a sticky rail across the top. The previous layout led with
+ * the review queue on the grounds that it is the only part where someone is
+ * waiting; that reasoning was sound but the fix was in the wrong place. A queue
+ * placed out of sequence teaches nobody the sequence, whereas a counted, raised
+ * pill on the rail says "three people are waiting" from anywhere on the page —
+ * which is what leading with it was trying to achieve.
  */
 export default function FeesPage({
   params,
@@ -100,6 +120,7 @@ export default function FeesPage({
   const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
@@ -131,6 +152,8 @@ export default function FeesPage({
   } | null>(null);
   const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
   const [municipalityName, setMunicipalityName] = useState('');
+
+  const canManage = role === 'SUPER_ADMIN';
 
   /**
    * The ledger, one row per citizen.
@@ -175,6 +198,64 @@ export default function FeesPage({
     // Most owed first: the point of this screen is who to chase.
     return [...groups.values()].sort((a, b) => b.outstanding - a.outstanding);
   }, [ledger]);
+
+  /**
+   * The four stages, declared once.
+   *
+   * Read by both the rail and the section headings, so a rail entry can never
+   * point at an anchor that is not rendered. الوصولات is dropped entirely for a
+   * clerk who cannot manage: the card behind it is a link to settings they
+   * cannot open, and a rail step leading to a locked door is worse than a rail
+   * with three steps.
+   */
+  const stages = useMemo<WorkflowStep<StageId>[]>(
+    () => [
+      {
+        id: 'issue',
+        step: '١',
+        title: 'إصدار الرسوم',
+        icon: Banknote,
+        count: notices.length,
+      },
+      {
+        id: 'ledger',
+        step: '٢',
+        title: 'تحصيل المطالبات',
+        icon: Wallet,
+        count: byCitizen.length,
+      },
+      {
+        id: 'verify',
+        step: '٣',
+        title: 'تأكيد الدفعات',
+        icon: Clock,
+        count: pending.length,
+        urgent: true,
+      },
+      ...(canManage
+        ? [
+            {
+              id: 'closing' as const,
+              step: '٤',
+              title: 'الوصولات والإعدادات',
+              icon: Settings2,
+            },
+          ]
+        : []),
+    ],
+    [notices.length, byCitizen.length, pending.length, canManage],
+  );
+
+  const stageIds = useMemo(() => stages.map((stage) => stage.id), [stages]);
+
+  // The lists' lengths change the page height enough to invalidate the
+  // observer, so they are what the hook re-measures on.
+  const { active, jumpTo } = useSectionNav(stageIds, [
+    notices.length,
+    byCitizen.length,
+    pending.length,
+    expandedCitizen,
+  ]);
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -232,6 +313,13 @@ export default function FeesPage({
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  /** Manual reload — spins its own flag so the page does not blank out. */
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
   }, [load]);
 
   const submitFee = useCallback(
@@ -297,7 +385,6 @@ export default function FeesPage({
     [tenant, token, load],
   );
 
-  /** Money handed over at the counter — straight to PAID, no review step. */
   /**
    * Opens the وصل for one invoice.
    *
@@ -434,57 +521,82 @@ export default function FeesPage({
 
   if (!token) return null;
 
-  const canManage = role === 'SUPER_ADMIN';
+  const collected = summary?.paidTotal ?? 0;
+  const outstanding = summary?.unpaidTotal ?? 0;
+  const billedTotal = collected + outstanding;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
         <div className="space-y-2">
           <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
             <Receipt className="size-7 text-primary" aria-hidden />
             إدارة الرسوم والمدفوعات
           </h1>
           <p className="text-sm text-muted-foreground">
-            إصدار الرسوم على المواطنين، وتأكيد الدفعات الواردة
+            من إصدار الرسم إلى الوصل — أربع مراحل على صفحة واحدة
           </p>
         </div>
-        {canManage ? (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setChargeError(null);
-                setChargeOpen(true);
-              }}
-            >
-              <UserPlus className="size-4" aria-hidden />
-              إضافة مطالبة لمواطن
-            </Button>
-            <Button
-              onClick={() => {
-                setIssueError(null);
-                setIssueOpen(true);
-              }}
-            >
-              <Receipt className="size-4" aria-hidden />
-              إصدار رسم جديد
-            </Button>
-          </div>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={() => void refresh()} disabled={refreshing}>
+            <RefreshCw
+              className={cn('size-4', refreshing && 'animate-spin')}
+              aria-hidden
+            />
+            تحديث
+          </Button>
+          {canManage ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setChargeError(null);
+                  setChargeOpen(true);
+                }}
+              >
+                <UserPlus className="size-4" aria-hidden />
+                إضافة مطالبة لمواطن
+              </Button>
+              <Button
+                onClick={() => {
+                  setIssueError(null);
+                  setIssueOpen(true);
+                }}
+              >
+                <Receipt className="size-4" aria-hidden />
+                إصدار رسم جديد
+              </Button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       {error ? (
         <p
           role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
+          className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
         >
-          {error}
+          <XCircle className="mt-0.5 size-5 shrink-0" aria-hidden />
+          <span className="flex-1">{error}</span>
         </p>
       ) : null}
       {notice ? (
-        <p className="rounded-lg border border-success/40 bg-success/5 p-4 text-sm">{notice}</p>
+        <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success/5 p-4 text-sm">
+          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
+          <p className="flex-1">{notice}</p>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <X className="size-4" aria-hidden />
+            <span className="sr-only">إخفاء الإشعار</span>
+          </button>
+        </div>
       ) : null}
 
+      {/* The four figures, each a jump into the stage that would change it —
+          «قيد المراجعة» is not a statistic, it is a queue with a door. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="إجمالي المستحقات"
@@ -493,6 +605,7 @@ export default function FeesPage({
           icon={<Wallet className="size-6 text-destructive" aria-hidden />}
           accent="bg-destructive/10"
           loading={loading}
+          onClick={() => jumpTo('ledger')}
         />
         <MetricCard
           label="قيد المراجعة"
@@ -501,6 +614,8 @@ export default function FeesPage({
           icon={<Clock className="size-6 text-warning" aria-hidden />}
           accent="bg-warning/10"
           loading={loading}
+          attention={pending.length > 0}
+          onClick={() => jumpTo('verify')}
         />
         <MetricCard
           label="إجمالي المحصّل"
@@ -509,6 +624,7 @@ export default function FeesPage({
           icon={<BadgeCheck className="size-6 text-success" aria-hidden />}
           accent="bg-success/10"
           loading={loading}
+          onClick={() => jumpTo('ledger')}
         />
         <MetricCard
           label="الرسوم المُصدرة"
@@ -516,92 +632,152 @@ export default function FeesPage({
           hint="إشعارات فعّالة"
           icon={<Banknote className="size-6 text-primary" aria-hidden />}
           loading={loading}
+          onClick={() => jumpTo('issue')}
         />
       </div>
 
-      {/* The verification queue leads, because it is the only part of this
-          screen where someone is waiting on the municipality. */}
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Clock className="size-5" aria-hidden />
-            دفعات بانتظار التأكيد {pending.length > 0 ? `(${pending.length})` : ''}
-          </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            أكّد وصول المبلغ إلى حساب البلدية قبل اعتماد الدفعة.
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          {pending.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">لا توجد دفعات بانتظار المراجعة.</p>
-          ) : (
-            <ul className="divide-y">
-              {pending.map((payment) => (
-                <li
-                  key={payment.id}
-                  className="flex flex-wrap items-center justify-between gap-4 p-4"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <p className="font-medium">{payment.citizenName}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {payment.title} · {lbp(payment.amount)} ·{' '}
-                      {ar.paymentMethod[payment.paymentMethod as never] ?? '—'}
-                    </p>
-                    {payment.whishTransactionRef ? (
-                      <p className="text-xs text-muted-foreground">
-                        رقم العملية:{' '}
-                        <span className="font-mono" dir="ltr">
-                          {payment.whishTransactionRef}
-                        </span>
-                      </p>
-                    ) : null}
-                  </div>
-                  {canManage ? (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busyPaymentId === payment.id}
-                        onClick={() => void decide(payment, false)}
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <XCircle className="size-4" aria-hidden />
-                        رفض
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={busyPaymentId === payment.id}
-                        onClick={() => void decide(payment, true)}
-                      >
-                        {busyPaymentId === payment.id ? (
-                          <Loader2 className="size-4 animate-spin" aria-hidden />
-                        ) : (
-                          <CheckCircle2 className="size-4" aria-hidden />
-                        )}
-                        تأكيد الاستلام
-                      </Button>
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      {/* Collected against billed. Two totals sitting in separate tiles are
+          two numbers; one bar is a ratio, which is the thing anyone actually
+          wants to know from a fees screen. */}
+      {billedTotal > 0 ? (
+        <Card>
+          <CardContent className="space-y-3 p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">نسبة التحصيل</p>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground tabular-nums">
+                  {Math.round((collected / billedTotal) * 100)}%
+                </span>{' '}
+                — {lbp(collected)} من {lbp(billedTotal)}
+              </p>
+            </div>
+            <div
+              className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
+              role="img"
+              aria-label={`محصّل ${lbp(collected)} من أصل ${lbp(billedTotal)}`}
+            >
+              <div
+                className="h-full rounded-full bg-success transition-[width] duration-500"
+                style={{ width: `${(collected / billedTotal) * 100}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
-      {/* The ledger: every invoice in the municipality, and where a clerk
-          records cash taken over the counter. */}
-      <Card>
-        <CardHeader className="flex-col gap-4 border-b md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Wallet className="size-5" aria-hidden />
-              سجل المطالبات
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              كل المطالبات الصادرة. سجّل الدفعات النقدية من هنا.
-            </p>
-          </div>
+      <WorkflowRail steps={stages} active={active} onJump={jumpTo} label="مراحل الرسوم" />
+
+      {/* ─── ١ ─── The rules. One notice here can be a thousand invoices below. */}
+      <WorkflowSection
+        id="issue"
+        step="١"
+        icon={Banknote}
+        title="إصدار الرسوم"
+        description="الإشعارات التي تولّد المطالبات. المتكرّرة منها تُصدر دورتها تلقائياً كل ليلة."
+        contentClassName="p-0"
+        actions={
+          canManage ? (
+            <Button
+              variant="outline"
+              onClick={() => void runBillingNow()}
+              disabled={runningBilling}
+            >
+              {runningBilling ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="size-4" aria-hidden />
+              )}
+              إصدار الدورة الحالية
+            </Button>
+          ) : null
+        }
+      >
+        {notices.length === 0 ? (
+          <WorkflowEmpty
+            icon={Banknote}
+            title="لم يتم إصدار أي رسم بعد"
+            hint={
+              canManage
+                ? 'ابدأ من «إصدار رسم جديد» في أعلى الصفحة — ثلاث خطوات ومراجعة قبل الاعتماد.'
+                : undefined
+            }
+          />
+        ) : (
+          <ul className="divide-y">
+            {notices.map((item) => (
+              <li
+                key={item.id}
+                className="flex flex-wrap items-center justify-between gap-3 p-4"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium">{item.title}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                    <Badge variant="secondary">
+                      {ar.feeFrequency[item.frequency as never] ?? item.frequency}
+                    </Badge>
+                    {item.frequency !== 'ONCE' && !item.isActive ? (
+                      <Badge variant="outline" className="gap-1 text-muted-foreground">
+                        <PauseCircle className="size-3" aria-hidden />
+                        متوقّف
+                      </Badge>
+                    ) : null}
+                    <Badge variant="outline">
+                      {item.targetCitizenName ??
+                        (item.targetCategory
+                          ? (ar.feeTargetCategory[item.targetCategory as never] ??
+                            item.targetCategory)
+                          : (ar.feeTargetType[item.targetType as never] ?? item.targetType))}
+                    </Badge>
+                    <span>استحقاق {new Date(item.dueDate).toLocaleDateString('ar-LB')}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-end">
+                    <p className="font-semibold tabular-nums">{lbp(item.amount)}</p>
+                    <p className="text-xs text-muted-foreground">{item.issuedCount} مطالبة</p>
+                  </div>
+                  {/* Only recurring notices have anything to stop — a one-off
+                      fee has already done all it will ever do. */}
+                  {canManage && item.frequency !== 'ONCE' ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void toggleNotice(item.id, !item.isActive)}
+                      title={
+                        item.isActive
+                          ? 'إيقاف الإصدار التلقائي للدورات القادمة'
+                          : 'استئناف الإصدار التلقائي'
+                      }
+                    >
+                      {item.isActive ? (
+                        <>
+                          <PauseCircle className="size-4" aria-hidden />
+                          إيقاف التكرار
+                        </>
+                      ) : (
+                        <>
+                          <PlayCircle className="size-4" aria-hidden />
+                          استئناف
+                        </>
+                      )}
+                    </Button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </WorkflowSection>
+
+      {/* ─── ٢ ─── The ledger, and where cash over the counter is recorded. */}
+      <WorkflowSection
+        id="ledger"
+        step="٢"
+        icon={Wallet}
+        title="تحصيل المطالبات"
+        description="كل المطالبات الصادرة، مجمّعة بالمواطن ومرتّبة بالأكثر استحقاقاً. سجّل الدفعات النقدية من هنا."
+        contentClassName="p-0"
+        actions={
           <div className="relative w-full md:w-72">
             <Search
               className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -614,73 +790,70 @@ export default function FeesPage({
               onChange={(event) => setLedgerSearch(event.target.value)}
             />
           </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {byCitizen.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">لا توجد مطالبات مطابقة.</p>
-          ) : (
-            /*
-              One row per citizen, not per invoice.
-              A resident billed monthly accumulates a row a month, and the flat
-              list repeated their name down the whole page — three postings of
-              500,000 and 5,000,000 read as three separate people owing three
-              separate debts, with no total anywhere. Grouping puts the
-              accumulated balance on one line and moves the individual charges
-              behind «عرض», which is also where they get cleared one by one.
-            */
-            <ul className="divide-y">
-              {byCitizen.map((group) => {
-                const expanded = expandedCitizen === group.citizenId;
-                return (
-                  <li key={group.citizenId}>
-                    <div className="flex flex-wrap items-center justify-between gap-4 p-4">
-                      <div className="min-w-0 space-y-1">
-                        <p className="font-medium">{group.citizenName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          <span className="font-mono" dir="ltr">
-                            {group.citizenReference ?? '—'}
-                          </span>{' '}
-                          · {group.items.length} مطالبة
-                          {group.overdueCount > 0 ? (
-                            <span className="text-destructive">
-                              {' '}
-                              · {group.overdueCount} متأخرة
-                            </span>
-                          ) : null}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className="text-end">
-                          <p className="font-semibold tabular-nums">
-                            {lbp(group.outstanding)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            من أصل {lbp(group.billed)}
-                          </p>
-                        </div>
-                        {group.outstanding === 0 ? (
-                          <Badge
-                            variant="outline"
-                            className="border-success/40 bg-success/10 text-success"
-                          >
-                            مسدَّد بالكامل
-                          </Badge>
+        }
+      >
+        {byCitizen.length === 0 ? (
+          <WorkflowEmpty
+            icon={ledgerSearch ? Search : Inbox}
+            title={ledgerSearch ? 'لا توجد مطالبات مطابقة' : 'لا توجد مطالبات بعد'}
+            hint={
+              ledgerSearch
+                ? 'جرّب الاسم كاملاً أو الرقم المرجعي.'
+                : 'تظهر هنا فور إصدار أول رسم في المرحلة السابقة.'
+            }
+          />
+        ) : (
+          /*
+            One row per citizen, not per invoice.
+            A resident billed monthly accumulates a row a month, and the flat
+            list repeated their name down the whole page — three postings of
+            500,000 and 5,000,000 read as three separate people owing three
+            separate debts, with no total anywhere. Grouping puts the
+            accumulated balance on one line and moves the individual charges
+            behind «عرض», which is also where they get cleared one by one.
+          */
+          <ul className="divide-y">
+            {byCitizen.map((group) => {
+              const expanded = expandedCitizen === group.citizenId;
+              const settled = group.billed - group.outstanding;
+              const share = group.billed > 0 ? settled / group.billed : 1;
+
+              return (
+                <li key={group.citizenId}>
+                  <div
+                    className={cn(
+                      'flex flex-wrap items-center justify-between gap-4 p-4 transition-colors',
+                      expanded && 'bg-accent/40',
+                    )}
+                  >
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <p className="font-medium">{group.citizenName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="font-mono" dir="ltr">
+                          {group.citizenReference ?? '—'}
+                        </span>{' '}
+                        · {group.items.length} مطالبة
+                        {group.overdueCount > 0 ? (
+                          <span className="text-destructive">
+                            {' '}
+                            · {group.overdueCount} متأخرة
+                          </span>
                         ) : null}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          aria-expanded={expanded}
-                          onClick={() =>
-                            setExpandedCitizen(expanded ? null : group.citizenId)
-                          }
-                        >
-                          {expanded ? (
-                            <ChevronUp className="size-4" aria-hidden />
-                          ) : (
-                            <Eye className="size-4" aria-hidden />
+                      </p>
+                      {/* How far down the balance has been paid, without
+                          opening the breakdown to find out. */}
+                      <div
+                        className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted"
+                        role="img"
+                        aria-label={`سُدّد ${lbp(settled)} من أصل ${lbp(group.billed)}`}
+                      >
+                        <div
+                          className={cn(
+                            'h-full rounded-full',
+                            group.overdueCount > 0 ? 'bg-destructive' : 'bg-success',
                           )}
-                          {expanded ? 'إخفاء' : 'عرض'}
-                        </Button>
+                          style={{ width: `${share * 100}%` }}
+                        />
                       </div>
                     </div>
 
@@ -818,86 +991,228 @@ export default function FeesPage({
                           متوقّف
                         </Badge>
                       ) : null}
-                      <Badge variant="outline">
-                        {item.targetCitizenName ??
-                          (item.targetCategory
-                            ? (ar.feeTargetCategory[item.targetCategory as never] ??
-                              item.targetCategory)
-                            : (ar.feeTargetType[item.targetType as never] ?? item.targetType))}
-                      </Badge>
-                      <span>
-                        استحقاق {new Date(item.dueDate).toLocaleDateString('ar-LB')}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-end">
-                      <p className="font-semibold">{lbp(item.amount)}</p>
-                      <p className="text-xs text-muted-foreground">{item.issuedCount} مطالبة</p>
-                    </div>
-                    {/* Only recurring notices have anything to stop — a
-                        one-off fee has already done all it will ever do. */}
-                    {canManage && item.frequency !== 'ONCE' ? (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void toggleNotice(item.id, !item.isActive)}
-                        title={
-                          item.isActive
-                            ? 'إيقاف الإصدار التلقائي للدورات القادمة'
-                            : 'استئناف الإصدار التلقائي'
-                        }
+                        aria-expanded={expanded}
+                        onClick={() => setExpandedCitizen(expanded ? null : group.citizenId)}
                       >
-                        {item.isActive ? (
-                          <>
-                            <PauseCircle className="size-4" aria-hidden />
-                            إيقاف التكرار
-                          </>
+                        {expanded ? (
+                          <ChevronUp className="size-4" aria-hidden />
                         ) : (
-                          <>
-                            <PlayCircle className="size-4" aria-hidden />
-                            استئناف
-                          </>
+                          <Eye className="size-4" aria-hidden />
                         )}
+                        {expanded ? 'إخفاء' : 'عرض'}
                       </Button>
-                    ) : null}
+                    </div>
                   </div>
+
+                  {/* The itemised breakdown: every posting on its own line,
+                      each settleable on its own. */}
+                  {expanded ? (
+                    <ul className="divide-y border-t bg-muted/20">
+                      {group.items.map((payment) => {
+                        const paid = payment.paymentStatus === 'PAID';
+                        const partly = !paid && payment.paidAmount > 0;
+                        return (
+                          <li
+                            key={payment.id}
+                            className="flex flex-wrap items-center justify-between gap-3 py-3 pe-4 ps-10"
+                          >
+                            <div className="min-w-0 space-y-0.5">
+                              <p className="text-sm font-medium">{payment.title}</p>
+                              <p className="text-xs text-muted-foreground">
+                                استحقاق{' '}
+                                {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                                {partly
+                                  ? ` · مسدَّد ${lbp(payment.paidAmount)} من ${lbp(payment.amount)}`
+                                  : ''}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold tabular-nums">
+                                {lbp(paid ? payment.amount : payment.remaining)}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  payment.paymentStatus === 'PAID'
+                                    ? 'border-success/40 bg-success/10 text-success'
+                                    : payment.paymentStatus === 'OVERDUE'
+                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                                      : 'border-warning/40 bg-warning/10 text-warning'
+                                }
+                              >
+                                {ar.paymentStatus[payment.paymentStatus as never] ??
+                                  payment.paymentStatus}
+                              </Badge>
+                              {canManage && !paid ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={busyPaymentId === payment.id}
+                                  onClick={() => {
+                                    setSettleError(null);
+                                    setSettling(payment);
+                                  }}
+                                >
+                                  {busyPaymentId === payment.id ? (
+                                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  ) : (
+                                    <Banknote className="size-4" aria-hidden />
+                                  )}
+                                  تسجيل دفعة
+                                </Button>
+                              ) : null}
+
+                              {/* Any invoice that has received money can be
+                                  receipted again — a citizen who lost the
+                                  first copy should not need a second payment
+                                  to get one. */}
+                              {canManage && payment.paidAmount > 0 ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    void openReceipt(
+                                      payment.citizenId,
+                                      payment.id,
+                                      payment.paidAmount,
+                                    )
+                                  }
+                                >
+                                  <Receipt className="size-4" aria-hidden />
+                                  الوصل
+                                </Button>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
                 </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </ul>
+        )}
+      </WorkflowSection>
+
+      {/* ─── ٣ ─── The only stage where someone outside the building is
+          waiting on the municipality. */}
+      <WorkflowSection
+        id="verify"
+        step="٣"
+        icon={Clock}
+        title="تأكيد الدفعات الواردة"
+        description="دفعات أعلن المواطنون تحويلها. أكّد وصول المبلغ إلى حساب البلدية قبل اعتمادها."
+        contentClassName="p-0"
+        attention={pending.length > 0}
+      >
+        {pending.length === 0 ? (
+          <WorkflowEmpty
+            icon={CheckCircle2}
+            title="لا توجد دفعات بانتظار المراجعة"
+            hint="كل ما أعلنه المواطنون تمّت معالجته."
+          />
+        ) : (
+          <ul className="divide-y">
+            {pending.map((payment) => (
+              <li
+                key={payment.id}
+                className="flex flex-wrap items-center justify-between gap-4 p-4"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium">{payment.citizenName}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {payment.title} · <span className="tabular-nums">{lbp(payment.amount)}</span>{' '}
+                    · {ar.paymentMethod[payment.paymentMethod as never] ?? '—'}
+                  </p>
+                  {payment.whishTransactionRef ? (
+                    <p className="text-xs text-muted-foreground">
+                      رقم العملية:{' '}
+                      <span className="font-mono" dir="ltr">
+                        {payment.whishTransactionRef}
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+                {canManage ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busyPaymentId === payment.id}
+                      onClick={() => void decide(payment, false)}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <XCircle className="size-4" aria-hidden />
+                      رفض
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busyPaymentId === payment.id}
+                      onClick={() => void decide(payment, true)}
+                    >
+                      {busyPaymentId === payment.id ? (
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                      ) : (
+                        <CheckCircle2 className="size-4" aria-hidden />
+                      )}
+                      تأكيد الاستلام
+                    </Button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </WorkflowSection>
 
       {/*
+        ─── ٤ ───
         The settings themselves moved to إعدادات البلدية.
         They were edited here but read everywhere — the office WhatsApp number
         is printed on every receipt, the opening hours appear on the citizen's
         pay dialog — so they belong to the municipality rather than to this
         ledger. What stays is a pointer, so nobody hunts for a form that has
-        moved.
+        moved; it sits at the end because that is where the money's journey
+        ends, on a printed وصل carrying those numbers.
       */}
       {canManage ? (
-        <Card>
-          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
-            <div className="min-w-0 space-y-1">
-              <p className="flex items-center gap-2 font-medium">
-                <Wallet className="size-4 text-primary" aria-hidden />
-                إعدادات الدفع والتواصل
-              </p>
-              <p className="text-xs text-muted-foreground">
-                رقم Whish، أوقات الدوام، وأرقام هاتف وواتساب البلدية المطبوعة على الوصولات.
-              </p>
-            </div>
+        <WorkflowSection
+          id="closing"
+          step="٤"
+          icon={Settings2}
+          title="الوصولات وإعدادات الدفع"
+          description="ما يُطبع على الوصل، وما يراه المواطن حين يختار طريقة الدفع."
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <ul className="min-w-0 space-y-2 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <Receipt className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <span>
+                  الوصل يُطبع من زر «الوصل» بجانب أي مطالبة استُلم عليها مبلغ، في المرحلة
+                  الثانية.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Wallet className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                <span>
+                  رقم Whish، أوقات الدوام، وأرقام هاتف وواتساب البلدية المطبوعة على
+                  الوصولات.
+                </span>
+              </li>
+            </ul>
             <Link
               href={`${base}/settings`}
               className={buttonVariants({ variant: 'outline' })}
             >
-              <Save className="size-4" aria-hidden />
+              <Settings2 className="size-4" aria-hidden />
               فتح الإعدادات
             </Link>
-          </CardContent>
-        </Card>
+          </div>
+        </WorkflowSection>
       ) : null}
 
       <IssueFeeDialog
@@ -947,7 +1262,13 @@ export default function FeesPage({
   );
 }
 
-/** A headline figure with an accent icon chip. */
+/**
+ * A headline figure with an accent icon chip.
+ *
+ * Clickable, because every one of these four numbers is answered by exactly one
+ * stage further down the page — a total with no way to reach what it counts is
+ * a dead end, and «قيد المراجعة» in particular is a queue rather than a fact.
+ */
 function MetricCard({
   label,
   value,
@@ -955,6 +1276,8 @@ function MetricCard({
   icon,
   accent = 'bg-accent',
   loading,
+  attention,
+  onClick,
 }: {
   label: string;
   value: string;
@@ -962,17 +1285,28 @@ function MetricCard({
   icon: React.ReactNode;
   accent?: string;
   loading: boolean;
+  attention?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <Card className="transition-shadow hover:shadow-md">
-      <CardContent className="flex items-center justify-between gap-3 p-5">
+    <Card
+      className={cn(
+        'transition-shadow hover:shadow-md',
+        attention && 'border-warning/50 ring-1 ring-warning/20',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-center justify-between gap-3 rounded-lg p-5 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <div className="min-w-0 space-y-1">
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="truncate text-2xl font-bold">{loading ? '—' : value}</p>
+          <p className="truncate text-2xl font-bold tabular-nums">{loading ? '—' : value}</p>
           {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
         </div>
         <div className={`rounded-lg p-3 ${accent}`}>{icon}</div>
-      </CardContent>
+      </button>
     </Card>
   );
 }

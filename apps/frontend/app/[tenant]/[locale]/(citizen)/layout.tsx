@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import type { PublicTenantConfig } from '@/lib/api-client';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -53,10 +54,15 @@ export default async function CitizenLayout({
               {config.nameAr.slice(0, 2)}
             </div>
           )}
-          <div>
+          <div className="min-w-0">
             <p className="text-lg font-bold leading-tight">{config.nameAr}</p>
             <p className="text-sm text-muted-foreground">تسجيل العقارات والوحدات السكنية</p>
           </div>
+
+          {/* `ms-auto` rather than `justify-between` on the row: the header has
+              three children at some widths and only the toggle should be
+              pushed to the far edge. */}
+          <ThemeToggle className="ms-auto shrink-0" />
         </div>
       </header>
 

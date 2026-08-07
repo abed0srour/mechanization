@@ -64,6 +64,7 @@ export function ChoiceCard({
   onChange,
   title,
   description,
+  icon: Icon,
 }: {
   name: string;
   value: string;
@@ -71,6 +72,15 @@ export function ChoiceCard({
   onChange: (value: string) => void;
   title: string;
   description?: string;
+  /**
+   * Optional glyph between the radio and the caption.
+   *
+   * Purely additive — the citizen wizard's choices (ذكر/أنثى، لبناني/أجنبي)
+   * are read, not scanned, and gain nothing from one. It exists for lists like
+   * الفئة المستهدفة, where three similar-length Arabic phrases are told apart
+   * faster by shape than by reading each in full.
+   */
+  icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
     <label
@@ -89,6 +99,15 @@ export function ChoiceCard({
         onChange={() => onChange(value)}
         className="h-5 w-5 accent-[hsl(var(--primary))]"
       />
+      {Icon ? (
+        <Icon
+          className={cn(
+            'size-5 shrink-0',
+            checked ? 'text-primary' : 'text-muted-foreground',
+          )}
+          aria-hidden
+        />
+      ) : null}
       <span>
         <span className="block font-medium">{title}</span>
         {description ? (
