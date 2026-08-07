@@ -1,12 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { MessageCircle, Printer, X } from 'lucide-react';
+import { Download, Loader2, MessageCircle, Printer, X } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import type { CitizenProfile, CitizenProfilePayment } from '@/lib/api-client';
 import { formatLbp } from '@/lib/currency';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { downloadFile, renderReceiptPdf, shareFile } from '@/lib/receipt-pdf';
 
 /**
  * A receipt number that is stable for a given payment.
@@ -39,13 +40,14 @@ function whatsappNumber(raw: string | null): string | null {
  * وصل قبض — the municipality's cash receipt, laid out to match the printed
  * book it replaces.
  *
- * Rendered as HTML and printed through the browser rather than built with a
- * PDF library. That is a deliberate trade: jsPDF and pdf-lib have no Arabic
- * shaping — they lay out `ا ل ب ا ز و ر ي ة` as disconnected left-to-right
- * glyphs unless you ship a shaping engine and an embedded font — whereas the
- * browser already shapes Arabic correctly and every OS print dialog offers
- * "Save as PDF". The output is a real PDF, the Arabic is right, and the
- * dependency count is zero.
+ * Laid out as HTML so the browser does the Arabic shaping, then turned into a
+ * real PDF file on demand (see `lib/receipt-pdf.ts`) so it can be *attached*
+ * to a WhatsApp message rather than merely described in one.
+ *
+ * Three ways out, in descending order of how much they do for the clerk:
+ * share the PDF straight to WhatsApp via the OS share sheet; download the PDF;
+ * or print it. The first is the only one that puts an actual document in the
+ * citizen's chat — a `wa.me` link has a `text` parameter and nothing else.
  */
 export function PaymentReceipt({
   open,
@@ -53,6 +55,8 @@ export function PaymentReceipt({
   citizen,
   payment,
   municipalityName,
+  contactPhone,
+  officeWhatsapp,
   /** What was handed over now — may be less than the invoice's full amount. */
   receivedAmount,
 }: {
@@ -61,8 +65,26 @@ export function PaymentReceipt({
   citizen: CitizenProfile;
   payment: CitizenProfilePayment | null;
   municipalityName: string;
+  /** The municipality's own numbers, from إعدادات البلدية. */
+  contactPhone?: string | null;
+  /**
+   * The office WhatsApp account.
+   *
+   * Printed on the receipt and quoted in the message, but it cannot make the
+   * message *come from* that account: a `wa.me` link names a recipient and has
+   * no sender field at all — WhatsApp sends as whichever account the browser
+   * or phone is signed into. Signing the message body is the mitigation.
+   */
+  officeWhatsapp?: string | null;
   receivedAmount?: number;
 }) {
+  /** The node rasterised into the PDF — the receipt itself, not the dialog. */
+  const printRef = React.useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = React.useState<null | 'share' | 'download'>(null);
+  const [shareNote, setShareNote] = React.useState<string | null>(null);
+
+  // Hooks first, guard second: returning before them would change the hook
+  // count between renders the moment a payment is selected.
   if (!payment) return null;
 
   const amount = receivedAmount ?? payment.amount;
@@ -118,6 +140,12 @@ export function PaymentReceipt({
       : 'تم تسديد كامل المبلغ. شكراً لكم.',
     '',
     `التاريخ: ${new Date().toLocaleDateString('ar-LB')}`,
+    // Signed with the office numbers: the message may well arrive from a
+    // clerk's personal account (a wa.me link cannot choose its sender), so
+    // the municipality has to identify itself in the body or the citizen has
+    // no idea who billed them.
+    contactPhone ? `للاستفسار: ${contactPhone}` : null,
+    officeWhatsapp ? `واتساب البلدية: ${officeWhatsapp}` : null,
   ]
     .filter(Boolean)
     .join('\n');
@@ -125,6 +153,56 @@ export function PaymentReceipt({
   const waHref = wa
     ? `https://wa.me/${wa}?text=${encodeURIComponent(message)}`
     : null;
+
+  /**
+   * Builds the PDF, then either shares it or saves it.
+   *
+   * The two paths differ only in what happens to the finished file, so they
+   * share the render: producing the PDF is the slow part (a full rasterise of
+   * the receipt at 2×), and doing it twice for "download then share" would be
+   * a visible pause each time.
+   */
+  const handlePdf = async (mode: 'share' | 'download') => {
+    const node = printRef.current;
+    if (!node) return;
+
+    setBusy(mode);
+    setShareNote(null);
+    try {
+      const file = await renderReceiptPdf(
+        node,
+        `وصل-${receiptNumber(payment)}.pdf`,
+      );
+
+      if (mode === 'download') {
+        downloadFile(file);
+        return;
+      }
+
+      if (await shareFile(file, message)) return;
+
+      /*
+       * No file sharing in this browser (Firefox, most desktop browsers with
+       * no share target). Falling back rather than failing: the clerk still
+       * gets the PDF and still gets WhatsApp open on the right conversation —
+       * they attach it themselves, which is one drag instead of nothing.
+       *
+       * The window is opened from inside the same click that started this,
+       * via the href the button already carries, because a `window.open` after
+       * an await has lost its user-gesture and is blocked as a popup.
+       */
+      downloadFile(file);
+      setShareNote(
+        'متصفحك لا يدعم إرسال الملفات مباشرة. تم تنزيل الوصل — افتح واتساب وأرفقه بالرسالة.',
+      );
+      if (waHref) window.open(waHref, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error(error);
+      setShareNote('تعذّر إنشاء ملف PDF. جرّب «طباعة» بدلاً من ذلك.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,6 +215,7 @@ export function PaymentReceipt({
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <div
             id="receipt-print-area"
+            ref={printRef}
             dir="rtl"
             className="mx-auto max-w-[700px] border-2 border-black bg-white p-6 text-black"
           >
@@ -229,6 +308,11 @@ export function PaymentReceipt({
             </div>
 
             <p className="mt-4 border-t border-black pt-2 text-center text-[11px]">
+              {contactPhone || officeWhatsapp ? (
+                <span dir="ltr" className="me-3">
+                  {[contactPhone, officeWhatsapp].filter(Boolean).join(' · ')}
+                </span>
+              ) : null}
               التاريخ: {new Date().toLocaleDateString('ar-LB')}
               {payment.remaining > 0
                 ? ` — دفعة جزئية، الرصيد المتبقي ${formatLbp(payment.remaining)}`
@@ -237,28 +321,53 @@ export function PaymentReceipt({
           </div>
         </div>
 
-        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t p-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            <X className="size-4" aria-hidden />
-            إغلاق
-          </Button>
-          <Button variant="outline" onClick={() => window.print()}>
-            <Printer className="size-4" aria-hidden />
-            طباعة / حفظ PDF
-          </Button>
-          {waHref ? (
-            <Button asChild>
-              <a href={waHref} target="_blank" rel="noopener noreferrer">
+        <footer className="shrink-0 space-y-2 border-t p-4">
+          {shareNote ? (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+              {shareNote}
+            </p>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <X className="size-4" aria-hidden />
+              إغلاق
+            </Button>
+            <Button variant="outline" onClick={() => window.print()}>
+              <Printer className="size-4" aria-hidden />
+              طباعة
+            </Button>
+            <Button variant="outline" onClick={() => void handlePdf('download')} disabled={busy !== null}>
+              {busy === 'download' ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Download className="size-4" aria-hidden />
+              )}
+              تنزيل PDF
+            </Button>
+            {/*
+              The headline action. It builds the PDF and hands the *file* to
+              the OS share sheet, which is where WhatsApp picks it up — the
+              only route by which a link-based flow can carry an attachment.
+              Where the browser cannot share files it degrades to
+              "download + open WhatsApp", explained in `shareNote` rather than
+              left for the clerk to work out.
+            */}
+            <Button onClick={() => void handlePdf('share')} disabled={busy !== null || !wa}>
+              {busy === 'share' ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
                 <MessageCircle className="size-4" aria-hidden />
-                إرسال عبر واتساب
-              </a>
+              )}
+              إرسال الوصل PDF عبر واتساب
             </Button>
-          ) : (
-            <Button disabled title="لا يوجد رقم هاتف مسجّل لهذا المواطن">
-              <MessageCircle className="size-4" aria-hidden />
-              إرسال عبر واتساب
-            </Button>
-          )}
+          </div>
+
+          {!wa ? (
+            <p className="text-end text-xs text-muted-foreground">
+              لا يوجد رقم واتساب مسجّل لهذا المواطن — يمكنك تنزيل الوصل وإرساله يدوياً.
+            </p>
+          ) : null}
         </footer>
       </DialogContent>
     </Dialog>

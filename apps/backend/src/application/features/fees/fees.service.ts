@@ -137,6 +137,8 @@ export class FeesService {
       whishMoneyNumber: row?.whishMoneyNumber ?? null,
       cashOfficeHours: row?.cashOfficeHours ?? null,
       cashOfficeAddress: row?.cashOfficeAddress ?? null,
+      contactPhone: row?.contactPhone ?? null,
+      whatsappNumber: row?.whatsappNumber ?? null,
       updatedAt: row?.updatedAt?.toISOString() ?? null,
     };
   }
@@ -151,6 +153,8 @@ export class FeesService {
       whishMoneyNumber: blankToNull(input.whishMoneyNumber),
       cashOfficeHours: blankToNull(input.cashOfficeHours),
       cashOfficeAddress: blankToNull(input.cashOfficeAddress),
+      contactPhone: blankToNull(input.contactPhone),
+      whatsappNumber: blankToNull(input.whatsappNumber),
       updatedById: actor.id,
     };
 

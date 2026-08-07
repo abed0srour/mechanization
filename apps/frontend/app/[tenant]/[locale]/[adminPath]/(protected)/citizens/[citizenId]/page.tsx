@@ -38,6 +38,7 @@ import {
   ApiRequestError,
   getCitizenProfile,
   getDocumentViewUrl,
+  getMunicipalitySettings,
   getTenantConfig,
   logApiError,
   settlePayment,
@@ -47,6 +48,7 @@ import type {
   CitizenProfile,
   CitizenProfilePayment,
   CitizenProfileProperty,
+  MunicipalitySettings,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { findLocatedProperty, mapHref } from '@/lib/map-link';
@@ -118,6 +120,8 @@ export default function CitizenProfilePage({
   const [openingDocId, setOpeningDocId] = useState<string | null>(null);
   /** Printed on the receipt header — the tenant config is the only source. */
   const [municipalityName, setMunicipalityName] = useState('');
+  /** Office numbers printed on a receipt — see إعدادات البلدية. */
+  const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
 
   /** Mirrors the server's write roles; the server is the enforcement. */
   const canEdit = role === 'SUPER_ADMIN' || role === 'FIELD_INSPECTOR';
@@ -145,6 +149,12 @@ export default function CitizenProfilePage({
     getTenantConfig(tenant)
       .then((config) => setMunicipalityName(config.nameAr || config.name))
       .catch(() => setMunicipalityName(tenant));
+
+    // Same non-blocking treatment as the config: a receipt without the office
+    // numbers is still a valid receipt.
+    getMunicipalitySettings(tenant, session.accessToken)
+      .then(setSettings)
+      .catch(() => setSettings(null));
 
     getCitizenProfile(tenant, session.accessToken, citizenId)
       .then(setCitizen)
@@ -424,6 +434,8 @@ export default function CitizenProfilePage({
         fees={citizen.fees}
         canManage={canManage}
         municipalityName={municipalityName}
+        contactPhone={settings?.contactPhone}
+        officeWhatsapp={settings?.whatsappNumber}
         onSettled={() => void reload()}
       />
 
@@ -536,6 +548,8 @@ function FeesPanel({
   fees,
   canManage,
   municipalityName,
+  contactPhone,
+  officeWhatsapp,
   onSettled,
 }: {
   citizen: CitizenProfile;
@@ -543,6 +557,8 @@ function FeesPanel({
   fees: CitizenFeeTotals;
   canManage: boolean;
   municipalityName: string;
+  contactPhone?: string | null;
+  officeWhatsapp?: string | null;
   onSettled: () => void;
 }) {
   const { tenant } = useParams<{ tenant: string }>();
@@ -755,6 +771,8 @@ function FeesPanel({
         payment={receipt?.payment ?? null}
         receivedAmount={receipt?.received}
         municipalityName={municipalityName}
+        contactPhone={contactPhone}
+        officeWhatsapp={officeWhatsapp}
       />
     </>
   );

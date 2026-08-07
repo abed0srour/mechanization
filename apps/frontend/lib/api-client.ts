@@ -797,6 +797,15 @@ export function importCadastre(tenant: string, token: string, file: File) {
 // ─────────────────────────  Fees & payments  ─────────────────────────
 
 export interface MunicipalitySettings {
+  /** The municipality's public number, printed on receipts. */
+  contactPhone: string | null;
+  /**
+   * The office WhatsApp account: printed on the receipt for the citizen to
+   * reply to, and the account a clerk should be signed into before sending
+   * one. It cannot make a `wa.me` link send *from* this number — see the
+   * settings screen.
+   */
+  whatsappNumber: string | null;
   whishMoneyNumber: string | null;
   cashOfficeHours: string | null;
   cashOfficeAddress: string | null;
@@ -813,6 +822,8 @@ export function updateMunicipalitySettings(
   tenant: string,
   token: string,
   input: {
+    contactPhone?: string;
+    whatsappNumber?: string;
     whishMoneyNumber?: string;
     cashOfficeHours?: string;
     cashOfficeAddress?: string;

@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   BadgeCheck,
@@ -25,10 +26,12 @@ import {
   ApiRequestError,
   chargeCitizen,
   getAllPayments,
+  getCitizenProfile,
   getFeeNotices,
   getFeeSummary,
   getMunicipalitySettings,
   getPendingPayments,
+  getTenantConfig,
   issueFeeNotice,
   listCitizens,
   logApiError,
@@ -36,22 +39,22 @@ import {
   runRecurringBilling,
   setNoticeActive,
   settlePayment,
-  updateMunicipalitySettings,
 } from '@/lib/api-client';
 import type {
   AdminPaymentItem,
   CitizenListItem,
+  CitizenProfile,
+  CitizenProfilePayment,
+  MunicipalitySettings,
   FeeNoticeSummary,
   FeeSummary,
-  MunicipalitySettings,
   PendingPayment,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { IssueFeeDialog, type IssueFeeValues } from '@/components/admin/issue-fee-dialog';
 import {
@@ -62,6 +65,7 @@ import {
   SettlePaymentDialog,
   type SettleValues,
 } from '@/components/admin/settle-payment-dialog';
+import { PaymentReceipt } from '@/components/admin/payment-receipt';
 
 /**
  * LBP has no minor unit in practice — whole pounds, grouped.
@@ -94,12 +98,6 @@ export default function FeesPage({
   const [notices, setNotices] = useState<FeeNoticeSummary[]>([]);
   const [pending, setPending] = useState<PendingPayment[]>([]);
   const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
-  const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
-  const [settingsDraft, setSettingsDraft] = useState({
-    whishMoneyNumber: '',
-    cashOfficeHours: '',
-    cashOfficeAddress: '',
-  });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,13 +110,26 @@ export default function FeesPage({
   const [charging, setCharging] = useState(false);
   const [chargeError, setChargeError] = useState<string | null>(null);
   const [runningBilling, setRunningBilling] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
   const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** Which citizen's itemised breakdown is open, if any. */
   const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
   const [settling, setSettling] = useState<AdminPaymentItem | null>(null);
   const [settleError, setSettleError] = useState<string | null>(null);
+  /**
+   * The receipt shown after money is taken.
+   *
+   * Holds the full citizen profile rather than the ledger row, because the
+   * printed وصل carries the property, the units and the household size — none
+   * of which the payment row knows about.
+   */
+  const [receipt, setReceipt] = useState<{
+    citizen: CitizenProfile;
+    payment: CitizenProfilePayment;
+    received: number;
+  } | null>(null);
+  const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
+  const [municipalityName, setMunicipalityName] = useState('');
 
   /**
    * The ledger, one row per citizen.
@@ -182,13 +193,17 @@ export default function FeesPage({
         noticesResult,
         pendingResult,
         settingsResult,
+        configResult,
         registryResult,
         ledgerResult,
       ] = await Promise.all([
         getFeeSummary(tenant, token),
         getFeeNotices(tenant, token),
         getPendingPayments(tenant, token),
+        // Read, not edited, here: the receipt prints the office numbers and the
+        // municipality name. The form for them lives in إعدادات البلدية.
         getMunicipalitySettings(tenant, token),
+        getTenantConfig(tenant),
         listCitizens(tenant, token, { limit: 200 }),
         getAllPayments(tenant, token, { search: ledgerSearch || undefined }),
       ]);
@@ -197,13 +212,9 @@ export default function FeesPage({
       setNotices(noticesResult.items);
       setPending(pendingResult.items);
       setLedger(ledgerResult.items);
-      setSettings(settingsResult);
-      setSettingsDraft({
-        whishMoneyNumber: settingsResult.whishMoneyNumber ?? '',
-        cashOfficeHours: settingsResult.cashOfficeHours ?? '',
-        cashOfficeAddress: settingsResult.cashOfficeAddress ?? '',
-      });
       setCitizens(registryResult.items);
+      setSettings(settingsResult);
+      setMunicipalityName(configResult.nameAr || configResult.name);
       setError(null);
     } catch (caught) {
       logApiError(caught);
@@ -287,6 +298,34 @@ export default function FeesPage({
 
   /** Money handed over at the counter — straight to PAID, no review step. */
   /**
+   * Opens the وصل for one invoice.
+   *
+   * Fetches the citizen's profile on demand rather than holding every
+   * profile in state: the receipt needs the property, the unit counts and the
+   * household size, and loading all of that for a ledger of two hundred rows
+   * to serve the one receipt a clerk actually prints would be absurd.
+   *
+   * The payment is then taken *from the profile* rather than from the ledger
+   * row, so the printed figures are the committed ones and carry the fields
+   * (`reviewNote`, `frequency`) the ledger row does not.
+   */
+  const openReceipt = useCallback(
+    async (citizenId: string, paymentId: string, received: number) => {
+      if (!token) return;
+      try {
+        const profile = await getCitizenProfile(tenant, token, citizenId);
+        const payment = profile.payments.find((row) => row.id === paymentId);
+        if (!payment) return;
+        setReceipt({ citizen: profile, payment, received });
+      } catch (caught) {
+        logApiError(caught);
+        setError('تعذّر فتح الوصل — يمكن إصداره من ملف المواطن.');
+      }
+    },
+    [tenant, token],
+  );
+
+  /**
    * Records a payment — full or partial — against one invoice.
    *
    * The `confirm()` that used to gate this is gone: it asked "settle the full
@@ -311,6 +350,10 @@ export default function FeesPage({
             : 'تم تسجيل الدفعة بالكامل.',
         );
         await load();
+        // Straight into the receipt, so the citizen leaves the counter with
+        // one. It is opened after `load()` so the figures on it are the
+        // committed ones rather than an optimistic guess.
+        await openReceipt(target.citizenId, target.id, amount);
       } catch (caught) {
         logApiError(caught);
         setSettleError(
@@ -320,7 +363,11 @@ export default function FeesPage({
         setBusyPaymentId(null);
       }
     },
-    [tenant, token, load, settling],
+    // `openReceipt` belongs here even though its own deps are a subset of
+    // these: leaving it out is the kind of omission that stays harmless until
+    // someone widens its dependencies and the receipt starts opening against
+    // a stale token.
+    [tenant, token, load, settling, openReceipt],
   );
 
   /**
@@ -359,21 +406,6 @@ export default function FeesPage({
     },
     [tenant, token, load],
   );
-
-  const saveSettings = useCallback(async () => {
-    if (!token) return;
-    setSavingSettings(true);
-    try {
-      const saved = await updateMunicipalitySettings(tenant, token, settingsDraft);
-      setSettings(saved);
-      setNotice('تم حفظ إعدادات الدفع.');
-    } catch (caught) {
-      logApiError(caught);
-      setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر حفظ الإعدادات.');
-    } finally {
-      setSavingSettings(false);
-    }
-  }, [tenant, token, settingsDraft]);
 
   const decide = useCallback(
     async (payment: PendingPayment, confirmed: boolean) => {
@@ -708,6 +740,27 @@ export default function FeesPage({
                                     تسجيل دفعة
                                   </Button>
                                 ) : null}
+
+                                {/* Any invoice that has received money can be
+                                    receipted again — a citizen who lost the
+                                    first copy should not need a second
+                                    payment to get one. */}
+                                {canManage && payment.paidAmount > 0 ? (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      void openReceipt(
+                                        payment.citizenId,
+                                        payment.id,
+                                        payment.paidAmount,
+                                      )
+                                    }
+                                  >
+                                    <Receipt className="size-4" aria-hidden />
+                                    الوصل
+                                  </Button>
+                                ) : null}
                               </div>
                             </li>
                           );
@@ -815,78 +868,33 @@ export default function FeesPage({
         </CardContent>
       </Card>
 
-      {/* Settings live beside the fees rather than on a separate page: the
-          Whish number only exists to be printed on these invoices. */}
+      {/*
+        The settings themselves moved to إعدادات البلدية.
+        They were edited here but read everywhere — the office WhatsApp number
+        is printed on every receipt, the opening hours appear on the citizen's
+        pay dialog — so they belong to the municipality rather than to this
+        ledger. What stays is a pointer, so nobody hunts for a form that has
+        moved.
+      */}
       {canManage ? (
         <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Wallet className="size-5" aria-hidden />
-              إعدادات الدفع
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              تظهر هذه المعلومات للمواطن عند الدفع. اتركها فارغة لإخفاء الخيار.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-5 pt-6">
-            <Field
-              label="رقم حساب تحويل Whish Money"
-              htmlFor="whish"
-              hint="يظهر للمواطن لينسخه في تطبيق Whish."
-            >
-              <Input
-                id="whish"
-                dir="ltr"
-                className="text-start"
-                placeholder="+961 71 234 567"
-                value={settingsDraft.whishMoneyNumber}
-                onChange={(event) =>
-                  setSettingsDraft((prev) => ({ ...prev, whishMoneyNumber: event.target.value }))
-                }
-              />
-            </Field>
-
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="أوقات دوام المالية" htmlFor="hours">
-                <Input
-                  id="hours"
-                  placeholder="الإثنين–الجمعة، ٨:٠٠ – ١٤:٠٠"
-                  value={settingsDraft.cashOfficeHours}
-                  onChange={(event) =>
-                    setSettingsDraft((prev) => ({ ...prev, cashOfficeHours: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field label="عنوان مكتب الاستقبال" htmlFor="address">
-                <Input
-                  id="address"
-                  placeholder="مبنى البلدية، الطابق الأول"
-                  value={settingsDraft.cashOfficeAddress}
-                  onChange={(event) =>
-                    setSettingsDraft((prev) => ({
-                      ...prev,
-                      cashOfficeAddress: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                {settings?.updatedAt
-                  ? `آخر تحديث: ${new Date(settings.updatedAt).toLocaleString('ar-LB')}`
-                  : 'لم تُضبط بعد'}
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div className="min-w-0 space-y-1">
+              <p className="flex items-center gap-2 font-medium">
+                <Wallet className="size-4 text-primary" aria-hidden />
+                إعدادات الدفع والتواصل
               </p>
-              <Button onClick={() => void saveSettings()} disabled={savingSettings}>
-                {savingSettings ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <Save className="size-4" aria-hidden />
-                )}
-                حفظ الإعدادات
-              </Button>
+              <p className="text-xs text-muted-foreground">
+                رقم Whish، أوقات الدوام، وأرقام هاتف وواتساب البلدية المطبوعة على الوصولات.
+              </p>
             </div>
+            <Link
+              href={`${base}/settings`}
+              className={buttonVariants({ variant: 'outline' })}
+            >
+              <Save className="size-4" aria-hidden />
+              فتح الإعدادات
+            </Link>
           </CardContent>
         </Card>
       ) : null}
@@ -899,6 +907,21 @@ export default function FeesPage({
         error={issueError}
         onSubmit={(values) => void submitFee(values)}
       />
+
+      {receipt ? (
+        <PaymentReceipt
+          open
+          onOpenChange={(next) => {
+            if (!next) setReceipt(null);
+          }}
+          citizen={receipt.citizen}
+          payment={receipt.payment}
+          receivedAmount={receipt.received}
+          municipalityName={municipalityName}
+          contactPhone={settings?.contactPhone}
+          officeWhatsapp={settings?.whatsappNumber}
+        />
+      ) : null}
 
       <SettlePaymentDialog
         open={settling !== null}

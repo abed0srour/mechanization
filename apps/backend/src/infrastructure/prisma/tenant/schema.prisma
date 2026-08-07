@@ -458,6 +458,17 @@ model SystemSettings {
   cashOfficeHours   String?
   cashOfficeAddress String?
 
+  /// The municipality's public landline/mobile, printed on receipts.
+  contactPhone String?
+
+  /// The office WhatsApp account.
+  ///
+  /// Printed on the receipt as the number a citizen may reply to, and shown on
+  /// the settings screen as the account a clerk should be signed into before
+  /// sending one. It cannot *make* a `wa.me` link send from this number —
+  /// no link can; the sender is whichever account the browser is signed into.
+  whatsappNumber String?
+
   updatedAt   DateTime @updatedAt
   updatedById String?  @db.Uuid
 

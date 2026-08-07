@@ -120,6 +120,20 @@ export const systemSettingsSchema = z.object({
     .or(z.literal('')),
   cashOfficeHours: z.string().trim().max(200).optional().or(z.literal('')),
   cashOfficeAddress: z.string().trim().max(300).optional().or(z.literal('')),
+
+  /** The municipality's public number, printed on receipts. */
+  contactPhone: z.string().trim().max(30, 'الرقم طويل جداً').optional().or(z.literal('')),
+
+  /**
+   * The office WhatsApp account.
+   *
+   * Stored as typed rather than normalised to E.164 for the same reason as
+   * `whishMoneyNumber`: it is printed for a human to read and dial, and
+   * rewriting `03 123456` into `+96170123456` makes it unrecognisable to the
+   * person who gave it to you. The `wa.me` link builder normalises its own
+   * copy at the point of use.
+   */
+  whatsappNumber: z.string().trim().max(30, 'الرقم طويل جداً').optional().or(z.literal('')),
 });
 
 export type SystemSettingsInput = z.infer<typeof systemSettingsSchema>;
