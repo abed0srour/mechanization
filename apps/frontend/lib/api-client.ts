@@ -432,6 +432,10 @@ export interface CitizenProfilePayment {
   id: string;
   title: string;
   amount: number;
+  /** Received so far — below `amount` on a part-settled invoice. */
+  paidAmount: number;
+  /** `amount - paidAmount`, floored at zero: what is still owed. */
+  remaining: number;
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived server-side from the due date, never stored. */
@@ -913,6 +917,8 @@ export interface CitizenPaymentItem {
   id: string;
   title: string;
   amount: number;
+  paidAmount: number;
+  remaining: number;
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived server-side from the due date, never stored. */
@@ -962,6 +968,8 @@ export interface AdminPaymentItem {
   id: string;
   title: string;
   amount: number;
+  paidAmount: number;
+  remaining: number;
   currency: string;
   dueDate: string;
   paymentStatus: string;
@@ -979,11 +987,12 @@ export interface AdminPaymentItem {
 export function getAllPayments(
   tenant: string,
   token: string,
-  filter: { status?: string; search?: string } = {},
+  filter: { status?: string; search?: string; citizenId?: string } = {},
 ) {
   const query = new URLSearchParams();
   if (filter.status) query.set('status', filter.status);
   if (filter.search) query.set('search', filter.search);
+  if (filter.citizenId) query.set('citizenId', filter.citizenId);
   const suffix = query.toString() ? `?${query}` : '';
   return apiFetch<{ items: AdminPaymentItem[] }>(tenant, `/fees/payments${suffix}`, { token });
 }
@@ -1009,7 +1018,7 @@ export function settlePayment(
   tenant: string,
   token: string,
   id: string,
-  input: { method?: string; note?: string } = {},
+  input: { method?: string; amount?: number; note?: string } = {},
 ) {
   return apiFetch<{ paymentStatus: string }>(
     tenant,

@@ -1,12 +1,14 @@
 'use client';
 
-import { use, useCallback, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BadgeCheck,
   Banknote,
   CheckCircle2,
+  ChevronUp,
   Clock,
+  Eye,
   Loader2,
   PauseCircle,
   PlayCircle,
@@ -56,6 +58,10 @@ import {
   ChargeCitizenDialog,
   type ChargeValues,
 } from '@/components/admin/charge-citizen-dialog';
+import {
+  SettlePaymentDialog,
+  type SettleValues,
+} from '@/components/admin/settle-payment-dialog';
 
 /**
  * LBP has no minor unit in practice — whole pounds, grouped.
@@ -109,6 +115,54 @@ export default function FeesPage({
   const [savingSettings, setSavingSettings] = useState(false);
   const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Which citizen's itemised breakdown is open, if any. */
+  const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
+  const [settling, setSettling] = useState<AdminPaymentItem | null>(null);
+  const [settleError, setSettleError] = useState<string | null>(null);
+
+  /**
+   * The ledger, one row per citizen.
+   *
+   * Grouped in the browser rather than by a second endpoint because the flat
+   * list is already loaded and already scoped by the same search — a grouped
+   * query would be a second round trip that could disagree with the rows it
+   * summarises. `outstanding` sums the *balance* of each unsettled invoice,
+   * which is what makes a part-payment visible here at all.
+   */
+  const byCitizen = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        citizenId: string;
+        citizenName: string;
+        citizenReference: string | null;
+        items: AdminPaymentItem[];
+        billed: number;
+        outstanding: number;
+        overdueCount: number;
+      }
+    >();
+
+    for (const payment of ledger) {
+      const group = groups.get(payment.citizenId) ?? {
+        citizenId: payment.citizenId,
+        citizenName: payment.citizenName,
+        citizenReference: payment.citizenReference,
+        items: [],
+        billed: 0,
+        outstanding: 0,
+        overdueCount: 0,
+      };
+      group.items.push(payment);
+      group.billed += payment.amount;
+      if (payment.paymentStatus !== 'PAID') group.outstanding += payment.remaining;
+      if (payment.paymentStatus === 'OVERDUE') group.overdueCount += 1;
+      groups.set(payment.citizenId, group);
+    }
+
+    // Most owed first: the point of this screen is who to chase.
+    return [...groups.values()].sort((a, b) => b.outstanding - a.outstanding);
+  }, [ledger]);
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -232,25 +286,41 @@ export default function FeesPage({
   );
 
   /** Money handed over at the counter — straight to PAID, no review step. */
+  /**
+   * Records a payment — full or partial — against one invoice.
+   *
+   * The `confirm()` that used to gate this is gone: it asked "settle the full
+   * amount?" with no way to say "half", which is the whole thing partial
+   * payments exist to allow. The dialog that replaced it *is* the confirmation,
+   * and it shows the balance being paid down rather than a figure the clerk
+   * cannot change.
+   */
   const recordCash = useCallback(
-    async (payment: AdminPaymentItem) => {
-      if (!token) return;
-      if (!confirm(`تسجيل استلام ${lbp(payment.amount)} نقداً من ${payment.citizenName}؟`)) {
-        return;
-      }
-      setBusyPaymentId(payment.id);
+    async ({ amount, note }: SettleValues) => {
+      const target = settling;
+      if (!token || !target) return;
+
+      setBusyPaymentId(target.id);
+      setSettleError(null);
       try {
-        await settlePayment(tenant, token, payment.id, { method: 'CASH' });
-        setNotice('تم تسجيل الدفعة.');
+        await settlePayment(tenant, token, target.id, { method: 'CASH', amount, note });
+        setSettling(null);
+        setNotice(
+          amount < target.remaining
+            ? `تم تسجيل دفعة جزئية بقيمة ${lbp(amount)} — متبقٍ ${lbp(target.remaining - amount)}.`
+            : 'تم تسجيل الدفعة بالكامل.',
+        );
         await load();
       } catch (caught) {
         logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.');
+        setSettleError(
+          caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.',
+        );
       } finally {
         setBusyPaymentId(null);
       }
     },
-    [tenant, token, load],
+    [tenant, token, load, settling],
   );
 
   /**
@@ -513,58 +583,137 @@ export default function FeesPage({
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {ledger.length === 0 ? (
+          {byCitizen.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">لا توجد مطالبات مطابقة.</p>
           ) : (
+            /*
+              One row per citizen, not per invoice.
+              A resident billed monthly accumulates a row a month, and the flat
+              list repeated their name down the whole page — three postings of
+              500,000 and 5,000,000 read as three separate people owing three
+              separate debts, with no total anywhere. Grouping puts the
+              accumulated balance on one line and moves the individual charges
+              behind «عرض», which is also where they get cleared one by one.
+            */
             <ul className="divide-y">
-              {ledger.map((payment) => {
-                const settled = payment.paymentStatus === 'PAID';
+              {byCitizen.map((group) => {
+                const expanded = expandedCitizen === group.citizenId;
                 return (
-                  <li
-                    key={payment.id}
-                    className="flex flex-wrap items-center justify-between gap-4 p-4"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <p className="font-medium">{payment.citizenName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {payment.title} ·{' '}
-                        <span className="font-mono" dir="ltr">
-                          {payment.citizenReference ?? '—'}
-                        </span>{' '}
-                        · استحقاق {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="font-semibold">{lbp(payment.amount)}</span>
-                      <Badge
-                        variant="outline"
-                        className={
-                          payment.paymentStatus === 'PAID'
-                            ? 'border-success/40 bg-success/10 text-success'
-                            : payment.paymentStatus === 'OVERDUE'
-                              ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                              : 'border-warning/40 bg-warning/10 text-warning'
-                        }
-                      >
-                        {ar.paymentStatus[payment.paymentStatus as never] ??
-                          payment.paymentStatus}
-                      </Badge>
-                      {canManage && !settled ? (
+                  <li key={group.citizenId}>
+                    <div className="flex flex-wrap items-center justify-between gap-4 p-4">
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium">{group.citizenName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-mono" dir="ltr">
+                            {group.citizenReference ?? '—'}
+                          </span>{' '}
+                          · {group.items.length} مطالبة
+                          {group.overdueCount > 0 ? (
+                            <span className="text-destructive">
+                              {' '}
+                              · {group.overdueCount} متأخرة
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="text-end">
+                          <p className="font-semibold tabular-nums">
+                            {lbp(group.outstanding)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            من أصل {lbp(group.billed)}
+                          </p>
+                        </div>
+                        {group.outstanding === 0 ? (
+                          <Badge
+                            variant="outline"
+                            className="border-success/40 bg-success/10 text-success"
+                          >
+                            مسدَّد بالكامل
+                          </Badge>
+                        ) : null}
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busyPaymentId === payment.id}
-                          onClick={() => void recordCash(payment)}
+                          aria-expanded={expanded}
+                          onClick={() =>
+                            setExpandedCitizen(expanded ? null : group.citizenId)
+                          }
                         >
-                          {busyPaymentId === payment.id ? (
-                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          {expanded ? (
+                            <ChevronUp className="size-4" aria-hidden />
                           ) : (
-                            <Banknote className="size-4" aria-hidden />
+                            <Eye className="size-4" aria-hidden />
                           )}
-                          تسجيل دفعة نقدية
+                          {expanded ? 'إخفاء' : 'عرض'}
                         </Button>
-                      ) : null}
+                      </div>
                     </div>
+
+                    {/* The itemised breakdown: every posting on its own line,
+                        each settleable on its own. */}
+                    {expanded ? (
+                      <ul className="divide-y border-t bg-muted/20">
+                        {group.items.map((payment) => {
+                          const settled = payment.paymentStatus === 'PAID';
+                          const partly = !settled && payment.paidAmount > 0;
+                          return (
+                            <li
+                              key={payment.id}
+                              className="flex flex-wrap items-center justify-between gap-3 py-3 pe-4 ps-10"
+                            >
+                              <div className="min-w-0 space-y-0.5">
+                                <p className="text-sm font-medium">{payment.title}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  استحقاق{' '}
+                                  {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                                  {partly
+                                    ? ` · مسدَّد ${lbp(payment.paidAmount)} من ${lbp(payment.amount)}`
+                                    : ''}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold tabular-nums">
+                                  {lbp(settled ? payment.amount : payment.remaining)}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    payment.paymentStatus === 'PAID'
+                                      ? 'border-success/40 bg-success/10 text-success'
+                                      : payment.paymentStatus === 'OVERDUE'
+                                        ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                                        : 'border-warning/40 bg-warning/10 text-warning'
+                                  }
+                                >
+                                  {ar.paymentStatus[payment.paymentStatus as never] ??
+                                    payment.paymentStatus}
+                                </Badge>
+                                {canManage && !settled ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={busyPaymentId === payment.id}
+                                    onClick={() => {
+                                      setSettleError(null);
+                                      setSettling(payment);
+                                    }}
+                                  >
+                                    {busyPaymentId === payment.id ? (
+                                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                                    ) : (
+                                      <Banknote className="size-4" aria-hidden />
+                                    )}
+                                    تسجيل دفعة
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
                   </li>
                 );
               })}
@@ -749,6 +898,17 @@ export default function FeesPage({
         submitting={issuing}
         error={issueError}
         onSubmit={(values) => void submitFee(values)}
+      />
+
+      <SettlePaymentDialog
+        open={settling !== null}
+        onOpenChange={(next) => {
+          if (!next) setSettling(null);
+        }}
+        payment={settling}
+        submitting={busyPaymentId !== null}
+        error={settleError}
+        onSubmit={(values) => void recordCash(values)}
       />
 
       <ChargeCitizenDialog

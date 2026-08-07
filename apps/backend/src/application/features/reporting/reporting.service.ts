@@ -185,6 +185,10 @@ export interface CitizenProfilePayment {
   id: string;
   title: string;
   amount: number;
+  /** Received so far — below `amount` on a part-settled invoice. */
+  paidAmount: number;
+  /** `amount - paidAmount`, floored at zero. */
+  remaining: number;
   currency: string;
   dueDate: string;
   /** `OVERDUE` is derived from the due date on read, never stored. */
@@ -403,16 +407,15 @@ export class ReportingService {
             AS "unitTotal",
           COALESCE((SELECT sum(amount) FROM citizen_payments), 0)::float8
             AS "billedTotal",
-          COALESCE((SELECT sum(amount) FROM citizen_payments
-                     WHERE "paymentStatus" = 'PAID'), 0)::float8
+          COALESCE((SELECT sum("paidAmount") FROM citizen_payments), 0)::float8
             AS "collectedTotal",
-          COALESCE((SELECT sum(amount) FROM citizen_payments
+          COALESCE((SELECT sum(amount - "paidAmount") FROM citizen_payments
                      WHERE "paymentStatus" <> 'PAID'), 0)::float8
             AS "outstandingTotal",
           -- Derived from the due date on read, never stored: a flag written by
           -- a nightly job is wrong for every hour between a due date passing
           -- and the job next running.
-          COALESCE((SELECT sum(amount) FROM citizen_payments
+          COALESCE((SELECT sum(amount - "paidAmount") FROM citizen_payments
                      WHERE "paymentStatus" = 'UNPAID' AND "dueDate" < now()), 0)::float8
             AS "overdueTotal",
           (SELECT count(*)::int FROM citizen_payments
@@ -425,9 +428,8 @@ export class ReportingService {
              FROM (
                SELECT to_char(d.m, 'YYYY-MM') AS month,
                       COALESCE(sum(p.amount), 0)::float8 AS billed,
-                      COALESCE(sum(p.amount)
-                        FILTER (WHERE p."paymentStatus" = 'PAID'), 0)::float8 AS collected,
-                      COALESCE(sum(p.amount)
+                      COALESCE(sum(p."paidAmount"), 0)::float8 AS collected,
+                      COALESCE(sum(p.amount - p."paidAmount")
                         FILTER (WHERE p."paymentStatus" = 'UNPAID'
                                   AND p."dueDate" < now()), 0)::float8 AS overdue
                  -- A generated month spine, LEFT JOINed: a month in which the
@@ -545,6 +547,7 @@ export class ReportingService {
             id: true,
             title: true,
             amount: true,
+            paidAmount: true,
             currency: true,
             dueDate: true,
             paymentStatus: true,
@@ -626,6 +629,8 @@ export class ReportingService {
       id: payment.id,
       title: payment.title,
       amount: Number(payment.amount),
+      paidAmount: Number(payment.paidAmount),
+      remaining: Math.max(Number(payment.amount) - Number(payment.paidAmount), 0),
       currency: payment.currency,
       dueDate: payment.dueDate.toISOString(),
       paymentStatus:
@@ -643,8 +648,11 @@ export class ReportingService {
     // aggregate queries: the totals and the list a reviewer reads them against
     // then cannot disagree, which they could if one was cached a moment apart
     // from the other.
-    const sum = (rows: typeof payments) =>
-      rows.reduce((total, payment) => total + payment.amount, 0);
+    // `field` rather than always `amount`, because since partial payments the
+    // three totals below measure different columns: what was billed, what has
+    // been received, and what is still owed.
+    const sum = (rows: typeof payments, field: 'amount' | 'paidAmount' | 'remaining') =>
+      rows.reduce((total, payment) => total + payment[field], 0);
     const overdue = payments.filter((payment) => payment.paymentStatus === 'OVERDUE');
 
     return {
@@ -669,10 +677,17 @@ export class ReportingService {
       isActive: citizen.isActive,
       payments,
       fees: {
-        feesTotal: sum(payments),
-        paidTotal: sum(payments.filter((payment) => payment.paymentStatus === 'PAID')),
-        outstandingTotal: sum(payments.filter((payment) => payment.paymentStatus !== 'PAID')),
-        overdueTotal: sum(overdue),
+        feesTotal: sum(payments, 'amount'),
+        // Every pound received, across all rows — a part-payment sitting on an
+        // UNPAID invoice is money the municipality has, and filtering to PAID
+        // would leave it out.
+        paidTotal: sum(payments, 'paidAmount'),
+        // What is left on rows not fully settled, not their face value.
+        outstandingTotal: sum(
+          payments.filter((payment) => payment.paymentStatus !== 'PAID'),
+          'remaining',
+        ),
+        overdueTotal: sum(overdue, 'remaining'),
         overdueCount: overdue.length,
         pendingReviewCount: payments.filter(
           (payment) => payment.paymentStatus === 'PENDING_REVIEW',

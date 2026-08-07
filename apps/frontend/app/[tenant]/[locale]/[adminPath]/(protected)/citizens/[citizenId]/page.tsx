@@ -2,9 +2,10 @@
 
 import { use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowRight,
+  Banknote,
   Building2,
   Calendar,
   Clock3,
@@ -23,6 +24,7 @@ import {
   MessageCircle,
   Pencil,
   Phone,
+  Receipt as ReceiptIcon,
   Ruler,
   Tent,
   Trees,
@@ -36,7 +38,9 @@ import {
   ApiRequestError,
   getCitizenProfile,
   getDocumentViewUrl,
+  getTenantConfig,
   logApiError,
+  settlePayment,
 } from '@/lib/api-client';
 import type {
   CitizenFeeTotals,
@@ -47,9 +51,15 @@ import type {
 import { clearSession, loadSession } from '@/lib/session';
 import { findLocatedProperty, mapHref } from '@/lib/map-link';
 import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
+import { PaymentReceipt } from '@/components/admin/payment-receipt';
+import {
+  SettlePaymentDialog,
+  type SettleValues,
+} from '@/components/admin/settle-payment-dialog';
 import { cn } from '@/lib/utils';
 
 /** One glyph per property branch, so a card's kind is readable before its text. */
@@ -106,9 +116,14 @@ export default function CitizenProfilePage({
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
   const [openingDocId, setOpeningDocId] = useState<string | null>(null);
+  /** Printed on the receipt header — the tenant config is the only source. */
+  const [municipalityName, setMunicipalityName] = useState('');
 
   /** Mirrors the server's write roles; the server is the enforcement. */
   const canEdit = role === 'SUPER_ADMIN' || role === 'FIELD_INSPECTOR';
+  /** Settling a payment is SUPER_ADMIN-only server-side (`@Roles` on the fees
+   *  controller), so offering it to an inspector would only earn a 403. */
+  const canManage = role === 'SUPER_ADMIN';
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -123,6 +138,13 @@ export default function CitizenProfilePage({
     }
     setToken(session.accessToken);
     setRole(session.user.role);
+
+    // Public endpoint, and non-blocking: a failed config fetch must not stop
+    // the profile rendering. It only supplies the name printed on a receipt,
+    // which falls back to the tenant slug.
+    getTenantConfig(tenant)
+      .then((config) => setMunicipalityName(config.nameAr || config.name))
+      .catch(() => setMunicipalityName(tenant));
 
     getCitizenProfile(tenant, session.accessToken, citizenId)
       .then(setCitizen)
@@ -271,14 +293,20 @@ export default function CitizenProfilePage({
         with them, what the municipality filed — and a reviewer is normally
         after exactly one of those, which a flat list makes them scan for.
       */}
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <IdCard className="size-5 text-primary" aria-hidden />
-            البيانات الشخصية
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y p-0">
+      <CollapsibleSection
+        id="personal"
+        title="البيانات الشخصية"
+        icon={IdCard}
+        className="[&_summary]:pb-4"
+        summary={
+          <span className="text-muted-foreground">
+            {citizen.identityDocNumber ? (
+              <bdi dir="ltr">{citizen.identityDocNumber}</bdi>
+            ) : null}
+          </span>
+        }
+      >
+        <div className="-m-5 divide-y">
           {/* Six fields — fills a three-column grid exactly, two rows deep. */}
           <FactSection
             title="الهوية"
@@ -387,16 +415,28 @@ export default function CitizenProfilePage({
               ]}
             />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </CollapsibleSection>
 
-      <FeesPanel payments={citizen.payments} fees={citizen.fees} />
+      <FeesPanel
+        citizen={citizen}
+        payments={citizen.payments}
+        fees={citizen.fees}
+        canManage={canManage}
+        municipalityName={municipalityName}
+        onSettled={() => void reload()}
+      />
 
-      <section className="space-y-4">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <FileText className="size-5 text-primary" aria-hidden />
-          الطلبات والعقارات
-        </h2>
+      <CollapsibleSection
+        id="properties"
+        title="العقارات"
+        icon={FileText}
+        defaultOpen={false}
+        summary={
+          <span className="text-muted-foreground">{propertyCount} عقار</span>
+        }
+      >
+        <div className="space-y-4">
 
         {citizen.registrations.map((registration) => (
           <Card key={registration.id}>
@@ -465,7 +505,8 @@ export default function CitizenProfilePage({
             لا توجد عقارات مسجّلة لهذا المواطن.
           </p>
         ) : null}
-      </section>
+        </div>
+      </CollapsibleSection>
     </div>
   );
 }
@@ -481,122 +522,243 @@ const PAYMENT_TONE: Record<string, string> = {
 };
 
 /**
- * The citizen's ledger, on the same page as their claims.
+ * The citizen's ledger — totals, then every invoice, each settleable on its own.
  *
- * Staff reviewing a registration are routinely also the people asked "what do
- * I owe?" at the counter, and until now that answer lived only on the fees
- * screen — keyed by a name they had to search for a second time. المتأخرات is
- * broken out from المستحق because the two prompt different conversations: this
- * system levies no penalty on a late fee, so a late fee *is* the unpaid fee,
- * and the only thing distinguishing it is that the date has passed.
+ * "Clear them one by one" is the point of the list below. A citizen three
+ * periods behind owes three separate debts, and a clerk taking cash for one of
+ * them must not be forced to settle all three or none: every row carries its
+ * own «تسجيل دفعة» and its own receipt. Bulk-only settlement is exactly what
+ * made arrears impossible to work down gradually.
  */
 function FeesPanel({
+  citizen,
   payments,
   fees,
+  canManage,
+  municipalityName,
+  onSettled,
 }: {
+  citizen: CitizenProfile;
   payments: CitizenProfilePayment[];
   fees: CitizenFeeTotals;
+  canManage: boolean;
+  municipalityName: string;
+  onSettled: () => void;
 }) {
+  const { tenant } = useParams<{ tenant: string }>();
+  const [settling, setSettling] = useState<CitizenProfilePayment | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [settleError, setSettleError] = useState<string | null>(null);
+  /** Payment whose receipt is open, plus what was just received against it. */
+  const [receipt, setReceipt] = useState<{
+    payment: CitizenProfilePayment;
+    received: number;
+  } | null>(null);
+
+  const outstanding = payments.filter((payment) => payment.paymentStatus !== 'PAID');
+
+  const submit = async ({ amount, note }: SettleValues) => {
+    const target = settling;
+    if (!target) return;
+    const token = loadSession(tenant)?.accessToken;
+    if (!token) return;
+
+    setBusy(true);
+    setSettleError(null);
+    try {
+      await settlePayment(tenant, token, target.id, { method: 'CASH', amount, note });
+      setSettling(null);
+      // Straight into the receipt: a clerk who has just taken cash needs the
+      // paper in the citizen's hand before they walk away, and making them
+      // hunt for a second button is how receipts stop being issued at all.
+      setReceipt({
+        payment: { ...target, remaining: Math.max(target.remaining - amount, 0) },
+        received: amount,
+      });
+      onSettled();
+    } catch (caught) {
+      logApiError(caught);
+      setSettleError(
+        caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Card>
-      <CardHeader className="border-b">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Wallet className="size-5 text-primary" aria-hidden />
-          الرسوم والمدفوعات
-        </CardTitle>
-      </CardHeader>
+    <>
+      <CollapsibleSection
+        id="fees"
+        title="الرسوم والمدفوعات"
+        icon={Wallet}
+        summary={
+          fees.outstandingTotal > 0 ? (
+            <span
+              className={cn(
+                'font-semibold',
+                fees.overdueTotal > 0 ? 'text-destructive' : undefined,
+              )}
+            >
+              <Money amount={fees.outstandingTotal} /> مستحق
+            </span>
+          ) : (
+            <span className="text-emerald-600">لا مستحقات</span>
+          )
+        }
+      >
+        <div className="space-y-6">
+          <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Total label="إجمالي الرسوم" value={fees.feesTotal} />
+            <Total label="المسدَّد" value={fees.paidTotal} tone="text-emerald-600" />
+            <Total label="غير المسدَّد" value={fees.outstandingTotal} />
+            <Total
+              label={`المتأخرات${fees.overdueCount > 0 ? ` (${fees.overdueCount})` : ''}`}
+              value={fees.overdueTotal}
+              tone={fees.overdueTotal > 0 ? 'text-destructive' : undefined}
+            />
+          </dl>
 
-      <CardContent className="space-y-6 pt-6">
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Total label="إجمالي الرسوم" value={fees.feesTotal} />
-          <Total label="المسدَّد" value={fees.paidTotal} tone="text-emerald-600" />
-          <Total label="غير المسدَّد" value={fees.outstandingTotal} />
-          <Total
-            label={`المتأخرات${fees.overdueCount > 0 ? ` (${fees.overdueCount})` : ''}`}
-            value={fees.overdueTotal}
-            tone={fees.overdueTotal > 0 ? 'text-destructive' : undefined}
-          />
-        </dl>
+          {fees.pendingReviewCount > 0 ? (
+            <p className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm">
+              <Clock3 className="size-4 shrink-0 text-blue-600" aria-hidden />
+              {fees.pendingReviewCount} دفعة بانتظار تحقق الموظف — راجعها من صفحة إدارة الرسوم.
+            </p>
+          ) : null}
 
-        {fees.pendingReviewCount > 0 ? (
-          <p className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-sm">
-            <Clock3 className="size-4 shrink-0 text-blue-600" aria-hidden />
-            {fees.pendingReviewCount} دفعة بانتظار تحقق الموظف — راجعها من صفحة إدارة الرسوم.
-          </p>
-        ) : null}
+          {payments.length === 0 ? (
+            <p className="rounded-lg border p-6 text-center text-muted-foreground">
+              لم تُصدَر أي رسوم على هذا المواطن.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {payments.map((payment) => {
+                const settled = payment.paymentStatus === 'PAID';
+                const partly = !settled && payment.paidAmount > 0;
+                return (
+                  <li key={payment.id} className="space-y-2 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                      <div className="min-w-0 space-y-1">
+                        <p className="flex flex-wrap items-center gap-2 font-medium">
+                          <span className="truncate">{payment.title}</span>
+                          <Badge
+                            variant="outline"
+                            className={cn('shrink-0', PAYMENT_TONE[payment.paymentStatus])}
+                          >
+                            {ar.paymentStatus?.[payment.paymentStatus as never] ??
+                              payment.paymentStatus}
+                          </Badge>
+                          {partly ? (
+                            <Badge variant="outline" className="shrink-0">
+                              مسدَّد جزئياً
+                            </Badge>
+                          ) : null}
+                        </p>
+                        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Calendar className="size-3.5 shrink-0" aria-hidden />
+                            استحقاق {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                          </span>
+                          {payment.frequency ? (
+                            <span>
+                              {ar.feeFrequency?.[payment.frequency as never] ??
+                                payment.frequency}
+                            </span>
+                          ) : null}
+                          {payment.paidAt ? (
+                            <span className="text-emerald-600">
+                              سُدّد {new Date(payment.paidAt).toLocaleDateString('ar-LB')}
+                            </span>
+                          ) : null}
+                        </p>
+                        {payment.reviewNote ? (
+                          <p className="text-xs text-muted-foreground">
+                            ملاحظة الموظف: {payment.reviewNote}
+                          </p>
+                        ) : null}
+                      </div>
 
-        {payments.length === 0 ? (
-          <p className="rounded-lg border p-6 text-center text-muted-foreground">
-            لم تُصدَر أي رسوم على هذا المواطن.
-          </p>
-        ) : (
-          // A card list rather than a table: at two to five rows a table is
-          // more chrome than content, and this has to stay readable inside a
-          // page already dense with property grids.
-          <ul className="divide-y rounded-lg border">
-            {payments.map((payment) => (
-              <li
-                key={payment.id}
-                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-4"
-              >
-                <div className="min-w-0 space-y-1">
-                  <p className="flex flex-wrap items-center gap-2 font-medium">
-                    <span className="truncate">{payment.title}</span>
-                    <Badge
-                      variant="outline"
-                      className={cn('shrink-0', PAYMENT_TONE[payment.paymentStatus])}
-                    >
-                      {ar.paymentStatus?.[payment.paymentStatus as never] ??
-                        payment.paymentStatus}
-                    </Badge>
-                  </p>
-                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Calendar className="size-3.5 shrink-0" aria-hidden />
-                      استحقاق {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
-                    </span>
-                    {payment.frequency ? (
-                      <span>{ar.feeFrequency?.[payment.frequency as never] ?? payment.frequency}</span>
+                      <div className="shrink-0 text-end">
+                        <Money amount={payment.amount} exact className="font-semibold" />
+                        {partly ? (
+                          <p className="text-xs text-muted-foreground">
+                            متبقٍ <Money amount={payment.remaining} exact />
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Per-row actions: settle this one debt, or reprint its
+                        receipt. Both stay on the row they belong to, so there
+                        is never a question which invoice was paid. */}
+                    {canManage ? (
+                      <div className="flex flex-wrap gap-2">
+                        {!settled ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSettleError(null);
+                              setSettling(payment);
+                            }}
+                          >
+                            <Banknote className="size-4" aria-hidden />
+                            تسجيل دفعة نقدية
+                          </Button>
+                        ) : null}
+                        {payment.paidAmount > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setReceipt({ payment, received: payment.paidAmount })
+                            }
+                          >
+                            <ReceiptIcon className="size-4" aria-hidden />
+                            إنشاء وصل وإرسال عبر واتساب
+                          </Button>
+                        ) : null}
+                      </div>
                     ) : null}
-                    {payment.paidAt ? (
-                      <span className="text-emerald-600">
-                        سُدّد {new Date(payment.paidAt).toLocaleDateString('ar-LB')}
-                      </span>
-                    ) : null}
-                    {payment.paymentMethod ? (
-                      <span>
-                        {ar.paymentMethod?.[payment.paymentMethod as never] ??
-                          payment.paymentMethod}
-                      </span>
-                    ) : null}
-                  </p>
-                  {payment.reviewNote ? (
-                    <p className="text-xs text-muted-foreground">
-                      ملاحظة الموظف: {payment.reviewNote}
-                    </p>
-                  ) : null}
-                </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
 
-                {/*
-                  `exact` here and compacted in the totals above: one invoice
-                  line has the whole width of the row to itself and is the
-                  figure a clerk reads out, so rounding it would be trading
-                  precision for space that is not short.
-                */}
-                <Money
-                  amount={payment.amount}
-                  exact
-                  className="shrink-0 font-semibold"
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+          {outstanding.length > 1 ? (
+            <p className="text-xs text-muted-foreground">
+              {outstanding.length} مطالبة غير مسدّدة — يمكن تسديد كل منها على حدة، كلياً أو
+              جزئياً.
+            </p>
+          ) : null}
+        </div>
+      </CollapsibleSection>
+
+      <SettlePaymentDialog
+        open={settling !== null}
+        onOpenChange={(next) => {
+          if (!next) setSettling(null);
+        }}
+        payment={settling}
+        submitting={busy}
+        error={settleError}
+        onSubmit={(values) => void submit(values)}
+      />
+
+      <PaymentReceipt
+        open={receipt !== null}
+        onOpenChange={(next) => {
+          if (!next) setReceipt(null);
+        }}
+        citizen={citizen}
+        payment={receipt?.payment ?? null}
+        receivedAmount={receipt?.received}
+        municipalityName={municipalityName}
+      />
+    </>
   );
 }
-
 /**
  * One money total in the fee summary row.
  *

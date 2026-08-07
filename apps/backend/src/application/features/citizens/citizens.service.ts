@@ -178,13 +178,13 @@ export class CitizensService {
           COALESCE((SELECT sum(p.amount) FROM citizen_payments p
                      WHERE p."citizenId" = u.id), 0)::float8
             AS "feesTotal",
-          COALESCE((SELECT sum(p.amount) FROM citizen_payments p
-                     WHERE p."citizenId" = u.id AND p."paymentStatus" = 'PAID'), 0)::float8
+          COALESCE((SELECT sum(p."paidAmount") FROM citizen_payments p
+                     WHERE p."citizenId" = u.id), 0)::float8
             AS "paidTotal",
-          COALESCE((SELECT sum(p.amount) FROM citizen_payments p
+          COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
                      WHERE p."citizenId" = u.id AND p."paymentStatus" <> 'PAID'), 0)::float8
             AS "outstandingTotal",
-          COALESCE((SELECT sum(p.amount) FROM citizen_payments p
+          COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
                      WHERE p."citizenId" = u.id
                        AND p."paymentStatus" = 'UNPAID'
                        AND p."dueDate" < now()), 0)::float8

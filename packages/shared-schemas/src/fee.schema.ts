@@ -183,6 +183,20 @@ export const noticeActiveSchema = z.object({ isActive: z.boolean() });
 
 export const settlePaymentSchema = z.object({
   method: paymentMethodSchema.default('CASH'),
+  /**
+   * How much was actually handed over.
+   *
+   * Optional, and omitting it means "the whole outstanding balance" — the
+   * common case at the counter, and the behaviour before partial payments
+   * existed, so an older client keeps working unchanged. A value below the
+   * balance is a partial; above it is refused server-side rather than banked
+   * as credit, because nothing here can carry an overpayment forward.
+   */
+  amount: z.coerce
+    .number({ invalid_type_error: 'المبلغ يجب أن يكون رقماً' })
+    .positive('المبلغ يجب أن يكون أكبر من صفر')
+    .max(1_000_000_000_000, 'المبلغ كبير جداً')
+    .optional(),
   note: z.string().trim().max(500).optional(),
 });
 
