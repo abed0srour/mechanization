@@ -11,8 +11,6 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  Moon,
-  Sun,
   Languages,
   Receipt,
   Settings,
@@ -20,7 +18,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { clearSession, loadSession } from '@/lib/session';
-import { isDarkModeActive, setDarkMode } from '@/lib/theme';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -54,7 +52,6 @@ export function AdminSidebar({
   const base = `/${tenant}/${locale}/${adminPath}`;
   const [role, setRole] = useState<string | undefined>();
   const [collapsed, setCollapsed] = useState(false);
-  const [dark, setDark] = useState(false);
 
   // Re-read on every route change rather than once: signing out and back in
   // as a different role (or a session expiring) should update which links
@@ -63,12 +60,11 @@ export function AdminSidebar({
     setRole(loadSession(tenant)?.user.role);
   }, [tenant, pathname]);
 
-  // Both read real DOM/storage state on mount only — the collapse rail and
-  // the dark-mode class are already correct before this component ever runs
-  // (a stored width and the layout `<head>` script respectively), so this is
-  // just the toggle button catching up to what is already on screen.
+  // Read on mount only. The rail's stored width cannot be known while
+  // rendering on the server, so it starts expanded and corrects itself here;
+  // the theme is no longer part of this — `ThemeToggle` owns its own state
+  // through the provider.
   useEffect(() => {
-    setDark(isDarkModeActive());
     try {
       setCollapsed(localStorage.getItem(COLLAPSE_STORAGE_KEY) === 'true');
     } catch {
@@ -84,14 +80,6 @@ export function AdminSidebar({
       } catch {
         /* the toggle still works for this page load */
       }
-      return next;
-    });
-  }
-
-  function toggleDarkMode() {
-    setDark((prev) => {
-      const next = !prev;
-      setDarkMode(next);
       return next;
     });
   }
@@ -213,18 +201,9 @@ export function AdminSidebar({
       </nav>
 
       <div className="space-y-1 border-t p-3">
-        <button
-          type="button"
-          onClick={toggleDarkMode}
-          title={dark ? 'الوضع الفاتح' : 'الوضع الداكن'}
-          className={cn(
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
-            collapsed && 'justify-center px-0',
-          )}
-        >
-          {dark ? <Sun className="size-5 shrink-0" /> : <Moon className="size-5 shrink-0" />}
-          {!collapsed ? (dark ? 'الوضع الفاتح' : 'الوضع الداكن') : null}
-        </button>
+        {/* Full-width so the three segments line up with the nav rows above
+            rather than floating in the middle of the footer. */}
+        <ThemeToggle collapsed={collapsed} className={collapsed ? undefined : 'flex w-full'} />
 
         <button
           type="button"

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import type { PublicTenantConfig } from '@/lib/api-client';
+import { ThemeProvider } from '@/components/theme-provider';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -51,25 +52,28 @@ export default async function TenantLayout({
   const isRtl = locale === 'ar';
 
   return (
-    <html lang={locale} dir={isRtl ? 'rtl' : 'ltr'}>
+    /*
+      `suppressHydrationWarning` is required by `next-themes` and applies to
+      this element's attributes only, not to the tree below it. The provider's
+      pre-paint script writes `class="dark"` and `style="color-scheme:dark"`
+      onto <html> before React hydrates, so the server's markup and the
+      client's necessarily disagree here — and only here. Without it every
+      staff member using dark mode gets a hydration warning on every load.
+    */
+    <html lang={locale} dir={isRtl ? 'rtl' : 'ltr'} suppressHydrationWarning>
       <head>
         <link
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@500;700&display=swap"
           rel="stylesheet"
         />
         {/*
-          Applies the `dark` class before first paint — a `useEffect` in the
-          toggle component would run after hydration, showing light mode for
-          one frame on every load for a staff member who chose dark. Reads
-          the stored choice, falling back to the OS preference when nothing
-          has been chosen yet; must stay a plain string in sync with the key
-          `lib/theme.ts` uses, since this runs before any module does.
+          The hand-rolled pre-paint script that used to sit here is gone.
+          `next-themes` injects an equivalent one of its own, and running both
+          would mean two scripts racing to set the same class from the same
+          storage key — with the loser's answer silently winning whenever the
+          third setting («النظام») disagreed with the two the old script knew
+          about. Its storage key survives as `ThemeProvider`'s `storageKey`.
         */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem('mechanization.theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
-          }}
-        />
       </head>
       <body
         className="min-h-screen bg-muted/30 font-sans antialiased"
@@ -90,7 +94,7 @@ export default async function TenantLayout({
             : undefined
         }
       >
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

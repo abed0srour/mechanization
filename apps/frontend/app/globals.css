@@ -98,8 +98,24 @@
     --muted-foreground: 215 20.2% 65.1%;
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    /**
+     * Raised from shadcn's dark default (0 62.8% 30.6%), and its foreground
+     * inverted to match.
+     *
+     * That default assumes `--destructive` is a *surface* carrying near-white
+     * text. In this codebase it is overwhelmingly a text colour: 53 uses of
+     * `text-destructive` — the متأخرة count, «رفض», every field error, every
+     * error banner — against two of solid `bg-destructive`. At 30.6% lightness
+     * that red lands about 1.6:1 on the near-black background, which is not
+     * dim but genuinely unreadable.
+     *
+     * 58% puts the text at ~5.4:1. The two solid-surface uses then take a dark
+     * foreground rather than a white one, which is the only pairing that stays
+     * legible on a red that bright — and `--destructive-foreground` is never
+     * used except on top of `bg-destructive`, so nothing else moves.
+     */
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 222.2 84% 4.9%;
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 199 89% 45%;
@@ -125,6 +141,18 @@
 @layer base {
   * {
     @apply border-border;
+  }
+
+  /**
+   * The tenant layout paints <body> `bg-muted/30` — a translucent wash that
+   * has to composite over something. Left to itself that something is the UA
+   * canvas, which is white in light mode (harmless, and what the light design
+   * was drawn against) but a browser-specific near-black in dark mode, so the
+   * page's base tone would differ between Chrome and Firefox. Naming it here
+   * makes the wash composite over our own token instead.
+   */
+  html {
+    background-color: hsl(var(--background));
   }
 
   body {
