@@ -1,8 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { WHISH_GATEWAY } from '../../../domain/interfaces/whish-gateway.interface';
+import type {
+  WhishCallback,
+  WhishGateway,
+} from '../../../domain/interfaces/whish-gateway.interface';
 import type {
   CreateFeeNotice,
   DeclarePayment,
+  PaymentMethod,
   SystemSettingsInput,
 } from '@mechanization/shared-schemas';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
@@ -113,6 +119,7 @@ export class FeesService {
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly events: EventEmitter2,
+    @Inject(WHISH_GATEWAY) private readonly whish: WhishGateway,
   ) {}
 
   private get db() {
@@ -621,7 +628,22 @@ export class FeesService {
    * who owes it — a clerk taking cash at the counter needs to find the row by
    * the name in front of them.
    */
-  async listAllPayments(filter: { status?: string; search?: string; citizenId?: string } = {}) {
+  async listAllPayments(
+    filter: {
+      status?: string;
+      search?: string;
+      citizenId?: string;
+      /** CASH | WHISH_MONEY. */
+      method?: string;
+      /**
+       * Narrows the ledger to rows where money actually moved — or is claimed
+       * to have. An invoice nobody has paid is an obligation, not a
+       * transaction, and listing it on a transactions screen means most rows
+       * have no method, no reference and no date.
+       */
+      transactionsOnly?: boolean;
+    } = {},
+  ) {
     const search = filter.search?.trim();
 
     const rows = await withConnectionRetry(() =>
@@ -629,6 +651,14 @@ export class FeesService {
         where: {
           ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
           ...(filter.status ? { paymentStatus: filter.status as never } : {}),
+          ...(filter.method ? { paymentMethod: filter.method as never } : {}),
+          // PENDING_REVIEW belongs here despite `paidAmount` still being zero:
+          // the citizen has declared a transfer, so there is a claimed
+          // transaction with a method and a reference to show — it is simply
+          // not confirmed yet.
+          ...(filter.transactionsOnly
+            ? { OR: [{ paidAmount: { gt: 0 } }, { paymentStatus: 'PENDING_REVIEW' as never }] }
+            : {}),
           ...(search
             ? {
                 citizen: {
@@ -642,7 +672,15 @@ export class FeesService {
               }
             : {}),
         },
-        orderBy: [{ paymentStatus: 'asc' }, { dueDate: 'asc' }],
+        /**
+         * A transactions view is a chronology, so it is ordered by when the
+         * money moved — newest first — rather than by what is most overdue.
+         * `paidAt` sorts nulls last so a part-payment (which never gets one,
+         * see below) falls to `updatedAt` instead of to the top.
+         */
+        orderBy: filter.transactionsOnly
+          ? [{ paidAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }]
+          : [{ paymentStatus: 'asc' }, { dueDate: 'asc' }],
         // A single citizen's full history must never be truncated by the
         // municipality-wide page size — the drill-down is where a clerk
         // reconciles arrears one by one.
@@ -670,12 +708,164 @@ export class FeesService {
       paymentMethod: row.paymentMethod,
       whishTransactionRef: row.whishTransactionRef,
       paidAt: row.paidAt?.toISOString() ?? null,
+      /**
+       * Exposed because `paidAt` is not the whole answer.
+       *
+       * `settle` stamps `paidAt` only when the invoice is *fully* covered
+       * (`paidAt: fullySettled ? new Date() : null`), so a part-payment — real
+       * money, taken at the counter — leaves it null. A transactions screen
+       * with a blank date on every partial is worse than useless, so the row
+       * carries its last-write time too and the UI falls back to it, labelled
+       * as approximate rather than passed off as the moment of payment.
+       */
+      updatedAt: row.updatedAt.toISOString(),
       frequency: row.feeNotice?.frequency ?? null,
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       citizenPhone: row.citizen.phone,
       citizenReference: row.citizen.referenceNumber,
     }));
+  }
+
+  /**
+   * Starts an online Whish payment for one of the signed-in citizen's bills.
+   *
+   * Ownership is checked here rather than trusted from the route: the payment
+   * id comes from the browser, and without this a citizen could open a checkout
+   * against somebody else's invoice — which would let them *pay* it, but also
+   * disclose its amount and title in the process.
+   *
+   * In sandbox the invoice moves to PENDING_REVIEW, which is precisely what the
+   * existing manual declaration does and is the honest state: the citizen has
+   * said they are paying, and nothing has confirmed it. It reaches PAID only
+   * through `settleFromWhishCallback`, behind a verified signature.
+   */
+  async startWhishCheckout(input: {
+    paymentId: string;
+    citizenId: string;
+    callbackUrl: string;
+    returnUrl: string;
+  }): Promise<{ redirectUrl: string; pending: boolean }> {
+    const payment = await this.db.citizenPayment.findUnique({
+      where: { id: input.paymentId },
+      select: {
+        id: true,
+        citizenId: true,
+        amount: true,
+        paidAmount: true,
+        currency: true,
+        paymentStatus: true,
+        citizen: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    if (!payment || payment.citizenId !== input.citizenId) {
+      // Same error for "no such invoice" and "not yours", so the endpoint
+      // cannot be used to discover which payment ids exist.
+      throw new NotFoundError('Payment', input.paymentId);
+    }
+    if (payment.paymentStatus === 'PAID') {
+      throw new ConflictError('هذه المطالبة مسدّدة بالفعل');
+    }
+    if (payment.paymentStatus === 'PENDING_REVIEW') {
+      throw new ConflictError('هناك دفعة قيد التأكيد على هذه المطالبة');
+    }
+
+    const outstanding = Number(payment.amount) - Number(payment.paidAmount);
+    if (outstanding <= 0) {
+      throw new ConflictError('لا يوجد رصيد مستحق على هذه المطالبة');
+    }
+
+    const checkout = await this.whish.createCheckout({
+      paymentId: payment.id,
+      amount: outstanding,
+      currency: payment.currency,
+      citizenName: `${payment.citizen.firstName} ${payment.citizen.lastName}`,
+      callbackUrl: input.callbackUrl,
+      returnUrl: input.returnUrl,
+    });
+
+    await this.db.citizenPayment.update({
+      where: { id: payment.id },
+      data: {
+        paymentStatus: 'PENDING_REVIEW',
+        paymentMethod: 'WHISH_MONEY',
+        // The provider's handle for this attempt. Also what the clerk sees in
+        // the verification queue while a live callback is still in flight.
+        whishTransactionRef: checkout.externalRef,
+      },
+    });
+
+    return { redirectUrl: checkout.redirectUrl, pending: !this.whish.isLive };
+  }
+
+  /**
+   * Verifies a raw callback body. Returns `null` unless the signature checks
+   * out — the controller has no other way to obtain a payload, so an unsigned
+   * body cannot reach `settleFromWhishCallback` by mistake.
+   */
+  parseWhishCallback(input: { rawBody: string; signature?: string }): WhishCallback | null {
+    return this.whish.parseCallback(input);
+  }
+
+  /**
+   * Applies a verified Whish callback.
+   *
+   * Idempotent by construction: it matches on `whishTransactionRef` and skips
+   * anything already PAID, because a provider that does not get a 200 will
+   * retry, and a retry must not take the money twice or stamp a second
+   * `paidAt`. A failed callback returns the invoice to UNPAID and clears the
+   * reference, so the citizen can start again rather than being stuck behind a
+   * PENDING_REVIEW that will never resolve.
+   */
+  async settleFromWhishCallback(callback: WhishCallback): Promise<{ applied: boolean }> {
+    const payment = await this.db.citizenPayment.findFirst({
+      where: { whishTransactionRef: callback.externalRef },
+      select: { id: true, amount: true, paymentStatus: true, citizenId: true },
+    });
+
+    if (!payment) {
+      this.logger.warn(`Whish callback for unknown reference ${callback.externalRef}`);
+      return { applied: false };
+    }
+    if (payment.paymentStatus === 'PAID') return { applied: false };
+
+    if (!callback.succeeded) {
+      await this.db.citizenPayment.update({
+        where: { id: payment.id },
+        data: { paymentStatus: 'UNPAID', paymentMethod: null, whishTransactionRef: null },
+      });
+      return { applied: true };
+    }
+
+    const total = Number(payment.amount);
+    // The provider is the authority on what was taken, but it must not exceed
+    // what was owed — a mismatch is a bug or a tampered payload, and either way
+    // banking more than the invoice would silently create a credit this system
+    // has no way to represent.
+    const received = Math.min(callback.amount, total);
+
+    await this.db.citizenPayment.update({
+      where: { id: payment.id },
+      data: {
+        paidAmount: received,
+        paymentStatus: received >= total - 0.5 ? 'PAID' : 'UNPAID',
+        paymentMethod: 'WHISH_MONEY',
+        whishTransactionRef: callback.transactionRef,
+        paidAt: received >= total - 0.5 ? new Date() : null,
+      },
+    });
+
+    this.events.emit('payment.reviewed', {
+      tenantSlug: this.tenantContext.tenantSlug,
+      paymentId: payment.id,
+      citizenId: payment.citizenId,
+      confirmed: true,
+      actorId: null,
+      actorRole: 'WHISH',
+    });
+
+    return { applied: true };
   }
 
   /**
@@ -696,7 +886,11 @@ export class FeesService {
   async settleInPerson(input: {
     paymentId: string;
     amount?: number;
-    method: 'CASH' | 'WHISH_MONEY';
+    // The shared enum's type rather than a hand-written union: this listed two
+    // methods and had to be found by the compiler when a third was added.
+    method: PaymentMethod;
+    /** Required by the schema when `method` is WHISH_MONEY; ignored for cash. */
+    whishTransactionRef?: string;
     note?: string;
     actor: { id: string; role: string };
   }) {
@@ -749,6 +943,17 @@ export class FeesService {
         // of the arrears the municipality is chasing.
         paymentStatus: fullySettled ? 'PAID' : 'UNPAID',
         paymentMethod: input.method as never,
+        /**
+         * Cleared when the method is cash.
+         *
+         * A row can reach here twice — a citizen declares a transfer, it is
+         * refused, and the money then arrives at the counter in notes. Leaving
+         * the old reference behind would leave a cash payment carrying a Whish
+         * number that describes a transfer the municipality never found, which
+         * the transactions log would then print underneath a «نقداً» badge.
+         */
+        whishTransactionRef:
+          input.method === 'WHISH_MONEY' ? (input.whishTransactionRef ?? null) : null,
         paidAt: fullySettled ? new Date() : null,
         reviewedById: input.actor.id,
         reviewNote: input.note ?? null,

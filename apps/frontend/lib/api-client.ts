@@ -1,3 +1,6 @@
+import { IMPORT_BATCH_SIZE } from '@mechanization/shared-schemas';
+import type { CitizenImportResult, ImportRow } from '@mechanization/shared-schemas';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
 export interface ApiError {
@@ -600,6 +603,68 @@ export interface CitizenWriteInput {
   properties: Array<Record<string, unknown>>;
 }
 
+/**
+ * Bulk import from a spreadsheet, sent in batches.
+ *
+ * Sends the raw cells rather than a shaped payload: the branch rules that turn
+ * a flat row into a registration live in `buildCitizenPayload` on the server,
+ * next to the schema that validates the result. Shaping here would be a second
+ * copy of those rules, free to drift from the one that decides what is valid.
+ *
+ * Batched because one request per file failed two ways at real sizes. Arabic
+ * costs two bytes a character, so a few hundred rows across twenty-nine columns
+ * overran the body limit and came back as a 500 `PayloadTooLargeError`; and
+ * because each row opens its own transaction, a whole file in one request holds
+ * the connection open for minutes. `startRow` keeps every reported row number
+ * pointing at the clerk's file rather than at the batch.
+ *
+ * Batches run in sequence, not `Promise.all`: the server writes rows serially
+ * anyway (the tenant pool is five connections), so firing them together would
+ * only queue them somewhere less visible while making the progress meaningless.
+ *
+ * `dryRun` runs the identical path and writes nothing, which is what the
+ * preview step reports.
+ */
+export async function importCitizens(
+  tenant: string,
+  token: string,
+  input: {
+    rows: ImportRow[];
+    dryRun: boolean;
+    /** Called after each batch with rows finished so far, for the progress bar. */
+    onProgress?: (done: number, total: number) => void;
+  },
+): Promise<CitizenImportResult> {
+  const merged: CitizenImportResult = {
+    dryRun: input.dryRun,
+    created: 0,
+    failed: 0,
+    results: [],
+  };
+
+  for (let offset = 0; offset < input.rows.length; offset += IMPORT_BATCH_SIZE) {
+    const batch = input.rows.slice(offset, offset + IMPORT_BATCH_SIZE);
+
+    const result = await apiFetch<CitizenImportResult>(tenant, '/citizens/import', {
+      token,
+      method: 'POST',
+      body: JSON.stringify({
+        rows: batch,
+        // 1-based, and counted in the file the clerk is holding.
+        startRow: offset + 1,
+        dryRun: input.dryRun,
+      }),
+    });
+
+    merged.created += result.created;
+    merged.failed += result.failed;
+    merged.results.push(...result.results);
+    input.onProgress?.(Math.min(offset + batch.length, input.rows.length), input.rows.length);
+  }
+
+  return merged;
+}
+
 /** Files a citizen and their first registration. Lands as PENDING, like any claim. */
 export function createCitizen(tenant: string, token: string, input: CitizenWriteInput) {
   return apiFetch<{
@@ -946,6 +1011,22 @@ export function getMyPayments(tenant: string, token: string) {
   return apiFetch<{ items: CitizenPaymentItem[] }>(tenant, '/fees/payments/mine', { token });
 }
 
+/**
+ * Opens a Whish checkout for one of the signed-in citizen's own bills.
+ *
+ * `redirectUrl` is where the browser goes next — the provider's hosted page
+ * once credentials are configured, and back to the portal until then.
+ * `pending` says which of those happened, so the UI can tell the citizen the
+ * truth rather than claiming a payment that has not been taken.
+ */
+export function startWhishCheckout(tenant: string, token: string, paymentId: string) {
+  return apiFetch<{ redirectUrl: string; pending: boolean }>(
+    tenant,
+    `/fees/payments/mine/${encodeURIComponent(paymentId)}/whish/checkout`,
+    { token, method: 'POST' },
+  );
+}
+
 /** Declares a payment — moves it to PENDING_REVIEW, never straight to PAID. */
 export function declarePayment(
   tenant: string,
@@ -974,6 +1055,21 @@ export function loginByReference(
   });
 }
 
+/**
+ * Citizen sign-in by رقم مرجعي alone — the landing page's single field.
+ *
+ * A separate function against a separate route, not `loginByReference` with an
+ * omitted phone: the payments portal still requires both, and the two bars are
+ * meant to stay visibly different at every layer. See `referenceOnlyLoginSchema`
+ * for what the municipality is accepting by using this one.
+ */
+export function openByReference(tenant: string, referenceNumber: string) {
+  return apiFetch<Session>(tenant, '/auth/citizen/reference/open', {
+    method: 'POST',
+    body: JSON.stringify({ referenceNumber }),
+  });
+}
+
 /** One invoice as the admin ledger shows it — who owes it, and where it stands. */
 export interface AdminPaymentItem {
   id: string;
@@ -987,6 +1083,11 @@ export interface AdminPaymentItem {
   paymentMethod: string | null;
   whishTransactionRef: string | null;
   paidAt: string | null;
+  /**
+   * Last write to the row. Stands in for the payment time on a *partial*
+   * settlement, which never gets a `paidAt` — see the note on the server.
+   */
+  updatedAt: string;
   frequency: string | null;
   citizenId: string;
   citizenName: string;
@@ -994,16 +1095,30 @@ export interface AdminPaymentItem {
   citizenReference: string | null;
 }
 
-/** Every invoice, filterable by status and by who owes it. */
+/**
+ * Every invoice, filterable by status, method and by who owes it.
+ *
+ * `transactionsOnly` narrows it to rows where money moved (or is claimed to
+ * have) and re-orders newest-first — the سجل العمليات view, as against the
+ * fees ledger's "what is owed".
+ */
 export function getAllPayments(
   tenant: string,
   token: string,
-  filter: { status?: string; search?: string; citizenId?: string } = {},
+  filter: {
+    status?: string;
+    search?: string;
+    citizenId?: string;
+    method?: string;
+    transactionsOnly?: boolean;
+  } = {},
 ) {
   const query = new URLSearchParams();
   if (filter.status) query.set('status', filter.status);
   if (filter.search) query.set('search', filter.search);
   if (filter.citizenId) query.set('citizenId', filter.citizenId);
+  if (filter.method) query.set('method', filter.method);
+  if (filter.transactionsOnly) query.set('transactionsOnly', 'true');
   const suffix = query.toString() ? `?${query}` : '';
   return apiFetch<{ items: AdminPaymentItem[] }>(tenant, `/fees/payments${suffix}`, { token });
 }
@@ -1029,11 +1144,19 @@ export function settlePayment(
   tenant: string,
   token: string,
   id: string,
-  input: { method?: string; amount?: number; note?: string } = {},
+  input: {
+    method?: string;
+    amount?: number;
+    /** Required by the server when `method` is `WHISH_MONEY`. */
+    whishTransactionRef?: string;
+    note?: string;
+  } = {},
 ) {
   return apiFetch<{ paymentStatus: string }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/settle`,
+    // The `CASH` default is kept ahead of the spread so an omitted method
+    // still means cash, as it did before the counter could bank a transfer.
     { token, method: 'PATCH', body: JSON.stringify({ method: 'CASH', ...input }) },
   );
 }

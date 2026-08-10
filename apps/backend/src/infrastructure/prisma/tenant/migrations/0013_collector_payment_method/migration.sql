@@ -1,0 +1,16 @@
+-- A third way money reaches the municipality: a محصّل collecting on his round.
+--
+-- Schema-unqualified: the migrator sets `search_path` to the target tenant
+-- schema before running this, so one file migrates every municipality.
+--
+-- Additive and safe for existing rows — every CitizenPayment already written
+-- keeps the value it has, and nothing reads PaymentMethod exhaustively in SQL.
+--
+-- Worth stating plainly because it cannot be undone: PostgreSQL has no
+-- `ALTER TYPE ... DROP VALUE`. Reversing this means recreating the type and
+-- rewriting every column that uses it, so the name is the one we keep.
+--
+-- `IF NOT EXISTS` so re-running the migrator over an already-migrated schema is
+-- a no-op rather than an error — the runner applies pending migrations per
+-- tenant, and a partially-migrated estate is the normal state mid-rollout.
+ALTER TYPE "PaymentMethod" ADD VALUE IF NOT EXISTS 'COLLECTOR';

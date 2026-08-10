@@ -225,6 +225,45 @@ export class IdentityService {
   }
 
   /**
+   * Citizen sign-in by رقم مرجعي alone — the portal's front door.
+   *
+   * Separate from `loginByReference` rather than a flag on it, so that neither
+   * caller can drift into the other's security posture by accident: the
+   * payments portal keeps demanding a phone, and only the route that opted into
+   * the single-factor bar gets it. See `referenceOnlyLoginSchema` for why the
+   * municipality accepts that bar and what actually protects it.
+   *
+   * The error is the same sentence a wrong-format entry gets, and deliberately
+   * does not distinguish "no such reference" from "that citizen is blocked" —
+   * a distinct message would turn this into a way to test which references
+   * exist.
+   */
+  async loginByReferenceOnly(input: {
+    tenantSlug: string;
+    referenceNumber: string;
+    context: { ip?: string; userAgent?: string };
+  }): Promise<SessionResult> {
+    const citizen = await this.users.findCitizenByReference(input.referenceNumber);
+
+    if (!citizen) {
+      throw new UnauthorizedError('الرقم المرجعي غير صحيح');
+    }
+
+    citizen.assertMayStartSession();
+
+    await this.users.markLoggedIn(citizen.id);
+    citizen.recordLogin(input.context);
+    this.publish(citizen.pullEvents(), input.tenantSlug);
+
+    return this.issueSession({
+      id: citizen.id,
+      name: citizen.fullName,
+      kind: 'CITIZEN',
+      tenantSlug: input.tenantSlug,
+    });
+  }
+
+  /**
    * Verifies the code, then resolves *which person* is logging in.
    *
    * A household sharing one phone is the normal case, not an edge case, so a

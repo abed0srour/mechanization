@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import {
   referenceLoginSchema,
+  referenceOnlyLoginSchema,
   requestOtpSchema,
   staffLoginSchema,
   totpEnrolmentSchema,
@@ -153,6 +154,37 @@ export class AuthController {
       tenantSlug,
       referenceNumber: body.referenceNumber,
       phone: body.phone,
+      context: { ip: request.ip, userAgent: request.header('user-agent') },
+    });
+  }
+
+  /**
+   * Sign-in by رقم مرجعي alone — the citizen landing page.
+   *
+   * Throttled harder than any other route here: 5 attempts a minute, as the
+   * two-factor version gets, is sized for someone mistyping their own number.
+   * This one is the whole credential, so it is the only endpoint where a
+   * patient attacker with a list is a realistic shape of attack — and at this
+   * rate, the reference's 2³⁰ suffix space is unreachable by orders of
+   * magnitude.
+   */
+  @Public()
+  @Post('citizen/reference/open')
+  @Throttle({
+    default: {
+      limit: APP_CONFIG.throttle.referenceOnlyLogin.limit,
+      ttl: APP_CONFIG.throttle.referenceOnlyLogin.ttlSeconds * 1000,
+    },
+  })
+  async openByReference(
+    @Param('tenantSlug') tenantSlug: string,
+    @Body(new ZodValidationPipe(referenceOnlyLoginSchema))
+    body: { referenceNumber: string },
+    @Req() request: Request,
+  ) {
+    return this.identity.loginByReferenceOnly({
+      tenantSlug,
+      referenceNumber: body.referenceNumber,
       context: { ip: request.ip, userAgent: request.header('user-agent') },
     });
   }

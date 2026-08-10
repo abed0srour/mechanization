@@ -31,7 +31,7 @@ export const PAYMENT_STATUS = ['UNPAID', 'PENDING_REVIEW', 'PAID', 'OVERDUE'] as
 export const paymentStatusSchema = z.enum(PAYMENT_STATUS);
 export type PaymentStatus = (typeof PAYMENT_STATUS)[number];
 
-export const PAYMENT_METHOD = ['CASH', 'WHISH_MONEY'] as const;
+export const PAYMENT_METHOD = ['CASH', 'WHISH_MONEY', 'COLLECTOR'] as const;
 export const paymentMethodSchema = z.enum(PAYMENT_METHOD);
 export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 
@@ -148,7 +148,14 @@ export type SystemSettingsInput = z.infer<typeof systemSettingsSchema>;
  */
 export const declarePaymentSchema = z
   .object({
-    method: paymentMethodSchema,
+    /**
+     * Narrower than `paymentMethodSchema` on purpose: COLLECTOR is a fact only
+     * the municipality can assert. A citizen who hands notes to a محصّل has no
+     * way to prove it and nothing to quote, so accepting the value here would
+     * queue a claim no clerk could ever verify — the collector's own entry is
+     * what records that money.
+     */
+    method: z.enum(['CASH', 'WHISH_MONEY'], { errorMap: () => ({ message: 'طريقة الدفع مطلوبة' }) }),
     whishTransactionRef: z
       .string()
       .trim()
@@ -195,8 +202,9 @@ export type ChargeCitizen = z.infer<typeof chargeCitizenSchema>;
  */
 export const noticeActiveSchema = z.object({ isActive: z.boolean() });
 
-export const settlePaymentSchema = z.object({
-  method: paymentMethodSchema.default('CASH'),
+export const settlePaymentSchema = z
+  .object({
+    method: paymentMethodSchema.default('CASH'),
   /**
    * How much was actually handed over.
    *
@@ -206,13 +214,33 @@ export const settlePaymentSchema = z.object({
    * balance is a partial; above it is refused server-side rather than banked
    * as credit, because nothing here can carry an overpayment forward.
    */
-  amount: z.coerce
-    .number({ invalid_type_error: 'المبلغ يجب أن يكون رقماً' })
-    .positive('المبلغ يجب أن يكون أكبر من صفر')
-    .max(1_000_000_000_000, 'المبلغ كبير جداً')
-    .optional(),
-  note: z.string().trim().max(500).optional(),
-});
+    amount: z.coerce
+      .number({ invalid_type_error: 'المبلغ يجب أن يكون رقماً' })
+      .positive('المبلغ يجب أن يكون أكبر من صفر')
+      .max(1_000_000_000_000, 'المبلغ كبير جداً')
+      .optional(),
+    note: z.string().trim().max(500).optional(),
+    /**
+     * The transfer's own number, when the clerk is recording a Whish payment
+     * rather than cash.
+     *
+     * Cash needs nothing of the sort — the money is in the drawer and the وصل
+     * is the record. A transfer is only auditable through its reference, which
+     * is why `declarePaymentSchema` already demands one from the citizen; the
+     * rule is repeated here rather than relaxed, because a clerk banking a
+     * transfer they cannot cite is the same gap seen from the other side.
+     */
+    whishTransactionRef: z.string().trim().max(80).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.method === 'WHISH_MONEY' && !data.whishTransactionRef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['whishTransactionRef'],
+        message: 'أدخل رقم عملية التحويل',
+      });
+    }
+  });
 
 export type SettlePayment = z.infer<typeof settlePaymentSchema>;
 
@@ -255,3 +283,46 @@ export const referenceLoginSchema = z.object({
 });
 
 export type ReferenceLogin = z.infer<typeof referenceLoginSchema>;
+
+/**
+ * Citizen sign-in by رقم مرجعي **alone**, for the municipality's front door.
+ *
+ * A deliberate, documented relaxation of the rule above, made at the
+ * municipality's request: the portal's landing page asks for one thing, the
+ * number printed on the citizen's own paperwork, because the population it
+ * serves does not reliably reach a second factor — the household phone is
+ * shared, off, or out of credit, and an SMS code that never arrives is a door
+ * that never opens.
+ *
+ * What makes it defensible rather than merely convenient:
+ *
+ *  - The suffix is six characters from a 32-symbol alphabet — 2³⁰, about 1.07
+ *    billion — so guessing one at the rate limit below would take millennia.
+ *    The reference is not a weak secret; it is a *disclosed* one.
+ *  - The real exposure is therefore a reference someone **sees**: a receipt
+ *    left on a counter, a number read aloud. That is a physical-custody risk
+ *    the municipality accepts, not a cryptographic one.
+ *  - The format is validated before any lookup, so a malformed guess costs a
+ *    regex rather than a query.
+ *
+ * `referenceLoginSchema` is left exactly as it was. The payments portal keeps
+ * asking for both, so this relaxation reaches only the route that opted into it.
+ */
+export const referenceOnlyLoginSchema = z.object({
+  referenceNumber: z
+    .string({ required_error: 'الرقم المرجعي مطلوب' })
+    .trim()
+    // Spaces and lowercase are what a citizen actually types off a slip; the
+    // domain's `ReferenceNumber.parse` normalises the same way.
+    .transform((value) => value.toUpperCase().replace(/\s/g, ''))
+    .pipe(
+      z
+        .string()
+        .regex(
+          /^[A-Z]{3}-\d{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/,
+          'الرقم المرجعي غير صالح — مثال: BZR-2608-5HLQBM',
+        ),
+    ),
+});
+
+export type ReferenceOnlyLogin = z.infer<typeof referenceOnlyLoginSchema>;

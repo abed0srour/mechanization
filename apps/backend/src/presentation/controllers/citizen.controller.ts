@@ -11,10 +11,12 @@ import {
 import {
   adminCreateCitizenSchema,
   adminUpdateCitizenSchema,
+  citizenImportSchema,
 } from '@mechanization/shared-schemas';
 import type {
   AdminCreateCitizen,
   AdminUpdateCitizen,
+  CitizenImportRequest,
 } from '@mechanization/shared-schemas';
 import { CitizensService } from '../../application/features/citizens/citizens.service';
 import { ReportingService } from '../../application/features/reporting/reporting.service';
@@ -134,6 +136,33 @@ export class CitizenController {
     return this.citizens.create({
       tenantSlug,
       payload,
+      actor: { id: user.sub, role: user.role ?? '' },
+    });
+  }
+
+  /**
+   * Bulk import from a spreadsheet.
+   *
+   * Same roles as `create` — this is that endpoint applied many times, and
+   * gating it more tightly would only push a clerk into pasting rows one at a
+   * time through a route they already have.
+   *
+   * Declared **before** `@Patch(':id')` and alongside the other static paths so
+   * it is matched as a literal: registered after a `:id` route, Nest would read
+   * `import` as an id and this would never be reached.
+   */
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Post('import')
+  async import(
+    @Param('tenantSlug') tenantSlug: string,
+    @Body(new ZodValidationPipe(citizenImportSchema)) payload: CitizenImportRequest,
+    @CurrentUser() user: SessionClaims,
+  ) {
+    return this.citizens.importMany({
+      tenantSlug,
+      rows: payload.rows,
+      startRow: payload.startRow,
+      dryRun: payload.dryRun,
       actor: { id: user.sub, role: user.role ?? '' },
     });
   }

@@ -498,6 +498,14 @@ enum PaymentStatus {
 enum PaymentMethod {
   CASH
   WHISH_MONEY
+  /// Cash, but taken by a محصّل on his round rather than at the counter.
+  ///
+  /// A separate value rather than CASH with a note, because the two differ in
+  /// the one way that matters to a municipality reconciling a day: counter cash
+  /// is already in the safe, collector cash is with a person until he hands it
+  /// in. Folding them together makes "how much did we take today" and "how much
+  /// do we hold" the same number, which they are not.
+  COLLECTOR
 }
 
 /// The rule an administrator writes once: "500,000 LBP of رسم النفايات, every

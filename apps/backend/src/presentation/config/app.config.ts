@@ -5,6 +5,19 @@ import { join } from 'node:path';
 export const APP_CONFIG = {
   /** Path prefix every tenant-scoped route sits under. */
   apiPrefix: 'api/v1',
+
+  /**
+   * Absolute URLs this service hands to a third party.
+   *
+   * Whish is told where to send its confirmation and where to return the
+   * citizen's browser. Both are built from configuration and never from the
+   * request: a caller-supplied return URL is an open redirect, and a
+   * caller-supplied callback URL would let anyone aim the provider's
+   * "payment succeeded" message at a server they control.
+   */
+  publicApiUrl:
+    process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 4000}/api/v1`,
+  publicPortalUrl: process.env.PUBLIC_PORTAL_URL ?? 'http://localhost:3000',
   tenantRoutePattern: 'api/v1/t/:tenantSlug/*',
 
   otp: {
@@ -23,6 +36,14 @@ export const APP_CONFIG = {
   throttle: {
     /** Staff login — credential stuffing is the threat here. */
     staffLogin: { ttlSeconds: 60, limit: 5 },
+    /**
+     * Citizen sign-in by رقم مرجعي alone.
+     *
+     * Tighter than every other bar because the reference *is* the whole
+     * credential on that route. Five a minute is room to mistype your own
+     * number twice; it is not room to work through a list.
+     */
+    referenceOnlyLogin: { ttlSeconds: 60, limit: 5 },
     /** OTP request — SMS costs money and texts are a nuisance vector. */
     otpRequest: { ttlSeconds: 60, limit: 3 },
     /** Submission — generous; a citizen retrying a flaky upload is not an attack. */

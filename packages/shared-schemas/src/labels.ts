@@ -52,6 +52,7 @@ export const ar = {
   paymentMethod: {
     CASH: 'نقداً في البلدية',
     WHISH_MONEY: 'تحويل Whish Money',
+    COLLECTOR: 'عبر المحصّل',
   },
 
   /** Staff roles as the municipality names them, not as the enum spells them. */

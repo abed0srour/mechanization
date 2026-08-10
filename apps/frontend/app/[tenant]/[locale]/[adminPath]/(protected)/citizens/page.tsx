@@ -9,6 +9,7 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
+  FileSpreadsheet,
   Loader2,
   MessageCircle,
   Pencil,
@@ -24,10 +25,13 @@ import {
 import {
   ApiRequestError,
   deleteCitizen,
+  importCitizens,
   listCitizens,
   logApiError,
   setCitizenActive,
 } from '@/lib/api-client';
+import { ImportCitizensDialog } from '@/components/admin/import-citizens-dialog';
+import { PageHeader } from '@/components/ui/page-header';
 import type { CitizenListItem } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +90,7 @@ export default function CitizensPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const canWrite = role ? CAN_WRITE.includes(role) : false;
   const canDelete = role === 'SUPER_ADMIN';
@@ -432,23 +437,25 @@ export default function CitizensPage({
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
-        <div className="space-y-2">
-          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
-            <Users className="size-7 text-primary" aria-hidden />
-            المواطنون
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            سجل المواطنين المسجّلين لدى البلدية — البيانات والعقارات والرسوم المستحقة
-          </p>
-        </div>
-        {canWrite ? (
-          <Link href={`${base}/citizens/new`} className={buttonVariants()}>
-            <UserPlus className="size-4" aria-hidden />
-            تسجيل مواطن جديد
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        icon={Users}
+        title="المواطنون"
+        subtitle="سجل المواطنين المسجّلين لدى البلدية — البيانات والعقارات والرسوم المستحقة"
+        actions={
+          canWrite ? (
+            <>
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <FileSpreadsheet className="size-4" aria-hidden />
+                استيراد من ملف
+              </Button>
+              <Link href={`${base}/citizens/new`} className={buttonVariants()}>
+                <UserPlus className="size-4" aria-hidden />
+                تسجيل مواطن جديد
+              </Link>
+            </>
+          ) : null
+        }
+      />
 
       {error ? (
         <p
@@ -511,6 +518,18 @@ export default function CitizensPage({
           />
         </CardContent>
       </Card>
+
+      <ImportCitizensDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImport={(input) => {
+          // `token` is non-null past the guard above; the dialog never renders
+          // before it is set.
+          if (!token) return Promise.reject(new Error('انتهت الجلسة.'));
+          return importCitizens(tenant, token, input);
+        }}
+        onDone={() => void load()}
+      />
     </div>
   );
 }

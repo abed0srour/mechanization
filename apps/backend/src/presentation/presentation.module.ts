@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApplicationModule } from '../application/application.module';
 import { AuditController } from './controllers/audit.controller';
 import { AuthController } from './controllers/auth.controller';
@@ -38,10 +39,23 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
     /**
-     * Both guards are global and ordered: authenticate, then authorise. Opting
-     * out is explicit (`@Public()`), so a new controller is protected by
-     * default — the failure mode of forgetting is a locked door, not an open one.
+     * Rate limit, then authenticate, then authorise — in that order, because
+     * guards run in the order they are registered and a flood should be turned
+     * away before it costs a token verification or a database round trip.
+     *
+     * `ThrottlerGuard` had never been registered at all. `ThrottlerModule.forRoot`
+     * in AppModule configured it and the `@Throttle` decorators on the login
+     * routes set their metadata, but with nothing reading that metadata every
+     * limit in this codebase was decorative: staff login, the OTP request that
+     * costs the municipality money per SMS, and the رقم مرجعي sign-in could each
+     * be called without bound. Verified by calling one of them past its limit
+     * and getting six successes out of six.
+     *
+     * Opting out of auth is explicit (`@Public()`), so a new controller is
+     * protected by default — the failure mode of forgetting is a locked door,
+     * not an open one.
      */
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],

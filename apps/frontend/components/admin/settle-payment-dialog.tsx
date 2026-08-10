@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Banknote, CreditCard, Loader2, UserCheck } from 'lucide-react';
 import { formatLbp } from '@/lib/currency';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,9 +12,38 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Field } from '@/components/ui/field';
+import { ChoiceCard, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+
+/**
+ * The two ways money reaches the municipality.
+ *
+ * Both go straight to PAID here — the distinction is what is being recorded,
+ * not whether it needs verifying. A clerk choosing Whish is stating they have
+ * already seen the transfer land, which is precisely the check PENDING_REVIEW
+ * performs for a citizen's unverified claim.
+ */
+const METHODS = [
+  {
+    value: 'CASH',
+    title: 'نقداً',
+    description: 'مبلغ استُلم في البلدية',
+    icon: Banknote,
+  },
+  {
+    value: 'WHISH_MONEY',
+    title: 'تحويل Whish',
+    description: 'تحويل مؤكَّد في حساب البلدية',
+    icon: CreditCard,
+  },
+  {
+    value: 'COLLECTOR',
+    title: 'عبر المحصّل',
+    description: 'مبلغ حصّله موظّف في جولته',
+    icon: UserCheck,
+  },
+] as const;
 
 /** Only the fields this dialog needs, so it works with any payment shape. */
 export interface SettleTarget {
@@ -27,12 +56,15 @@ export interface SettleTarget {
 }
 
 export interface SettleValues {
+  method: 'CASH' | 'WHISH_MONEY' | 'COLLECTOR';
   amount: number;
+  /** Only ever sent for a Whish payment; the server rejects it as missing. */
+  whishTransactionRef?: string;
   note?: string;
 }
 
 /**
- * تسجيل دفعة نقدية — records what was actually handed over.
+ * تسجيل دفعة — records what was actually received.
  *
  * The amount used to be fixed: the button settled the whole invoice or did
  * nothing, so a citizen arriving with part of the money could not be recorded
@@ -43,6 +75,17 @@ export interface SettleValues {
  * The balance — not the invoice's face value — is what defaults and what caps:
  * on an invoice already part-settled, offering the full amount again would
  * take the money twice.
+ *
+ * The method used to be assumed. It was hard-wired to cash — reasonably, since
+ * this is the counter — but a clerk who has just watched a transfer land in the
+ * municipality's account has no way to bank it here except by calling it cash,
+ * which loses both the method and the transfer's reference. Choosing Whish now
+ * asks for that reference, exactly as the citizen-facing declaration does, so
+ * the two routes to the same fact record the same evidence.
+ *
+ * Either way this still skips PENDING_REVIEW: that queue exists to verify a
+ * transfer *nobody in the building witnessed*, and a clerk selecting Whish here
+ * is asserting they have already seen it in the account.
  */
 export function SettlePaymentDialog({
   open,
@@ -59,6 +102,8 @@ export function SettlePaymentDialog({
   error: string | null;
   onSubmit: (values: SettleValues) => void;
 }) {
+  const [method, setMethod] = useState<SettleValues['method']>('CASH');
+  const [reference, setReference] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
@@ -68,14 +113,24 @@ export function SettlePaymentDialog({
     // unit, so a grouped default like "5,000,000" would have to be stripped
     // again on every keystroke.
     setAmount(String(Math.round(payment.remaining)));
+    // Cash is the default because this dialog is opened at a counter; Whish is
+    // the deliberate choice, not the one you land on by not reading.
+    setMethod('CASH');
+    setReference('');
     setNote('');
   }, [open, payment]);
 
   if (!payment) return null;
 
   const received = Number(amount.replace(/\D/g, ''));
-  const valid = Number.isFinite(received) && received > 0 && received <= payment.remaining;
-  const isPartial = valid && received < payment.remaining;
+  const isWhish = method === 'WHISH_MONEY';
+  const missingReference = isWhish && reference.trim() === '';
+  const valid =
+    Number.isFinite(received) &&
+    received > 0 &&
+    received <= payment.remaining &&
+    !missingReference;
+  const isPartial = received > 0 && received < payment.remaining;
 
   const tooMuch = received > payment.remaining;
 
@@ -83,7 +138,7 @@ export function SettlePaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent closeLabel="إغلاق" className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>تسجيل دفعة نقدية</DialogTitle>
+          <DialogTitle>تسجيل دفعة</DialogTitle>
           <DialogDescription>{payment.title}</DialogDescription>
         </DialogHeader>
 
@@ -104,6 +159,49 @@ export function SettlePaymentDialog({
             ) : null}
             <Row label="الرصيد المستحق" value={formatLbp(payment.remaining)} strong />
           </dl>
+
+          <Field label="طريقة الدفع" htmlFor="settle-method" required>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {METHODS.map((option) => (
+                <ChoiceCard
+                  key={option.value}
+                  name="settle-method"
+                  value={option.value}
+                  checked={method === option.value}
+                  onChange={(next) => {
+                    setMethod(next as SettleValues['method']);
+                    // Dropping back to cash clears the reference so a number
+                    // typed by mistake cannot ride along on a cash payment —
+                    // the server nulls it anyway, and the two agreeing is what
+                    // keeps this form from lying about what it will send.
+                    if (next === 'CASH') setReference('');
+                  }}
+                  title={option.title}
+                  description={option.description}
+                  icon={option.icon}
+                />
+              ))}
+            </div>
+          </Field>
+
+          {isWhish ? (
+            <Field
+              label="رقم عملية التحويل"
+              htmlFor="settle-reference"
+              required
+              hint="كما يظهر في حساب البلدية — هو الإثبات الوحيد للتحويل."
+            >
+              <Input
+                id="settle-reference"
+                dir="ltr"
+                className="text-start font-mono"
+                placeholder="TRX-000000"
+                invalid={missingReference && reference !== ''}
+                value={reference}
+                onChange={(event) => setReference(event.target.value)}
+              />
+            </Field>
+          ) : null}
 
           <Field
             label="المبلغ المستلم (ل.ل)"
@@ -173,10 +271,18 @@ export function SettlePaymentDialog({
           </Button>
           <Button
             disabled={!valid || submitting}
-            onClick={() => onSubmit({ amount: received, note: note.trim() || undefined })}
+            onClick={() =>
+              onSubmit({
+                method,
+                amount: received,
+                whishTransactionRef: isWhish ? reference.trim() : undefined,
+                note: note.trim() || undefined,
+              })
+            }
           >
             {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            تسجيل {formatLbp(valid ? received : 0)}
+            تسجيل {formatLbp(valid ? received : 0)}{' '}
+            {isWhish ? 'تحويلاً' : method === 'COLLECTOR' ? 'عبر المحصّل' : 'نقداً'}
           </Button>
         </DialogFooter>
       </DialogContent>
