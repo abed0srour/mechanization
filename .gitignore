@@ -16,5 +16,9 @@ coverage/
 # `pnpm db:generate`; they are build output, not source.
 apps/backend/src/generated/
 
+# Database dumps. These hold citizens' names, phone numbers and identity
+# document numbers — never in git.
+apps/backend/backups/*.json
+
 .DS_Store
 *.log

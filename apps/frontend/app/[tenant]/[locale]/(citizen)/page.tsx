@@ -1,81 +1,170 @@
-import Link from 'next/link';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+'use client';
+
+import { use, useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, FileSearch, Loader2 } from 'lucide-react';
+import { ApiRequestError, logApiError, openByReference } from '@/lib/api-client';
+import { loadSession, saveSession } from '@/lib/session';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+
+import {
+  formatReference,
+  isCompleteReference,
+  nextReferenceValue,
+  REFERENCE_RAW_LENGTH,
+  toRawReference,
+} from '@/lib/reference';
 
 /**
- * Landing page: one action, متابعة الطلب.
+ * The municipality's front door: one field, the citizen's رقم مرجعي.
  *
- * Self-service registration is no longer filed here. A claim is now entered by
- * a municipality clerk from the documents the citizen brings to the counter —
- * see the admin citizens registry — which means this page has exactly one job
- * left: get someone who has already filed back into their own record. The
- * either/or that used to sit here (تقديم طلب جديد beside الدخول) would now
- * offer a route that ends in a form nobody is meant to fill in themselves.
+ * Everything else that used to sit here — the sign-in card, the "what to bring
+ * to the counter" checklist — is gone on purpose. This page is opened by a
+ * person holding a slip of paper who wants to know what they owe, and every
+ * additional element on it is something between them and that answer.
  *
- * The old "what you need before you start" checklist went with it. It listed
- * the documents to have in hand *while filling in the wizard*; as preparation
- * for a visit to the municipality it is still useful, so it is kept — reworded
- * for the counter rather than the browser.
+ * Signing in with the reference alone is a decision the municipality took
+ * knowingly; `referenceOnlyLoginSchema` records what it rests on and what it
+ * gives up. The SMS route still exists at `/login` for anyone who would rather
+ * use it, and the payments portal still asks for a phone alongside the number.
  */
-export default async function TenantHome({
+export default function TenantHome({
   params,
 }: {
   params: Promise<{ tenant: string; locale: string }>;
 }) {
-  const { tenant, locale } = await params;
+  const { tenant, locale } = use(params);
+  const router = useRouter();
   const base = `/${tenant}/${locale}`;
 
+  const [reference, setReference] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Already signed in — go straight through rather than asking again.
+  useEffect(() => {
+    const session = loadSession(tenant);
+    if (session?.user.kind === 'CITIZEN') router.replace(`${base}/my-file`);
+  }, [tenant, base, router]);
+
+  const complete = isCompleteReference(reference);
+
+  const submit = useCallback(async () => {
+    if (!isCompleteReference(reference) || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const session = await openByReference(tenant, formatReference(toRawReference(reference)));
+      // Not remembered: a municipality's front door is opened on borrowed and
+      // shared phones as often as on personal ones, so the session dies with
+      // the tab rather than waiting there for whoever picks it up next.
+      saveSession(tenant, session);
+      router.replace(`${base}/my-file`);
+    } catch (caught) {
+      logApiError(caught);
+      setError(
+        caught instanceof ApiRequestError
+          ? caught.message
+          : 'تعذّر فتح الملف. يرجى المحاولة لاحقاً.',
+      );
+      setSubmitting(false);
+    }
+  }, [tenant, base, router, reference, submitting]);
+
   return (
-    <div className="space-y-10">
-      <div className="space-y-3">
-        <h1 className="text-3xl font-bold leading-snug tracking-tight">
-          تابع طلب تسجيل عقارك
+    <div className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center space-y-6">
+      <div className="space-y-3 text-center">
+        <span
+          aria-hidden
+          className="mx-auto flex size-16 items-center justify-center rounded-full bg-primary/10 text-primary"
+        >
+          <FileSearch className="size-8" />
+        </span>
+        <h1 className="text-2xl font-bold leading-snug tracking-tight sm:text-3xl">
+          أدخل رقمك المرجعي
         </h1>
-        <p className="max-w-prose text-lg text-muted-foreground">
-          سجّل الدخول لمتابعة حالة طلبك والاطلاع على الرسوم المستحقة عليك. لتقديم طلب
-          جديد، يرجى مراجعة البلدية مع أوراقك الثبوتية.
+        <p className="text-muted-foreground">
+          لعرض عقاراتك والرسوم المستحقة عليك وما سدّدته.
         </p>
       </div>
 
-      {/*
-        A single card, kept at the same tap size the pair used to share. Made
-        full-width on a phone and half-width from `sm` up rather than allowed to
-        stretch across a desktop: a lone 11rem-tall band spanning the whole page
-        reads as a banner, not as something to press.
-      */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Link
-          href={`${base}/login`}
-          className="flex min-h-[11rem] flex-col justify-between rounded-lg bg-primary p-6 text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:col-span-1"
-        >
-          <span className="text-2xl font-bold">الدخول لمتابعة طلبي</span>
-          <span className="text-base opacity-90">
-            برقم هاتفك — نرسل لك رمزاً برسالة نصية
-          </span>
-        </Link>
-      </div>
-
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">ما الذي تحتاجه عند مراجعة البلدية</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="space-y-3 text-muted-foreground">
-            {[
-              'وثيقة إثبات: هوية، إخراج قيد، دفتر سواقة، أو جواز سفر',
-              'رقم العقار كما هو مدوّن على سند الملكية، ومساحة الوحدة التقريبية',
-              'سند الملكية إن كنت مالكاً، أو عقد الإيجار إن كنت مستأجراً',
-            ].map((item, index) => (
-              <li key={item} className="flex items-start gap-3">
-                <span
-                  aria-hidden
-                  className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground"
-                >
-                  {'١٢٣'[index]}
-                </span>
-                {item}
-              </li>
-            ))}
-          </ul>
+        <CardContent className="space-y-4 p-6">
+          {error ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <div className="space-y-2">
+            <label htmlFor="reference" className="sr-only">
+              الرقم المرجعي
+            </label>
+            <Input
+              id="reference"
+              dir="ltr"
+              autoFocus
+              autoComplete="off"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              // `text`, not a numeric mode: the value is two thirds letters, and
+              // a numeric keypad on a phone would hide them.
+              inputMode="text"
+              // 15 = 13 characters plus the two dashes. The mask enforces this
+              // as well; the attribute is what stops a phone keyboard from
+              // buffering a fourteenth character before React sees it.
+              maxLength={REFERENCE_RAW_LENGTH + 2}
+              // Tall, centred and wide-tracked: this is the only thing on the
+              // page, and it is read off paper one character at a time by
+              // someone who may be doing it at arm's length. Tracking is
+              // dropped a step on the narrowest phones so the full code still
+              // fits on one line rather than clipping.
+              className="h-14 text-center font-mono text-base tracking-[0.15em] sm:h-16 sm:text-xl sm:tracking-[0.2em]"
+              placeholder="BZR-2608-5HLQBM"
+              value={reference}
+              onChange={(event) => {
+                setReference((previous) => nextReferenceValue(event.target.value, previous));
+                if (error) setError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void submit();
+              }}
+            />
+            <p className="text-center text-xs text-muted-foreground">
+              مطبوع على وصل الدفع وعلى إفادة التسجيل. الشرطات تُضاف تلقائياً.
+            </p>
+          </div>
+
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={!complete || submitting}
+            onClick={() => void submit()}
+          >
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <ArrowLeft className="size-4" aria-hidden />
+            )}
+            عرض ملفّي
+          </Button>
+
+          <p className="text-center text-sm text-muted-foreground">
+            لا تعرف رقمك المرجعي؟{' '}
+            <button
+              type="button"
+              onClick={() => router.push(`${base}/login`)}
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              ادخل برمز يصلك برسالة نصية
+            </button>
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -13,6 +13,8 @@ import {
   USER_REPOSITORY,
   ZONE_REPOSITORY,
 } from '../domain/interfaces/base-repository.interface';
+import { WHISH_GATEWAY } from '../domain/interfaces/whish-gateway.interface';
+import { WhishGatewayService } from './payments/whish-gateway.service';
 import { RedisCacheService } from './cache/redis-cache.service';
 import { CadastreAssetsService } from './cadastre/cadastre-assets.service';
 import { TenantContextService } from './context/tenant-context.service';
@@ -58,6 +60,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
 
     { provide: IMAGE_STORAGE_SERVICE, useClass: SupabaseStorageService },
     { provide: SMS_SENDER, useClass: SmsProviderService },
+    { provide: WHISH_GATEWAY, useClass: WhishGatewayService },
     { provide: PASSWORD_HASHER, useClass: BcryptPasswordHasher },
     { provide: TOTP_SERVICE, useClass: OtplibTotpService },
   ],
@@ -77,6 +80,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     ZONE_REPOSITORY,
     IMAGE_STORAGE_SERVICE,
     SMS_SENDER,
+    WHISH_GATEWAY,
     PASSWORD_HASHER,
     TOTP_SERVICE,
   ],

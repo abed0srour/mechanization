@@ -3,41 +3,57 @@
 @tailwind utilities;
 
 /**
- * Design tokens are the Albazourieh platform's, carried over verbatim so the two
- * systems a municipality's staff move between look like one product: the same
- * deep municipal blue, the same slate neutrals, the same 0.5rem radius.
+ * Design tokens.
+ *
+ * These were the Albazourieh platform's slate-and-white set, carried over
+ * verbatim so the two systems a municipality's staff move between looked like
+ * one product. That parity is deliberately given up here: the neutrals are now
+ * warm — a cream page and a warm near-black — which is markedly easier to read
+ * for hours than pure white, and the dark card sits *above* its background
+ * instead of matching it, so a card is an object rather than an outline.
  *
  * Kept as HSL channel triples rather than finished colours because that is what
  * lets `bg-primary/90` and `border-input` work — Tailwind composes the alpha
  * into `hsl(var(--primary) / <alpha>)`.
+ *
+ * `--primary` and `--ring` resolve through `--brand-primary` so three sources
+ * can set the accent without fighting: an explicit accent choice wins (the
+ * `[data-accent]` blocks below), then the municipality's own brand colour if it
+ * configured one, then the default cedar blue. See `TenantLayout`, which writes
+ * `--brand-primary` onto `:root`.
  */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 199 89% 30%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 199 89% 30%;
+    --background: 40 20% 98%;
+    --foreground: 0 0% 4%;
+    --card: 40 20% 99%;
+    --card-foreground: 0 0% 4%;
+    --primary: var(--brand-primary, 213 72% 39%);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 42 25% 94%;
+    --secondary-foreground: 0 0% 10%;
+    --muted: 42 20% 93%;
+    --muted-foreground: 30 3% 42%;
+    --accent: 42 30% 92%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 45 12% 87%;
+    --input: 45 12% 84%;
+    --ring: var(--brand-primary, 213 72% 45%);
     --radius: 0.5rem;
 
     /**
      * Two additions the reference platform does not need. Review workflows here
      * have an in-progress state between "submitted" and "decided", and a
      * decided-good state — neither reads correctly as primary or destructive.
+     *
+     * `--warning` is darker than an amber usually is (34%, not 44%): it is used
+     * as `text-warning`, and amber is the most luminous hue on the wheel, so at
+     * a conventional lightness it lands at 3.0:1 on this cream page. 34% puts it
+     * at 4.8:1. It is never a solid surface here, so nothing else is affected.
      */
-    --warning: 32 95% 44%;
+    --warning: 32 95% 34%;
     --success: 142 71% 29%;
 
     /**
@@ -79,25 +95,36 @@
 
   /**
    * `darkMode: ['class']` in tailwind.config only switches which of these two
-   * blocks applies — it was set up with nothing to switch to until now.
-   * Same hues as `:root` (keeps the municipal blue and the warning/success
-   * additions recognisable), lightness inverted to the standard shadcn/ui
-   * slate dark palette, which is already tuned for contrast against a near-
-   * black background.
+   * blocks applies; `next-themes` is what puts the class on `<html>`.
+   *
+   * A warm near-black rather than the blue-tinted slate this used to carry. The
+   * hue (60) is a hair off neutral so the greys read as warm alongside the
+   * cream light mode rather than as two unrelated themes.
    */
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 199 89% 45%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --background: 60 2% 5%;
+    --foreground: 0 0% 100%;
+    /* Lighter than the background on purpose — the slate set had card and
+       background identical, so every card in dark mode was a rectangle of
+       border with nothing inside it. */
+    --card: 60 2% 10%;
+    --card-foreground: 0 0% 98%;
+    --primary: var(--brand-primary, 213 76% 56%);
+    /**
+     * Dark, not white — the same inversion `--destructive-foreground` takes
+     * below, and for the same arithmetic. A primary bright enough to read as
+     * *text* on this background (which `text-primary` does, on nav rows and
+     * links) is necessarily too bright to carry white text as a *surface*:
+     * white on the 56% blue is 3.67:1, while the near-black is 5.30:1. There is
+     * no single lightness that satisfies both with a white foreground.
+     */
+    --primary-foreground: 60 2% 5%;
+    --secondary: 60 2% 15%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 60 2% 15%;
+    --muted-foreground: 48 8% 74%;
+    --accent: 60 2% 17%;
+    --accent-foreground: 0 0% 95%;
     /**
      * Raised from shadcn's dark default (0 62.8% 30.6%), and its foreground
      * inverted to match.
@@ -109,16 +136,18 @@
      * that red lands about 1.6:1 on the near-black background, which is not
      * dim but genuinely unreadable.
      *
-     * 58% puts the text at ~5.4:1. The two solid-surface uses then take a dark
-     * foreground rather than a white one, which is the only pairing that stays
-     * legible on a red that bright — and `--destructive-foreground` is never
-     * used except on top of `bg-destructive`, so nothing else moves.
+     * 62% puts the text at 4.9:1 on a card and 5.4:1 on the page — measured
+     * against the *card*, which is the lighter of the two surfaces and so the
+     * one that binds. The two solid-surface uses then take a dark foreground
+     * rather than a white one, which is the only pairing that stays legible on
+     * a red that bright — and `--destructive-foreground` is never used except
+     * on top of `bg-destructive`, so nothing else moves.
      */
-    --destructive: 0 72% 58%;
-    --destructive-foreground: 222.2 84% 4.9%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 199 89% 45%;
+    --destructive: 0 72% 62%;
+    --destructive-foreground: 60 2% 5%;
+    --border: 60 2% 18%;
+    --input: 60 2% 22%;
+    --ring: var(--brand-primary, 213 76% 56%);
     --warning: 32 95% 55%;
     --success: 142 71% 40%;
 
@@ -135,6 +164,65 @@
     --viz-step-3: #256abf;
     --viz-step-4: #184f95;
     --viz-critical: #d03b3b;
+  }
+}
+
+/**
+ * Accent palettes.
+ *
+ * Only `--primary` and `--ring` change: every button, active nav row, badge and
+ * focus ring already resolves through those two, so swapping an accent repaints
+ * the whole portal without touching a component.
+ *
+ * These blocks come after `.dark` deliberately. `[data-accent]` and `.dark` are
+ * both one selector of the same weight, so source order decides the light case;
+ * the paired `.dark[data-accent]` selector is heavier and wins in dark mode.
+ *
+ * They also set `--primary` *directly* rather than through `--brand-primary`,
+ * which is what makes an explicit choice outrank a municipality's configured
+ * brand colour — a staff member who picks a palette gets it.
+ *
+ * «الأزرق البلدي» is the default and deliberately has no block: it is the base
+ * `:root` / `.dark` values, so an unset attribute renders correctly before the
+ * pre-paint script runs.
+ */
+@layer base {
+  [data-accent='emerald'] {
+    --primary: 152 58% 32%;
+    --ring: 152 58% 38%;
+  }
+  .dark[data-accent='emerald'] {
+    --primary: 152 52% 45%;
+    --ring: 152 52% 45%;
+  }
+
+  [data-accent='rose'] {
+    --primary: 347 68% 45%;
+    --ring: 347 68% 50%;
+  }
+  .dark[data-accent='rose'] {
+    --primary: 347 74% 59%;
+    --ring: 347 74% 59%;
+  }
+
+  [data-accent='violet'] {
+    --primary: 262 58% 47%;
+    --ring: 262 58% 53%;
+  }
+  .dark[data-accent='violet'] {
+    --primary: 262 68% 66%;
+    --ring: 262 68% 66%;
+  }
+
+  /* 40%, not the 44% this palette is usually written at: orange is nearly as
+     luminous as amber, and 44% leaves `text-primary` at 3.9:1 on the cream. */
+  [data-accent='sunset'] {
+    --primary: 24 82% 40%;
+    --ring: 24 82% 46%;
+  }
+  .dark[data-accent='sunset'] {
+    --primary: 24 88% 55%;
+    --ring: 24 88% 55%;
   }
 }
 

@@ -1,6 +1,29 @@
 import { notFound } from 'next/navigation';
 import type { PublicTenantConfig } from '@/lib/api-client';
+import { ACCENT_INIT_SCRIPT } from '@/lib/accents';
+import { AccentProvider } from '@/components/accent-provider';
 import { ThemeProvider } from '@/components/theme-provider';
+
+/**
+ * Validates a municipality's brand colour before it reaches a `<style>` tag.
+ *
+ * The value arrives from the tenant config — a database row an administrator
+ * edits — and is interpolated into a stylesheet. Interpolating it unchecked
+ * would let `}` close the rule and anything after it be arbitrary CSS on every
+ * page of that municipality's portal, which is a real injection even without
+ * script: CSS can load remote URLs and read attribute values.
+ *
+ * Accepting only an HSL channel triple (`199 89% 30%`) is also what the rest of
+ * the palette needs anyway, since every use site composes alpha into it as
+ * `hsl(var(--primary) / …)` — a hex here would break `bg-primary/90` silently.
+ */
+function safeHslTriple(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^\d{1,3}(\.\d+)?\s+\d{1,3}(\.\d+)?%\s+\d{1,3}(\.\d+)?%$/.test(trimmed)
+    ? trimmed
+    : null;
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -50,6 +73,7 @@ export default async function TenantLayout({
   if (!config) notFound();
 
   const isRtl = locale === 'ar';
+  const brandPrimary = safeHslTriple(config.branding.primaryColor);
 
   return (
     /*
@@ -67,34 +91,46 @@ export default async function TenantLayout({
           rel="stylesheet"
         />
         {/*
-          The hand-rolled pre-paint script that used to sit here is gone.
-          `next-themes` injects an equivalent one of its own, and running both
-          would mean two scripts racing to set the same class from the same
+          The hand-rolled light/dark pre-paint script that used to sit here is
+          gone. `next-themes` injects an equivalent one of its own, and running
+          both would mean two scripts racing to set the same class from the same
           storage key — with the loser's answer silently winning whenever the
           third setting («النظام») disagreed with the two the old script knew
           about. Its storage key survives as `ThemeProvider`'s `storageKey`.
+
+          The accent script below is a different matter: it owns `data-accent`
+          and its own key, touches nothing `next-themes` touches, and exists for
+          the same reason — without it the portal paints in the default palette
+          and snaps to the chosen one a frame later.
         */}
+        <script dangerouslySetInnerHTML={{ __html: ACCENT_INIT_SCRIPT }} />
+
+        {/*
+          The municipality's own brand colour, when it configured one.
+
+          Written as a `:root` rule rather than an inline style on <body>, for
+          two reasons. Custom properties resolve against the element they are
+          declared on, and `--primary` is declared on `:root` — a
+          `--brand-primary` sitting on <body> would simply never be seen by the
+          `var()` that reads it. And keeping it off the inline style attribute
+          leaves that attribute to `next-themes`, which writes `color-scheme`
+          there.
+
+          Precedence falls out of this: an explicit accent (`[data-accent]`,
+          also on the root) overrides `--primary` outright, so a staff member's
+          choice beats the municipality's default rather than being silently
+          ignored.
+        */}
+        {brandPrimary ? (
+          <style
+            dangerouslySetInnerHTML={{ __html: `:root{--brand-primary:${brandPrimary}}` }}
+          />
+        ) : null}
       </head>
-      <body
-        className="min-h-screen bg-muted/30 font-sans antialiased"
-        /**
-         * Per-tenant branding overrides the primary hue only, and only when the
-         * municipality supplied one. The rest of the palette is fixed so a
-         * configuration mistake cannot produce an unreadable form.
-         *
-         * The value must be an HSL channel triple (e.g. "199 89% 30%") because
-         * every use site composes alpha into it as `hsl(var(--primary) / …)`.
-         */
-        style={
-          config.branding.primaryColor
-            ? ({
-                '--primary': config.branding.primaryColor,
-                '--ring': config.branding.primaryColor,
-              } as React.CSSProperties)
-            : undefined
-        }
-      >
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="min-h-screen bg-muted/30 font-sans antialiased">
+        <ThemeProvider>
+          <AccentProvider>{children}</AccentProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

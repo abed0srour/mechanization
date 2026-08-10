@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  type RawBodyRequest,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import {
   chargeCitizenSchema,
   createFeeNoticeSchema,
@@ -17,7 +29,9 @@ import { FeesService } from '../../application/features/fees/fees.service';
 import { RecurringBillingJob } from '../../application/background-jobs/recurring-billing.job';
 import { ZodValidationPipe } from '../../application/common/pipes/zod-validation.pipe';
 import { CurrentUser } from '../decorators/current-user.decorator';
+import { Public } from '../decorators/public.decorator';
 import { Roles } from '../decorators/roles.decorator';
+import { APP_CONFIG } from '../config/app.config';
 import { ForbiddenError } from '../../application/common/exceptions';
 import type { SessionClaims } from '../../application/features/identity/identity.service';
 
@@ -31,6 +45,8 @@ import type { SessionClaims } from '../../application/features/identity/identity
  */
 @Controller('t/:tenantSlug/fees')
 export class FeesController {
+  private readonly logger = new Logger(FeesController.name);
+
   constructor(
     private readonly fees: FeesService,
     private readonly recurring: RecurringBillingJob,
@@ -110,7 +126,16 @@ export class FeesController {
 
   // ──────────────────────  Staff payment ledger  ──────────────────────
 
-  /** Every invoice, filterable by status and by who owes it. */
+  /**
+   * Every invoice, filterable by status, method and by who owes it.
+   *
+   * `transactionsOnly` flips this from the fees ledger's question ("what is
+   * owed") to سجل العمليات' question ("what has been paid"), which also
+   * re-orders it by when the money moved. One endpoint rather than two because
+   * it is the same rows and the same projection — only the WHERE and ORDER BY
+   * differ, and a second route would have drifted from this one the first time
+   * a field was added.
+   */
   @Roles('SUPER_ADMIN', 'AUDITOR')
   @Get('payments')
   async listPayments(
@@ -118,8 +143,18 @@ export class FeesController {
     @Query('search') search?: string,
     /** Narrows the ledger to one citizen — the «عرض» drill-down. */
     @Query('citizenId') citizenId?: string,
+    @Query('method') method?: string,
+    @Query('transactionsOnly') transactionsOnly?: string,
   ) {
-    return { items: await this.fees.listAllPayments({ status, search, citizenId }) };
+    return {
+      items: await this.fees.listAllPayments({
+        status,
+        search,
+        citizenId,
+        method,
+        transactionsOnly: transactionsOnly === 'true',
+      }),
+    };
   }
 
   /**
@@ -155,6 +190,7 @@ export class FeesController {
       paymentId: id,
       amount: body.amount,
       method: body.method,
+      whishTransactionRef: body.whishTransactionRef,
       note: body.note,
       actor: { id: user.sub, role: user.role ?? '' },
     });
@@ -200,6 +236,59 @@ export class FeesController {
       throw new ForbiddenError('هذا المسار للمواطنين فقط');
     }
     return { items: await this.fees.listForCitizen(user.sub) };
+  }
+
+  /**
+   * Opens a Whish checkout for one of the signed-in citizen's own bills.
+   *
+   * The callback and return URLs are built here from configuration rather than
+   * taken from the request: a client-supplied `returnUrl` is an open redirect,
+   * and a client-supplied `callbackUrl` would let anyone point the provider's
+   * confirmation at a server they control.
+   */
+  @Post('payments/mine/:id/whish/checkout')
+  async whishCheckout(
+    @Param('tenantSlug') tenantSlug: string,
+    @Param('id') id: string,
+    @CurrentUser() user: SessionClaims,
+  ) {
+    if (user.kind !== 'CITIZEN') {
+      throw new ForbiddenError('هذا المسار للمواطنين فقط');
+    }
+
+    const apiBase = APP_CONFIG.publicApiUrl;
+    const portalBase = APP_CONFIG.publicPortalUrl;
+
+    return this.fees.startWhishCheckout({
+      paymentId: id,
+      citizenId: user.sub,
+      callbackUrl: `${apiBase}/t/${tenantSlug}/fees/whish/callback`,
+      returnUrl: `${portalBase}/${tenantSlug}/ar/my-file?whish=done`,
+    });
+  }
+
+  /**
+   * Whish's server-to-server confirmation.
+   *
+   * `@Public()` because the provider holds no session — the signature over the
+   * raw body is the authentication, and `parseCallback` returns nothing at all
+   * unless it verifies. Always answers 200: a provider that gets an error
+   * retries, and there is nothing to retry when the payload was never genuine.
+   */
+  @Public()
+  @Post('whish/callback')
+  async whishCallback(@Req() request: RawBodyRequest<Request>) {
+    const raw = request.rawBody?.toString('utf8') ?? '';
+    const signature = request.header('x-whish-signature');
+
+    const callback = this.fees.parseWhishCallback({ rawBody: raw, signature });
+    if (!callback) {
+      this.logger.warn('Rejected an unverified Whish callback');
+      return { received: true };
+    }
+
+    await this.fees.settleFromWhishCallback(callback);
+    return { received: true };
   }
 
   /** The citizen declaring they have paid — moves to PENDING_REVIEW only. */
