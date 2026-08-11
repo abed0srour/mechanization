@@ -63,6 +63,7 @@ import {
   type SettleValues,
 } from '@/components/admin/settle-payment-dialog';
 import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 
 /** One glyph per property branch, so a card's kind is readable before its text. */
 const PROPERTY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -420,7 +421,7 @@ export default function CitizenProfilePage({
                 {
                   icon: Calendar,
                   label: 'تاريخ أول تسجيل',
-                  value: new Date(citizen.registeredAt).toLocaleDateString('ar-LB'),
+                  value: formatDate(citizen.registeredAt),
                 },
               ]}
             />
@@ -460,7 +461,7 @@ export default function CitizenProfilePage({
                 </CardTitle>
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                   <Calendar className="size-3.5" aria-hidden />
-                  {new Date(registration.submittedAt).toLocaleDateString('ar-LB')}
+                  {formatDate(registration.submittedAt)}
                 </p>
               </div>
             </CardHeader>
@@ -673,7 +674,7 @@ function FeesPanel({
                         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1.5">
                             <Calendar className="size-3.5 shrink-0" aria-hidden />
-                            استحقاق {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                            استحقاق {formatDate(payment.dueDate)}
                           </span>
                           {payment.frequency ? (
                             <span>
@@ -683,7 +684,7 @@ function FeesPanel({
                           ) : null}
                           {payment.paidAt ? (
                             <span className="text-emerald-600">
-                              سُدّد {new Date(payment.paidAt).toLocaleDateString('ar-LB')}
+                              سُدّد {formatDate(payment.paidAt)}
                             </span>
                           ) : null}
                         </p>

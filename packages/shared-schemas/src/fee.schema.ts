@@ -231,6 +231,15 @@ export const settlePaymentSchema = z
      * transfer they cannot cite is the same gap seen from the other side.
      */
     whishTransactionRef: z.string().trim().max(80).optional(),
+    /**
+     * The محصّل who took the money, when the method is COLLECTOR.
+     *
+     * Required for that method and refused for the others, by the same logic
+     * as the Whish reference above: each method has exactly one fact that makes
+     * it auditable, and a collection nobody is named for is indistinguishable
+     * from counter cash — which is the distinction COLLECTOR was added to draw.
+     */
+    collectedById: uuid.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.method === 'WHISH_MONEY' && !data.whishTransactionRef) {
@@ -238,6 +247,13 @@ export const settlePaymentSchema = z
         code: z.ZodIssueCode.custom,
         path: ['whishTransactionRef'],
         message: 'أدخل رقم عملية التحويل',
+      });
+    }
+    if (data.method === 'COLLECTOR' && !data.collectedById) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['collectedById'],
+        message: 'اختر المحصّل الذي استلم المبلغ',
       });
     }
   });

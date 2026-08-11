@@ -689,6 +689,7 @@ export class FeesService {
           citizen: {
             select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
           },
+          collectedBy: { select: { firstName: true, lastName: true } },
           feeNotice: { select: { frequency: true } },
         },
       }),
@@ -719,6 +720,10 @@ export class FeesService {
        * as approximate rather than passed off as the moment of payment.
        */
       updatedAt: row.updatedAt.toISOString(),
+      /** Set only on a COLLECTOR payment — who is holding the money. */
+      collectedByName: row.collectedBy
+        ? `${row.collectedBy.firstName} ${row.collectedBy.lastName}`.trim()
+        : null,
       frequency: row.feeNotice?.frequency ?? null,
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
@@ -891,6 +896,8 @@ export class FeesService {
     method: PaymentMethod;
     /** Required by the schema when `method` is WHISH_MONEY; ignored for cash. */
     whishTransactionRef?: string;
+    /** Required by the schema when `method` is COLLECTOR; ignored otherwise. */
+    collectedById?: string;
     note?: string;
     actor: { id: string; role: string };
   }) {
@@ -954,6 +961,10 @@ export class FeesService {
          */
         whishTransactionRef:
           input.method === 'WHISH_MONEY' ? (input.whishTransactionRef ?? null) : null,
+        // Cleared for every other method, for the same reason the Whish
+        // reference is: a row re-settled as counter cash must not keep naming
+        // a collector who is no longer holding anything.
+        collectedById: input.method === 'COLLECTOR' ? (input.collectedById ?? null) : null,
         paidAt: fullySettled ? new Date() : null,
         reviewedById: input.actor.id,
         reviewNote: input.note ?? null,

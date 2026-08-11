@@ -8,6 +8,8 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  CreditCard,
+  Loader2,
   Receipt,
   Wallet,
   XCircle,
@@ -19,6 +21,7 @@ import {
   getMunicipalitySettings,
   getMyPayments,
   logApiError,
+  startWhishCheckout,
 } from '@/lib/api-client';
 import type { CitizenPaymentItem, MunicipalitySettings } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
@@ -27,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PayDialog } from '@/components/citizen/pay-dialog';
 import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 
 function lbp(amount: number): string {
   return `${amount.toLocaleString('en-US')} ل.ل`;
@@ -68,6 +72,7 @@ export default function CitizenPayments({
   const [error, setError] = useState<string | null>(null);
 
   const [paying, setPaying] = useState<CitizenPaymentItem | null>(null);
+  const [payingOnlineId, setPayingOnlineId] = useState<string | null>(null);
   const [declaring, setDeclaring] = useState(false);
   const [declareError, setDeclareError] = useState<string | null>(null);
 
@@ -129,6 +134,33 @@ export default function CitizenPayments({
     [tenant, token, paying, load],
   );
 
+  /**
+   * Opens a Whish checkout for one bill.
+   *
+   * `window.location` rather than the router: once credentials are configured
+   * the destination is the provider's own domain, which Next's router cannot
+   * navigate to. In sandbox the server returns a URL inside the portal, so the
+   * same line reloads this page with the invoice awaiting confirmation.
+   */
+  const payWithWhish = useCallback(
+    async (paymentId: string) => {
+      if (!token) return;
+      setPayingOnlineId(paymentId);
+      setError(null);
+      try {
+        const { redirectUrl } = await startWhishCheckout(tenant, token, paymentId);
+        window.location.href = redirectUrl;
+      } catch (caught) {
+        logApiError(caught);
+        setError(
+          caught instanceof ApiRequestError ? caught.message : 'تعذّر بدء الدفع عبر Whish.',
+        );
+        setPayingOnlineId(null);
+      }
+    },
+    [tenant, token],
+  );
+
   if (!token) return null;
 
   const outstanding = items.filter(
@@ -183,7 +215,7 @@ export default function CitizenPayments({
         />
         <SummaryCard
           label="أقرب موعد استحقاق"
-          value={nextDue ? new Date(nextDue).toLocaleDateString('ar-LB') : '—'}
+          value={nextDue ? formatDate(nextDue) : '—'}
           icon={<CalendarClock className="size-6" aria-hidden />}
           loading={loading}
         />
@@ -228,7 +260,7 @@ export default function CitizenPayments({
                       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         <span className="inline-flex items-center gap-1.5">
                           <CalendarClock className="size-3.5" aria-hidden />
-                          استحقاق {new Date(item.dueDate).toLocaleDateString('ar-LB')}
+                          استحقاق {formatDate(item.dueDate)}
                         </span>
                         {item.frequency ? (
                           <Badge variant="outline">
@@ -266,10 +298,29 @@ export default function CitizenPayments({
                   ) : null}
 
                   {payable ? (
-                    <div className="flex justify-end">
-                      <Button size="sm" onClick={() => setPaying(item)}>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {/*
+                        Two routes to the same debt, and the difference is who
+                        confirms it. «ادفع عبر Whish» hands the citizen to the
+                        provider and is settled by a verified callback; «أبلغ عن
+                        الدفع» records a claim a clerk still has to check.
+                        Whish leads because it is the one that finishes.
+                      */}
+                      <Button
+                        size="sm"
+                        disabled={payingOnlineId === item.id}
+                        onClick={() => void payWithWhish(item.id)}
+                      >
+                        {payingOnlineId === item.id ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <CreditCard className="size-4" aria-hidden />
+                        )}
+                        ادفع عبر Whish
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setPaying(item)}>
                         <Wallet className="size-4" aria-hidden />
-                        ادفع الآن
+                        طرق أخرى
                       </Button>
                     </div>
                   ) : null}

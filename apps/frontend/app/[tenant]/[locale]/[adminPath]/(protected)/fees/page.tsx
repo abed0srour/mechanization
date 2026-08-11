@@ -33,6 +33,7 @@ import {
   getFeeSummary,
   getMunicipalitySettings,
   getPendingPayments,
+  getStaff,
   getTenantConfig,
   issueFeeNotice,
   listCitizens,
@@ -51,9 +52,11 @@ import type {
   FeeNoticeSummary,
   FeeSummary,
   PendingPayment,
+  StaffSummary,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
+import { formatDate } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { useSectionNav } from '@/lib/use-section-nav';
 import { Badge } from '@/components/ui/badge';
@@ -119,6 +122,7 @@ export default function FeesPage({
   const [notices, setNotices] = useState<FeeNoticeSummary[]>([]);
   const [pending, setPending] = useState<PendingPayment[]>([]);
   const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
+  const [staff, setStaff] = useState<StaffSummary[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -279,6 +283,7 @@ export default function FeesPage({
         configResult,
         registryResult,
         ledgerResult,
+        staffResult,
       ] = await Promise.all([
         getFeeSummary(tenant, token),
         getFeeNotices(tenant, token),
@@ -289,6 +294,10 @@ export default function FeesPage({
         getTenantConfig(tenant),
         listCitizens(tenant, token, { limit: 200 }),
         getAllPayments(tenant, token, { search: ledgerSearch || undefined }),
+        // Only to name a محصّل when cash is recorded as collected on a round.
+        // `/staff` is SUPER_ADMIN-only, which is exactly who may settle, so
+        // this cannot 403 for anyone who can reach the dialog.
+        getStaff(tenant, token),
       ]);
 
       setSummary(summaryResult);
@@ -296,6 +305,9 @@ export default function FeesPage({
       setPending(pendingResult.items);
       setLedger(ledgerResult.items);
       setCitizens(registryResult.items);
+      // Deactivated accounts are dropped: a collector who has left the
+      // municipality cannot be taking money on its behalf today.
+      setStaff(staffResult.items.filter((member) => member.isActive));
       setSettings(settingsResult);
       setMunicipalityName(configResult.nameAr || configResult.name);
       setError(null);
@@ -424,7 +436,7 @@ export default function FeesPage({
    * cannot change.
    */
   const recordCash = useCallback(
-    async ({ method, amount, whishTransactionRef, note }: SettleValues) => {
+    async ({ method, amount, whishTransactionRef, collectedById, note }: SettleValues) => {
       const target = settling;
       if (!token || !target || recordingCash) return;
 
@@ -435,6 +447,7 @@ export default function FeesPage({
           method,
           amount,
           whishTransactionRef,
+          collectedById,
           note,
         });
         setSettling(null);
@@ -736,7 +749,7 @@ export default function FeesPage({
                             item.targetCategory)
                           : (ar.feeTargetType[item.targetType as never] ?? item.targetType))}
                     </Badge>
-                    <span>استحقاق {new Date(item.dueDate).toLocaleDateString('ar-LB')}</span>
+                    <span>استحقاق {formatDate(item.dueDate)}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -912,7 +925,7 @@ export default function FeesPage({
                               <p className="text-sm font-medium">{payment.title}</p>
                               <p className="text-xs text-muted-foreground">
                                 استحقاق{' '}
-                                {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                                {formatDate(payment.dueDate)}
                                 {partly
                                   ? ` · مسدَّد ${lbp(payment.paidAmount)} من ${lbp(payment.amount)}`
                                   : ''}
@@ -1140,6 +1153,7 @@ export default function FeesPage({
         payment={settling}
         submitting={recordingCash}
         error={settleError}
+        collectors={staff}
         onSubmit={(values) => void recordCash(values)}
       />
 

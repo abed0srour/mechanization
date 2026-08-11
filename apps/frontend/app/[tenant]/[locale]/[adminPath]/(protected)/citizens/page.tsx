@@ -41,6 +41,7 @@ import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import { Money } from '@/components/ui/money';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 
 /** Roles allowed to write. Mirrors the server; the server is the enforcement. */
 const CAN_WRITE = ['SUPER_ADMIN', 'FIELD_INSPECTOR'];
@@ -254,7 +255,7 @@ export default function CitizensPage({
               <p className="font-medium tabular-nums">{citizen.propertyCount} عقار</p>
               {citizen.latestSubmittedAt ? (
                 <p className="whitespace-nowrap text-xs text-muted-foreground">
-                  آخر تسجيل {new Date(citizen.latestSubmittedAt).toLocaleDateString('ar-LB')}
+                  آخر تسجيل {formatDate(citizen.latestSubmittedAt)}
                 </p>
               ) : null}
             </div>

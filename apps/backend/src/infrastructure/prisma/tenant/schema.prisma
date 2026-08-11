@@ -112,6 +112,7 @@ model User {
   reviewedRegistrations Registration[] @relation("ReviewedBy")
   payments              CitizenPayment[]
   reviewedPayments      CitizenPayment[] @relation("PaymentReviewedBy")
+  collectedPayments     CitizenPayment[] @relation("PaymentCollectedBy")
   targetedFeeNotices    FeeNotice[]      @relation("FeeTargetCitizen")
   issuedFeeNotices      FeeNotice[]      @relation("FeeIssuedBy")
 
@@ -585,6 +586,15 @@ model CitizenPayment {
   paidAt       DateTime?
   reviewedById String?   @db.Uuid
   reviewedBy   User?     @relation("PaymentReviewedBy", fields: [reviewedById], references: [id])
+
+  /// The محصّل who took the money, when `paymentMethod` is COLLECTOR.
+  ///
+  /// Distinct from `reviewedById`, which is whoever *typed* the row — usually a
+  /// clerk at a desk entering what a collector handed in at the end of a round.
+  /// Conflating the two would make "what does Hassan still hold" unanswerable,
+  /// which is the only reason COLLECTOR exists as a method separate from CASH.
+  collectedById String? @db.Uuid
+  collectedBy   User?   @relation("PaymentCollectedBy", fields: [collectedById], references: [id])
   /// Why a clerk sent a claimed payment back to UNPAID.
   reviewNote String?
 

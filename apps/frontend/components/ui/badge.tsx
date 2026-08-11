@@ -25,12 +25,24 @@ const badgeVariants = cva(
 );
 
 export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
+  extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {}
 
-/** Small pill: a label, a role, a count. */
+/**
+ * Small pill: a label, a role, a count.
+ *
+ * A `<span>`, not the `<div>` the shadcn original uses. A badge is phrasing
+ * content — it sits inside a sentence, beside a title, within a `<p>` — and a
+ * `<div>` there is invalid HTML that the browser silently repairs by closing
+ * the paragraph early. The repaired DOM then no longer matches what the server
+ * sent, so it surfaces as a hydration error pointing at this component rather
+ * than at the paragraph that actually contains it.
+ *
+ * `inline-flex` in `badgeVariants` already did the layout work, so nothing
+ * about the rendering changes — only which element carries it.
+ */
 function Badge({ className, variant, ...props }: BadgeProps): React.JSX.Element {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 /*

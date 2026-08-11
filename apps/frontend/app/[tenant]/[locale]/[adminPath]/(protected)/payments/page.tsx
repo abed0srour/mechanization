@@ -14,7 +14,6 @@ import {
   Receipt,
   Search,
   UserCheck,
-  UserRound,
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import {
@@ -33,6 +32,7 @@ import type {
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
+import { formatDateTime, formatRelative } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -76,28 +76,11 @@ const METHOD_STYLE = {
   COLLECTOR: { icon: UserCheck, className: 'border-warning/40 bg-warning/10 text-warning' },
 } as const;
 
-/**
- * Formats a transaction stamp as one line a clerk can scan.
- *
- * Latin digits and an explicit `dir="ltr"` on the element that renders this:
- * a date and a time read left-to-right even inside an Arabic sentence, and
- * letting the bidi algorithm guess puts the minutes before the hour often
- * enough to matter on a page whose whole job is when money moved.
- */
-function formatStamp(iso: string): { date: string; time: string } {
-  const value = new Date(iso);
-  return {
-    date: value.toLocaleDateString('ar-LB', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }),
-    time: value.toLocaleTimeString('ar-LB', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }),
-  };
+/** Opening letters of the first and last name — what goes on a folder tab. */
+function initials(fullName: string): string {
+  const words = fullName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '—';
+  return `${words[0][0] ?? ''}${words.length > 1 ? (words[words.length - 1][0] ?? '') : ''}`;
 }
 
 /**
@@ -243,6 +226,7 @@ export default function PaymentsPage({
         accessorFn: (row) => row.id,
         header: 'رقم العملية',
         enableSorting: false,
+        meta: { align: 'start', cellClassName: 'whitespace-nowrap' },
         cell: ({ row }) => {
           const payment = row.original;
           // A UUID is unreadable and unquotable in full. The last segment is
@@ -250,8 +234,15 @@ export default function PaymentsPage({
           // gets the whole thing into a message or a ticket.
           const short = payment.id.split('-').at(-1) ?? payment.id;
           return (
-            <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs uppercase text-muted-foreground" dir="ltr">
+            // Set as a quiet chip rather than plain text at row weight: this is
+            // a lookup key someone reaches for once a week, and at the same
+            // size as the payer's name it competed with every column that gets
+            // read on every row.
+            <div className="flex items-center gap-1">
+              <span
+                className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-tight text-muted-foreground"
+                dir="ltr"
+              >
                 {short}
               </span>
               <ActionTooltip label={copiedId === payment.id ? 'تم النسخ' : 'نسخ الرقم الكامل'}>
@@ -275,15 +266,19 @@ export default function PaymentsPage({
       {
         accessorKey: 'citizenName',
         header: 'الدافع',
+        meta: { align: 'start' },
         cell: ({ row }) => {
           const payment = row.original;
           return (
             <div className="flex min-w-0 items-center gap-3">
+              {/* Initials rather than a generic silhouette: every row would
+                  carry the same icon, so it distinguishes nothing — the two
+                  letters are what let a clerk find a name down a column. */}
               <span
                 aria-hidden
-                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary"
               >
-                <UserRound className="size-4" />
+                {initials(payment.citizenName)}
               </span>
               <div className="min-w-0 space-y-0.5">
                 <p className="truncate font-medium">{payment.citizenName}</p>
@@ -304,15 +299,32 @@ export default function PaymentsPage({
       {
         accessorKey: 'paidAmount',
         header: 'المبلغ',
+        // The one column genuinely read *as a column*: aligning the figures to
+        // the same edge as their heading is what lets a run of amounts be
+        // compared down the page rather than each one found individually.
+        meta: { align: 'end', cellClassName: 'whitespace-nowrap' },
         cell: ({ row }) => {
           const payment = row.original;
           // A claimed transfer has moved nothing yet, so the figure shown is
           // the invoice's — labelled, so it is not mistaken for money in hand.
           const claimed = payment.paidAmount === 0;
           const partial = payment.paidAmount > 0 && payment.remaining > 0;
+          // No alignment class on the wrapper — the column's `meta.align`
+          // governs the cell, so a value can never sit against a different
+          // edge from the heading above it.
           return (
-            <div className="space-y-0.5 text-end">
-              <p className="font-semibold tabular-nums">
+            <div className="space-y-0.5">
+              {/* The amount is the number this page is read for, so it carries
+                  the most weight of anything in a row — but only when it is
+                  money that actually arrived. A claimed transfer shows the
+                  invoice's figure in muted weight, so a column of totals cannot
+                  be skimmed as if every line were collected. */}
+              <p
+                className={cn(
+                  'text-base tabular-nums',
+                  claimed ? 'font-medium text-muted-foreground' : 'font-bold',
+                )}
+              >
                 {formatLbp(claimed ? payment.amount : payment.paidAmount)}
               </p>
               {claimed ? (
@@ -329,6 +341,7 @@ export default function PaymentsPage({
       {
         accessorKey: 'paymentMethod',
         header: 'طريقة الدفع',
+        meta: { align: 'start' },
         cell: ({ row }) => {
           const payment = row.original;
           if (!payment.paymentMethod) return <span className="text-muted-foreground">—</span>;
@@ -342,9 +355,16 @@ export default function PaymentsPage({
                 <Icon className="size-3" aria-hidden />
                 {ar.paymentMethod[payment.paymentMethod as never] ?? payment.paymentMethod}
               </Badge>
+              {/* Each method's one auditable fact, under its badge: the
+                  transfer's number, or the name of whoever is holding the
+                  cash until he hands it in. */}
               {payment.whishTransactionRef ? (
                 <p className="font-mono text-[11px] text-muted-foreground" dir="ltr">
                   {payment.whishTransactionRef}
+                </p>
+              ) : payment.collectedByName ? (
+                <p className="text-[11px] text-muted-foreground">
+                  بعهدة {payment.collectedByName}
                 </p>
               ) : null}
             </div>
@@ -355,6 +375,7 @@ export default function PaymentsPage({
         id: 'receipt',
         accessorFn: (row) => (row.paidAmount > 0 ? 1 : 0),
         header: 'الوصل',
+        meta: { align: 'start', cellClassName: 'whitespace-nowrap' },
         cell: ({ row }) => {
           const payment = row.original;
           // There is no stored "receipt was printed" flag anywhere in this
@@ -370,10 +391,15 @@ export default function PaymentsPage({
             );
           }
           return (
+            // `ghost`, not `outline`: on the dark palette an outline button is
+            // a filled near-black block, which made this the heaviest element
+            // in the row — louder than the amount it belongs to. A tinted text
+            // action reads as a link into the row rather than as the row's
+            // headline.
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="gap-1.5"
+              className="gap-1.5 text-primary hover:bg-primary/10 hover:text-primary"
               disabled={receiptBusyId === payment.id}
               onClick={() => void openReceipt(payment)}
             >
@@ -391,15 +417,22 @@ export default function PaymentsPage({
         id: 'stamp',
         accessorFn: (row) => row.paidAt ?? row.updatedAt,
         header: 'التاريخ والوقت',
+        meta: { align: 'start', cellClassName: 'whitespace-nowrap' },
         cell: ({ row }) => {
           const payment = row.original;
           const exact = payment.paidAt !== null;
-          const { date, time } = formatStamp(payment.paidAt ?? payment.updatedAt);
+          const stampedAt = payment.paidAt ?? payment.updatedAt;
           const stamp = (
-            <div className="space-y-0.5" dir="ltr">
-              <p className="text-sm tabular-nums">{date}</p>
-              <p className="text-xs tabular-nums text-muted-foreground">
-                {exact ? time : `~ ${time}`}
+            <div className="space-y-0.5">
+              {/* «قبل ساعتين» leads, because the question asked of a
+                  chronological log is whether this is today's money; the exact
+                  stamp underneath is what identifies the transaction. */}
+              <p className="text-sm">
+                {exact ? '' : '≈ '}
+                {formatRelative(stampedAt)}
+              </p>
+              <p className="text-xs tabular-nums text-muted-foreground" dir="ltr">
+                {formatDateTime(stampedAt)}
               </p>
             </div>
           );

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Phone, User, Users, X } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import type { RegisteredParcel } from '@/lib/api-client';
+import { formatDate } from '@/lib/dates';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -106,7 +107,7 @@ export function CitizenDetailDrawer({
                   <dl className="space-y-1 border-t pt-3 text-sm">
                     <div className="flex justify-between gap-3">
                       <dt className="text-muted-foreground">تاريخ التسجيل</dt>
-                      <dd>{new Date(registrant.registeredAt).toLocaleDateString('ar-LB')}</dd>
+                      <dd>{formatDate(registrant.registeredAt)}</dd>
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <dt className="text-muted-foreground">الهاتف</dt>

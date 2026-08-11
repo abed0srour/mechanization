@@ -161,7 +161,9 @@ export function DatePicker({
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
 
-  const intlLocale = locale === 'ar' ? 'ar-LB' : 'en-GB';
+  // `-u-nu-latn` so the day numbers in the grid are Latin, matching the amount
+  // and reference fields these calendars sit beside. See `lib/dates.ts`.
+  const intlLocale = locale === 'ar' ? 'ar-LB-u-nu-latn' : 'en-GB';
   const selected = parseIsoDay(value);
 
   // The month shown in the grid — follows the selection, else today.

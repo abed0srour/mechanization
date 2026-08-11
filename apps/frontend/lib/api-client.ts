@@ -511,6 +511,24 @@ export interface MyCitizenSummary {
   fullName: string;
   referenceNumber: string | null;
   registeredAt: string;
+  isActive: boolean;
+
+  phone: string | null;
+  whatsapp: string | null;
+  gender: string | null;
+  nationality: string | null;
+  isLebanese: boolean | null;
+  residentStatus: string | null;
+  maritalStatus: string | null;
+  familySize: number | null;
+  identityDocType: string | null;
+  /**
+   * Tail only — `•••567`. The full number is never sent to this route; see the
+   * note on `CitizenController.mySummary` for why.
+   */
+  identityDocNumberMasked: string | null;
+  civilRecordNumberMasked: string | null;
+
   properties: CitizenProfileProperty[];
   payments: CitizenProfilePayment[];
   fees: CitizenFeeTotals;
@@ -1088,6 +1106,8 @@ export interface AdminPaymentItem {
    * settlement, which never gets a `paidAt` — see the note on the server.
    */
   updatedAt: string;
+  /** The محصّل holding the money — set only on a COLLECTOR payment. */
+  collectedByName: string | null;
   frequency: string | null;
   citizenId: string;
   citizenName: string;
@@ -1149,6 +1169,8 @@ export function settlePayment(
     amount?: number;
     /** Required by the server when `method` is `WHISH_MONEY`. */
     whishTransactionRef?: string;
+    /** Required by the server when `method` is `COLLECTOR`. */
+    collectedById?: string;
     note?: string;
   } = {},
 ) {

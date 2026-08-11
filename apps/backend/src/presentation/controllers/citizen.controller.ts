@@ -27,6 +27,20 @@ import { Roles } from '../decorators/roles.decorator';
 import type { SessionClaims } from '../../application/features/identity/identity.service';
 
 /**
+ * Shows only the tail of an identifier — `•••567`.
+ *
+ * Enough for someone to recognise their own document, useless to anyone who
+ * found their reference number. Short values are hidden entirely rather than
+ * partially revealed: masking three of four characters discloses most of it.
+ */
+function mask(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (trimmed.length <= 3) return '•••';
+  return `•••${trimmed.slice(-3)}`;
+}
+
+/**
  * Staff-facing citizen registry — read, create, correct, remove.
  *
  * Mounted under the tenant path like everything else, so `TenantMiddleware`
@@ -92,6 +106,32 @@ export class CitizenController {
       fullName: citizen.fullName,
       referenceNumber: citizen.referenceNumber,
       registeredAt: citizen.registeredAt,
+      isActive: citizen.isActive,
+
+      // ── The citizen's own details, so ملفّي can show a profile rather than
+      //    just a balance. All of it is theirs; none of it is anyone else's.
+      phone: citizen.phone,
+      whatsapp: citizen.whatsapp,
+      gender: citizen.gender,
+      nationality: citizen.nationality,
+      isLebanese: citizen.isLebanese,
+      residentStatus: citizen.residentStatus,
+      maritalStatus: citizen.maritalStatus,
+      familySize: citizen.familySize,
+      identityDocType: citizen.identityDocType,
+
+      /**
+       * Masked to its last three characters, and deliberately not sent whole.
+       *
+       * The portal's front door now opens on a رقم مرجعي alone — a number
+       * printed on every وصل — so whatever this response carries is what a
+       * found receipt discloses. The citizen already knows their own ID number;
+       * showing the tail is enough to confirm the municipality holds the right
+       * document, while a full national ID number on this page would be the
+       * single most valuable thing to lift from it.
+       */
+      identityDocNumberMasked: mask(citizen.identityDocNumber),
+      civilRecordNumberMasked: mask(citizen.civilRecordNumber),
       // Flattened: a citizen has no reason to care that their four properties
       // arrived in two separate filings — that grouping was an artefact of the
       // submission workflow, which no longer exists.

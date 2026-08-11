@@ -5,6 +5,7 @@ import { Download, Loader2, MessageCircle, Printer, X } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import type { CitizenProfile, CitizenProfilePayment } from '@/lib/api-client';
 import { formatLbp } from '@/lib/currency';
+import { formatDate } from '@/lib/dates';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { downloadFile, renderReceiptPdf, shareFile } from '@/lib/receipt-pdf';
@@ -139,7 +140,7 @@ export function PaymentReceipt({
       ? `الرصيد المتبقي: ${formatLbp(payment.remaining)}`
       : 'تم تسديد كامل المبلغ. شكراً لكم.',
     '',
-    `التاريخ: ${new Date().toLocaleDateString('ar-LB')}`,
+    `التاريخ: ${formatDate(new Date())}`,
     // Signed with the office numbers: the message may well arrive from a
     // clerk's personal account (a wa.me link cannot choose its sender), so
     // the municipality has to identify itself in the body or the citizen has
@@ -313,7 +314,7 @@ export function PaymentReceipt({
                   {[contactPhone, officeWhatsapp].filter(Boolean).join(' · ')}
                 </span>
               ) : null}
-              التاريخ: {new Date().toLocaleDateString('ar-LB')}
+              التاريخ: {formatDate(new Date())}
               {payment.remaining > 0
                 ? ` — دفعة جزئية، الرصيد المتبقي ${formatLbp(payment.remaining)}`
                 : ''}
