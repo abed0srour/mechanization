@@ -99,7 +99,7 @@ export default function AuditTrailPage({
    * and paginating those — which, on a log, silently hid everything older than
    * the last hundred actions.
    */
-  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

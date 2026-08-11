@@ -97,9 +97,9 @@ export default function CitizensPage({
    * registered citizens was shown a page counter that described a slice, with
    * no way to reach the rest.
    */
-  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState('');
+  /** The committed term — set when the clerk presses Enter, not as they type. */
   const [appliedSearch, setAppliedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,12 +143,6 @@ export default function CitizensPage({
       setLoading(false);
     }
   }, [tenant, token, base, router, appliedSearch, pagination]);
-
-  // 300ms — one request for a name typed at speed.
-  useEffect(() => {
-    const timer = window.setTimeout(() => setAppliedSearch(search.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
 
   // A new search starts at page one; otherwise it asks for rows 150–175 of a
   // set that may now have three.
@@ -562,8 +556,9 @@ export default function CitizensPage({
             totalRowCount={total}
             pagination={pagination}
             onPaginationChange={setPagination}
-            searchValue={search}
-            onSearchChange={setSearch}
+            /* The box holds its own draft; this fires once, on Enter. */
+            searchValue={appliedSearch}
+            onSearchChange={setAppliedSearch}
           />
         </CardContent>
       </Card>

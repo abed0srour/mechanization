@@ -117,7 +117,7 @@ export default function PaymentsPage({
    * asked for. Kept apart so typing does not fire a request per keystroke —
    * the load effect keys off the debounced one only.
    */
-  const [search, setSearch] = useState('');
+  /** The committed term — set when the clerk presses Enter, not as they type. */
   const [appliedSearch, setAppliedSearch] = useState('');
   /**
    * The page the server was asked for.
@@ -126,7 +126,7 @@ export default function PaymentsPage({
    * now: the table shows one page of a larger set, so the page index has to
    * survive alongside the filters that produced it.
    */
-  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
   const [total, setTotal] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null);
@@ -186,13 +186,6 @@ export default function PaymentsPage({
   useEffect(() => {
     void load();
   }, [load]);
-
-  // 300ms: long enough that a name typed at speed is one request, short enough
-  // that the table has moved by the time the clerk looks up from the keyboard.
-  useEffect(() => {
-    const timer = window.setTimeout(() => setAppliedSearch(search.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
 
   /**
    * Any change to what is being asked for returns to the first page.
@@ -559,24 +552,13 @@ export default function PaymentsPage({
               caller drives pagination too. Turning off only the search keeps
               client sorting and paging over whatever the server returned.
             */
-            searchable={false}
+            /* The table's own search box now, rather than a second one in the
+               toolbar: it commits on Enter and lives inside the card, so the
+               two would have been the same control drawn twice. */
+            searchValue={appliedSearch}
+            onSearchChange={setAppliedSearch}
             toolbar={
-              <div className="flex w-full flex-wrap items-center gap-2 sm:justify-between">
-                <div className="relative w-full sm:max-w-xs">
-                  <Search
-                    className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Input
-                    type="search"
-                    aria-label={TABLE_LABELS.searchAriaLabel}
-                    className="h-10 ps-9"
-                    placeholder={TABLE_LABELS.searchPlaceholder}
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </div>
-
+              <div className="flex w-full flex-wrap items-center gap-2 sm:justify-end">
                 <div
                   role="group"
                   aria-label="تصفية بطريقة الدفع"
