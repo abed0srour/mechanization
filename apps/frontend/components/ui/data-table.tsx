@@ -90,8 +90,8 @@ const ALIGN_JUSTIFY = {
   center: 'justify-center',
 } as const;
 
-const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
-const DEFAULT_SEARCH_DEBOUNCE_MS = 300;
+/** 10 first, so it is the default every table opens on. */
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 /**
  * `{count} طلب` + `{count: 12}` -> `12 طلب`. Keeps pluralisable copy in the
@@ -136,9 +136,8 @@ export interface DataTableProps<TData, TValue = unknown> {
   searchable?: boolean;
   /** Controlled search value — required in `manual` mode. */
   searchValue?: string;
-  /** Fires after the debounce window with the committed search term. */
+  /** Fires with the committed term — on Enter, or when the box is emptied. */
   onSearchChange?: (value: string) => void;
-  searchDebounceMs?: number;
 
   /**
    * Server-driven mode: pagination, sorting and filtering are computed by
@@ -212,7 +211,6 @@ export function DataTable<TData, TValue = unknown>({
   searchable = true,
   searchValue,
   onSearchChange,
-  searchDebounceMs = DEFAULT_SEARCH_DEBOUNCE_MS,
   manual = false,
   manualPagination = manual,
   manualSorting = manual,
@@ -245,10 +243,10 @@ export function DataTable<TData, TValue = unknown>({
   const pagination = controlledPagination ?? internalPagination;
   const sorting = controlledSorting ?? internalSorting;
 
-  // Search box shows every keystroke instantly; the committed value
-  // (which drives filtering / API calls) only updates after the
-  // debounce window, so neither a slow backend nor a large in-memory
-  // table re-renders on every keypress.
+  // Two values, deliberately: the box shows every keystroke, while the
+  // committed term — the one that filters, or is sent to the API — changes
+  // only when the reader asks for it with Enter. Neither a slow backend nor a
+  // large in-memory table is touched while someone is still typing a name.
   const committedSearch = searchValue ?? internalGlobalFilter;
   const [searchInput, setSearchInput] = React.useState(committedSearch);
   const searchInputRef = React.useRef(searchInput);
@@ -282,12 +280,19 @@ export function DataTable<TData, TValue = unknown>({
     [onSearchChange, onPaginationChange],
   );
 
-  React.useEffect(() => {
-    if (searchInput === committedSearch) return;
-    const handle = setTimeout(() => commitSearch(searchInput), searchDebounceMs);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput, searchDebounceMs]);
+  /*
+   * Typing no longer searches; Enter does.
+   *
+   * The box used to fire on a timer after every keystroke, which meant a
+   * ten-character name was one query if you typed it quickly and three or four
+   * if you paused — each one a full round trip, each one replacing the results
+   * under a reader's eyes mid-scan. Committing on Enter makes the request
+   * something the clerk asks for, so a search costs exactly one query and the
+   * table only moves when they meant it to.
+   *
+   * Clearing the box is the one exception: emptying a filter is unambiguous and
+   * nobody presses Enter to say "show everything again".
+   */
 
   const table = useReactTable({
     data,
@@ -351,11 +356,17 @@ export function DataTable<TData, TValue = unknown>({
   );
 
   return (
-    <div className={cn('space-y-4', className)}>
+    /*
+      One bordered card holding the toolbar, the rows and the footer, rather
+      than three stacked blocks with gaps between them. The controls belong to
+      the table they act on, and a search box floating above an unrelated
+      rounded rectangle reads as page furniture instead.
+    */
+    <div className={cn('overflow-hidden rounded-lg border bg-card', className)}>
       {searchable || toolbar ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b p-3 sm:flex-row sm:items-center sm:justify-between">
           {searchable ? (
-            <div className="relative w-full sm:max-w-md">
+            <div className="relative w-full sm:max-w-sm">
               <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="search"
@@ -364,7 +375,21 @@ export function DataTable<TData, TValue = unknown>({
                 className="h-10 ps-9 pe-9"
                 placeholder={labels.searchPlaceholder}
                 value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setSearchInput(next);
+                  // Emptying the box applies straight away. It is unambiguous,
+                  // and it also covers the native clear button WebKit renders
+                  // inside `type="search"` — which would otherwise leave a
+                  // blank field still filtering by the previous term.
+                  if (next === '' && committedSearch !== '') commitSearch('');
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitSearch(searchInput.trim());
+                  }
+                }}
               />
               {searchInput ? (
                 <button
@@ -386,7 +411,7 @@ export function DataTable<TData, TValue = unknown>({
       ) : null}
 
       {error ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border p-12 text-center">
+        <div className="flex flex-col items-center gap-3 p-12 text-center">
           <TriangleAlert className="h-8 w-8 text-destructive" />
           <p className="text-destructive">{labels.loadError}</p>
           {onRetry ? (
@@ -396,7 +421,7 @@ export function DataTable<TData, TValue = unknown>({
           ) : null}
         </div>
       ) : !loading && rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border p-14 text-center">
+        <div className="flex flex-col items-center gap-3 p-14 text-center">
           {emptyIcon ?? <FileSearch className="h-10 w-10 text-muted-foreground/60" />}
           <p className="font-medium text-muted-foreground">
             {hasSearchTerm ? labels.emptySearch : labels.empty}
@@ -406,7 +431,9 @@ export function DataTable<TData, TValue = unknown>({
         // The single scroll container for both axes — `overflow-x` for a wide
         // row of action buttons, `overflow-y` under `max-h` for a long page.
         // `Table` deliberately adds no wrapper of its own; see table.tsx.
-        <div className="max-h-[70vh] overflow-auto rounded-lg border">
+        // No border of its own now: the card around the whole component draws
+        // it, and the toolbar and footer supply the horizontal rules.
+        <div className="max-h-[70vh] overflow-auto">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/95 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/80">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -512,10 +539,9 @@ export function DataTable<TData, TValue = unknown>({
         </div>
       )}
 
-      {/* Pagination + page-size footer. Bordered off from the table above it:
-          without the rule these controls float against the page and read as
-          part of the last row. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+      {/* Pagination + page-size footer, inside the card and ruled off from the
+          rows above it. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t p-3">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>{labels.rowsPerPage}</span>
           <Select
@@ -544,17 +570,13 @@ export function DataTable<TData, TValue = unknown>({
             {fillTemplate(labels.totalRows, { count: resolvedTotal })}
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={loading || currentPage <= 1}
-            onClick={() => table.previousPage()}
-          >
-            <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
-            {labels.previous}
-          </Button>
-          <span className="text-sm font-medium tabular-nums">
+        {/* Square icon buttons rather than labelled ones: with the position
+            spelled out beside them, «السابق»/«التالي» repeat what the reader
+            has just been told and crowd the row on a phone. The labels survive
+            as `aria-label` and `title`, so nothing is lost to a screen reader
+            or a hover. */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium tabular-nums text-muted-foreground">
             {fillTemplate(labels.pageOf, {
               current: currentPage,
               total: Math.max(resolvedPageCount, 1),
@@ -562,12 +584,23 @@ export function DataTable<TData, TValue = unknown>({
           </span>
           <Button
             variant="outline"
-            size="sm"
+            size="icon-sm"
+            aria-label={labels.previous}
+            title={labels.previous}
+            disabled={loading || currentPage <= 1}
+            onClick={() => table.previousPage()}
+          >
+            <ChevronRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label={labels.next}
+            title={labels.next}
             disabled={loading || currentPage >= resolvedPageCount}
             onClick={() => table.nextPage()}
           >
-            {labels.next}
-            <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+            <ChevronLeft className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
           </Button>
         </div>
       </div>
