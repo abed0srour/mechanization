@@ -145,16 +145,20 @@ export class FeesController {
     @Query('citizenId') citizenId?: string,
     @Query('method') method?: string,
     @Query('transactionsOnly') transactionsOnly?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
-    return {
-      items: await this.fees.listAllPayments({
-        status,
-        search,
-        citizenId,
-        method,
-        transactionsOnly: transactionsOnly === 'true',
-      }),
-    };
+    // `{ items, total }` — the count is what lets the table say "صفحة 2 من 9"
+    // rather than counting the rows it happens to be holding.
+    return this.fees.listAllPayments({
+      status,
+      search,
+      citizenId,
+      method,
+      transactionsOnly: transactionsOnly === 'true',
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
   }
 
   /**

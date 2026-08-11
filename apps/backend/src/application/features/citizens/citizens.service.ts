@@ -117,6 +117,10 @@ interface CitizenListRow {
   overdueCount: number;
   pendingReviewCount: number;
   total: number;
+  /** Window aggregates over the whole filtered set — identical on every row. */
+  allOutstanding: number;
+  allOverdue: number;
+  allInArrears: number;
 }
 
 /**
@@ -161,6 +165,7 @@ export class CitizensService {
   async list(filter: { search?: string; limit?: number; offset?: number } = {}): Promise<{
     items: CitizenListItem[];
     total: number;
+    totals: { outstanding: number; overdue: number; inArrears: number };
   }> {
     const limit = Math.min(filter.limit ?? 100, MAX_LIST_ROWS);
     const offset = Math.max(filter.offset ?? 0, 0);
@@ -228,7 +233,30 @@ export class CitizensService {
           (SELECT count(*)::int FROM citizen_payments p
             WHERE p."citizenId" = u.id AND p."paymentStatus" = 'PENDING_REVIEW')
             AS "pendingReviewCount",
-          count(*) OVER()::int AS total
+          count(*) OVER()::int AS total,
+          /*
+            The registry's headline figures, over the whole filtered set.
+            A window function is evaluated before LIMIT/OFFSET — the same
+            property that already makes the total above a true total — so
+            these describe every matching citizen rather than the page. The
+            screen used to sum them in the browser, which was correct only
+            while the browser held every row; once the list is paged, that
+            would silently turn the outstanding figure into "on this page".
+          */
+          sum(COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
+                         WHERE p."citizenId" = u.id AND p."paymentStatus" <> 'PAID'), 0))
+            OVER()::float8 AS "allOutstanding",
+          sum(COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
+                         WHERE p."citizenId" = u.id
+                           AND p."paymentStatus" = 'UNPAID'
+                           AND p."dueDate" < now()), 0))
+            OVER()::float8 AS "allOverdue",
+          count(*) FILTER (
+            WHERE (SELECT count(*) FROM citizen_payments p
+                    WHERE p."citizenId" = u.id
+                      AND p."paymentStatus" = 'UNPAID'
+                      AND p."dueDate" < now()) > 0
+          ) OVER()::int AS "allInArrears"
         FROM users u
         WHERE u.kind = 'CITIZEN'
         ${searchFilter}
@@ -261,6 +289,12 @@ export class CitizensService {
         pendingReviewCount: row.pendingReviewCount,
       })),
       total: rows[0]?.total ?? 0,
+      /** Across every matching citizen, not the returned page. */
+      totals: {
+        outstanding: rows[0]?.allOutstanding ?? 0,
+        overdue: rows[0]?.allOverdue ?? 0,
+        inArrears: rows[0]?.allInArrears ?? 0,
+      },
     };
   }
 
