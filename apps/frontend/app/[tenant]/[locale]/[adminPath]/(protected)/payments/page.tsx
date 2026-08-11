@@ -119,6 +119,15 @@ export default function PaymentsPage({
    */
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
+  /**
+   * The page the server was asked for.
+   *
+   * Held here rather than inside the table because it is a *request parameter*
+   * now: the table shows one page of a larger set, so the page index has to
+   * survive alongside the filters that produced it.
+   */
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+  const [total, setTotal] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null);
 
@@ -147,6 +156,8 @@ export default function PaymentsPage({
           transactionsOnly: true,
           method: method || undefined,
           search: appliedSearch || undefined,
+          limit: pagination.pageSize,
+          offset: pagination.pageIndex * pagination.pageSize,
         }),
         // Both only so a reprinted وصل carries the same office numbers the
         // original did — neither is rendered on this page.
@@ -154,6 +165,8 @@ export default function PaymentsPage({
         getTenantConfig(tenant),
       ]);
       setItems(paymentsResult.items);
+      setTotal(paymentsResult.total);
+      setTotals(paymentsResult.totals);
       setSettings(settingsResult);
       setMunicipalityName(configResult.nameAr || configResult.name);
       setError(null);
@@ -168,7 +181,7 @@ export default function PaymentsPage({
     } finally {
       setLoading(false);
     }
-  }, [tenant, token, base, router, method, appliedSearch]);
+  }, [tenant, token, base, router, method, appliedSearch, pagination]);
 
   useEffect(() => {
     void load();
@@ -180,6 +193,19 @@ export default function PaymentsPage({
     const timer = window.setTimeout(() => setAppliedSearch(search.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  /**
+   * Any change to what is being asked for returns to the first page.
+   *
+   * Without this, filtering to «المحصّل» while on page 7 asks the server for
+   * rows 150–175 of a set that now has 12, and the table shows an empty page
+   * with no obvious way back.
+   */
+  useEffect(() => {
+    setPagination((previous) =>
+      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+    );
+  }, [method, appliedSearch]);
 
   /** Reprints the وصل for one transaction, exactly as إدارة الرسوم does. */
   const openReceipt = useCallback(
@@ -207,17 +233,21 @@ export default function PaymentsPage({
     window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1500);
   }, []);
 
-  const totals = useMemo(() => {
-    const confirmed = items.filter((item) => item.paidAmount > 0);
-    return {
-      count: items.length,
-      collected: confirmed.reduce((sum, item) => sum + item.paidAmount, 0),
-      cash: confirmed.filter((item) => item.paymentMethod === 'CASH').length,
-      whish: confirmed.filter((item) => item.paymentMethod === 'WHISH_MONEY').length,
-      collector: confirmed.filter((item) => item.paymentMethod === 'COLLECTOR').length,
-      awaiting: items.filter((item) => item.paymentStatus === 'PENDING_REVIEW').length,
-    };
-  }, [items]);
+  /**
+   * The server's figures, not the page's.
+   *
+   * These used to be reduced from `items`, which was every matching row until
+   * the table became paginated. Leaving them there would have made «إجمالي
+   * المحصّل» mean "the twenty-five rows currently on screen" — a total that
+   * changes when you press «التالي».
+   */
+  const [totals, setTotals] = useState({
+    collected: 0,
+    cash: 0,
+    whish: 0,
+    collector: 0,
+    awaiting: 0,
+  });
 
   const columns = useMemo<ColumnDef<AdminPaymentItem>[]>(
     () => [
@@ -477,7 +507,7 @@ export default function PaymentsPage({
       ) : null}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <SummaryTile label="عدد العمليات" value={totals.count.toLocaleString('en-US')} />
+        <SummaryTile label="عدد العمليات" value={total.toLocaleString('en-US')} />
         <SummaryTile label="إجمالي المحصّل" value={formatLbp(totals.collected)} />
         <SummaryTile
           label="نقداً / Whish / محصّل"
@@ -502,6 +532,20 @@ export default function PaymentsPage({
             error={error}
             onRetry={() => void load()}
             emptyIcon={<ArrowLeftRight className="h-10 w-10 text-muted-foreground/60" />}
+            /*
+              Pagination and filtering are the server's; sorting stays off
+              rather than being faked. Re-ordering the 25 rows currently in
+              hand would look like sorting the log and would not be — the
+              server returns it newest-first, which is the order a chronology
+              is read in anyway.
+            */
+            manualPagination
+            manualFiltering
+            sortable={false}
+            pageCount={Math.max(Math.ceil(total / pagination.pageSize), 1)}
+            totalRowCount={total}
+            pagination={pagination}
+            onPaginationChange={setPagination}
             /*
               The built-in search box is off, and the one in the toolbar
               replaces it, because search here has to be the server's: it

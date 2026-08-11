@@ -293,7 +293,21 @@ export default function FeesPage({
         getMunicipalitySettings(tenant, token),
         getTenantConfig(tenant),
         listCitizens(tenant, token, { limit: 200 }),
-        getAllPayments(tenant, token, { search: ledgerSearch || undefined }),
+        /**
+         * An explicit page size, because this screen groups what it fetches.
+         *
+         * سجل المطالبات collapses invoices into one row per citizen in the
+         * browser, so a page boundary drawn across *invoices* would split a
+         * citizen's balance in half and show them twice — once per page, each
+         * with part of what they owe. Until the grouping moves into the query,
+         * the honest thing is to ask for a slice large enough to hold a
+         * village's ledger and say so, rather than accept the endpoint's new
+         * 25-row default and quietly under-report every total on the page.
+         */
+        getAllPayments(tenant, token, {
+          search: ledgerSearch || undefined,
+          limit: 500,
+        }),
         // Only to name a محصّل when cash is recorded as collected on a round.
         // `/staff` is SUPER_ADMIN-only, which is exactly who may settle, so
         // this cannot 403 for anyone who can reach the dialog.

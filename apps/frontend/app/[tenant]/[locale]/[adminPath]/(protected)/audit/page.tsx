@@ -93,6 +93,14 @@ export default function AuditTrailPage({
   const [scope, setScope] = useState<'all' | 'mine'>('all');
   const [entityType, setEntityType] = useState('');
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  /**
+   * The audit trail is append-only and never pruned, so it is the one table
+   * guaranteed to outgrow any fixed fetch. It was reading the first 100 rows
+   * and paginating those — which, on a log, silently hid everything older than
+   * the last hundred actions.
+   */
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,8 +126,11 @@ export default function AuditTrailPage({
       const result = await getAuditLog(tenant, session.accessToken, {
         actorId: scope === 'mine' ? session.user.id : undefined,
         entityType: entityType || undefined,
+        limit: pagination.pageSize,
+        offset: pagination.pageIndex * pagination.pageSize,
       });
       setEntries(result.items);
+      setTotal(result.total);
       setError(null);
     } catch (caught) {
       logApiError(caught);
@@ -132,11 +143,19 @@ export default function AuditTrailPage({
     } finally {
       setLoading(false);
     }
-  }, [tenant, session, scope, entityType, base, router]);
+  }, [tenant, session, scope, entityType, base, router, pagination]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Switching scope or entity filter narrows the set; page 7 of the old one is
+  // rarely a page of the new one.
+  useEffect(() => {
+    setPagination((previous) =>
+      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+    );
+  }, [scope, entityType]);
 
   const columns = useMemo<ColumnDef<AuditEntry>[]>(
     () => [
@@ -274,6 +293,19 @@ export default function AuditTrailPage({
             getRowId={(row) => row.id}
             loading={loading}
             onRetry={() => void load()}
+            /*
+              The search box is off rather than manual: the audit endpoint
+              filters by actor and entity type, not by free text, so a search
+              field here would only ever filter the page on screen — which on a
+              log reads as "no results" for anything older.
+            */
+            searchable={false}
+            manualPagination
+            sortable={false}
+            pageCount={Math.max(Math.ceil(total / pagination.pageSize), 1)}
+            totalRowCount={total}
+            pagination={pagination}
+            onPaginationChange={setPagination}
           />
         </CardContent>
       </Card>

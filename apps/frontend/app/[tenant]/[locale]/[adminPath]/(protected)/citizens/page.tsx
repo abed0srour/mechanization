@@ -88,6 +88,19 @@ export default function CitizensPage({
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
   const [items, setItems] = useState<CitizenListItem[]>([]);
+  /**
+   * The page and the search are request parameters now.
+   *
+   * The registry endpoint has always taken `limit`/`offset` and returned a
+   * `total`; the page ignored all three, fetched the first 200 rows and then
+   * paginated *those* in the browser. A municipality with more than 200
+   * registered citizens was shown a page counter that described a slice, with
+   * no way to reach the rest.
+   */
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -109,8 +122,14 @@ export default function CitizensPage({
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const result = await listCitizens(tenant, token);
+      const result = await listCitizens(tenant, token, {
+        search: appliedSearch || undefined,
+        limit: pagination.pageSize,
+        offset: pagination.pageIndex * pagination.pageSize,
+      });
       setItems(result.items);
+      setTotal(result.total);
+      setTotals(result.totals);
       setError(null);
     } catch (caught) {
       logApiError(caught);
@@ -123,7 +142,21 @@ export default function CitizensPage({
     } finally {
       setLoading(false);
     }
-  }, [tenant, token, base, router]);
+  }, [tenant, token, base, router, appliedSearch, pagination]);
+
+  // 300ms — one request for a name typed at speed.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  // A new search starts at page one; otherwise it asks for rows 150–175 of a
+  // set that may now have three.
+  useEffect(() => {
+    setPagination((previous) =>
+      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+    );
+  }, [appliedSearch]);
 
   useEffect(() => {
     void load();
@@ -424,15 +457,15 @@ export default function CitizensPage({
    * round trip would only introduce a moment where the cards and the table
    * below them disagree.
    */
-  const totals = useMemo(
-    () => ({
-      citizens: items.length,
-      inArrears: items.filter((citizen) => citizen.overdueTotal > 0).length,
-      outstanding: items.reduce((sum, citizen) => sum + citizen.outstandingTotal, 0),
-      overdue: items.reduce((sum, citizen) => sum + citizen.overdueTotal, 0),
-    }),
-    [items],
-  );
+  /**
+   * The server's figures, over every matching citizen.
+   *
+   * Reduced from `items` until this table was paged, at which point that would
+   * have meant "the twenty-five on screen" — a total that changes with the page
+   * size. `total` is the count; the money comes from window aggregates computed
+   * beside the rows.
+   */
+  const [totals, setTotals] = useState({ outstanding: 0, overdue: 0, inArrears: 0 });
 
   if (!token) return null;
 
@@ -470,7 +503,7 @@ export default function CitizensPage({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="إجمالي المواطنين"
-          value={totals.citizens.toLocaleString('en-US')}
+          value={total.toLocaleString('en-US')}
           loading={loading}
           icon={<Users className="size-6 text-primary" aria-hidden />}
         />
@@ -516,6 +549,21 @@ export default function CitizensPage({
             loading={loading}
             onRetry={() => void load()}
             emptyIcon={<Users className="h-10 w-10 text-muted-foreground/60" />}
+            /*
+              The registry can run to thousands of rows, so the page and the
+              search both belong to the server. Sorting stays off rather than
+              re-ordering the twenty-five rows in hand and calling it sorted;
+              the server returns newest-registered first.
+            */
+            manualPagination
+            manualFiltering
+            sortable={false}
+            pageCount={Math.max(Math.ceil(total / pagination.pageSize), 1)}
+            totalRowCount={total}
+            pagination={pagination}
+            onPaginationChange={setPagination}
+            searchValue={search}
+            onSearchChange={setSearch}
           />
         </CardContent>
       </Card>

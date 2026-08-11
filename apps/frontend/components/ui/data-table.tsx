@@ -145,8 +145,35 @@ export interface DataTableProps<TData, TValue = unknown> {
    * the caller (typically a paginated API) instead of in the browser.
    * `pageCount` and the `on*Change` handlers become required in spirit —
    * omitting them just freezes that dimension.
+   *
+   * Shorthand for all three flags below. Kept because most callers that want
+   * one want all three: once a page is a slice of a larger set, sorting and
+   * filtering it in the browser would only ever reorder that slice.
    */
   manual?: boolean;
+  /**
+   * The three axes, separately.
+   *
+   * They were one flag, and that made a common case unreachable: a table whose
+   * *rows* come from a paginated API but whose search box is the browser's, or
+   * the reverse. Turning on the shared flag to move one axis silently switched
+   * off the row models for the other two — a table that looked fine with 8 rows
+   * and lost its pagination entirely at 200.
+   *
+   * Each defaults to `manual`, so existing callers behave exactly as before.
+   */
+  manualPagination?: boolean;
+  manualSorting?: boolean;
+  manualFiltering?: boolean;
+  /**
+   * Turns every column's sort control off.
+   *
+   * For a server-paginated table whose endpoint cannot sort: re-ordering the
+   * rows currently in hand looks like sorting the table and is not — it sorts
+   * one page of many. Hiding the affordance is honest; leaving it is a control
+   * that lies about what it did.
+   */
+  sortable?: boolean;
   pageCount?: number;
   /** Total row count across all pages — falls back to `data.length`. */
   totalRowCount?: number;
@@ -187,6 +214,10 @@ export function DataTable<TData, TValue = unknown>({
   onSearchChange,
   searchDebounceMs = DEFAULT_SEARCH_DEBOUNCE_MS,
   manual = false,
+  manualPagination = manual,
+  manualSorting = manual,
+  manualFiltering = manual,
+  sortable = true,
   pageCount,
   totalRowCount,
   pagination: controlledPagination,
@@ -267,10 +298,13 @@ export function DataTable<TData, TValue = unknown>({
       sorting,
       globalFilter: committedSearch,
     },
-    manualPagination: manual,
-    manualSorting: manual,
-    manualFiltering: manual,
-    pageCount: manual ? (pageCount ?? -1) : undefined,
+    enableSorting: sortable,
+    manualPagination,
+    manualSorting,
+    manualFiltering,
+    // `-1` means "unknown page count"; TanStack then trusts `pageCount` only
+    // when the caller supplies one, and leaves next/previous enabled otherwise.
+    pageCount: manualPagination ? (pageCount ?? -1) : undefined,
     onPaginationChange: onPaginationChange ?? setInternalPagination,
     onSortingChange: onSortingChange ?? setInternalSorting,
     onGlobalFilterChange: (updater) => {
@@ -280,9 +314,12 @@ export function DataTable<TData, TValue = unknown>({
     },
     getRowCanExpand,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: manual ? undefined : getFilteredRowModel(),
-    getSortedRowModel: manual ? undefined : getSortedRowModel(),
-    getPaginationRowModel: manual ? undefined : getPaginationRowModel(),
+    // Each row model is dropped only for the axis the server owns. Dropping
+    // all three because one moved is what previously left a server-paginated
+    // table unsortable and unpaged at the same time.
+    getFilteredRowModel: manualFiltering ? undefined : getFilteredRowModel(),
+    getSortedRowModel: manualSorting ? undefined : getSortedRowModel(),
+    getPaginationRowModel: manualPagination ? undefined : getPaginationRowModel(),
     getExpandedRowModel: renderSubRow ? getExpandedRowModel() : undefined,
   });
 

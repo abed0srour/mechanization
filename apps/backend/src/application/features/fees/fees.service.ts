@@ -642,61 +642,118 @@ export class FeesService {
        * have no method, no reference and no date.
        */
       transactionsOnly?: boolean;
+      /** Page size. Capped server-side so a client cannot ask for everything. */
+      limit?: number;
+      offset?: number;
     } = {},
   ) {
     const search = filter.search?.trim();
 
-    const rows = await withConnectionRetry(() =>
-      this.db.citizenPayment.findMany({
-        where: {
-          ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
-          ...(filter.status ? { paymentStatus: filter.status as never } : {}),
-          ...(filter.method ? { paymentMethod: filter.method as never } : {}),
-          // PENDING_REVIEW belongs here despite `paidAmount` still being zero:
-          // the citizen has declared a transfer, so there is a claimed
-          // transaction with a method and a reference to show — it is simply
-          // not confirmed yet.
-          ...(filter.transactionsOnly
-            ? { OR: [{ paidAmount: { gt: 0 } }, { paymentStatus: 'PENDING_REVIEW' as never }] }
-            : {}),
-          ...(search
-            ? {
-                citizen: {
-                  OR: [
-                    { firstName: { contains: search, mode: 'insensitive' as const } },
-                    { lastName: { contains: search, mode: 'insensitive' as const } },
-                    { referenceNumber: { contains: search, mode: 'insensitive' as const } },
-                    { phone: { contains: search } },
-                  ],
-                },
-              }
-            : {}),
-        },
-        /**
-         * A transactions view is a chronology, so it is ordered by when the
-         * money moved — newest first — rather than by what is most overdue.
-         * `paidAt` sorts nulls last so a part-payment (which never gets one,
-         * see below) falls to `updatedAt` instead of to the top.
-         */
-        orderBy: filter.transactionsOnly
-          ? [{ paidAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }]
-          : [{ paymentStatus: 'asc' }, { dueDate: 'asc' }],
-        // A single citizen's full history must never be truncated by the
-        // municipality-wide page size — the drill-down is where a clerk
-        // reconciles arrears one by one.
-        take: filter.citizenId ? 500 : 200,
-        include: {
-          citizen: {
-            select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
+    /**
+     * The page, and the ceiling on it.
+     *
+     * A single citizen's drill-down is exempt from the *default* but not from
+     * the cap: their whole history has to be reconcilable in one view, while a
+     * municipality-wide request for 50,000 invoices is a mistake whatever the
+     * caller believes.
+     */
+    const take = Math.min(Math.max(filter.limit ?? (filter.citizenId ? 500 : 25), 1), 500);
+    const skip = Math.max(filter.offset ?? 0, 0);
+
+    const where = {
+      ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
+      ...(filter.status ? { paymentStatus: filter.status as never } : {}),
+      ...(filter.method ? { paymentMethod: filter.method as never } : {}),
+      // PENDING_REVIEW belongs here despite `paidAmount` still being zero:
+      // the citizen has declared a transfer, so there is a claimed
+      // transaction with a method and a reference to show — it is simply
+      // not confirmed yet.
+      ...(filter.transactionsOnly
+        ? { OR: [{ paidAmount: { gt: 0 } }, { paymentStatus: 'PENDING_REVIEW' as never }] }
+        : {}),
+      ...(search
+        ? {
+            citizen: {
+              OR: [
+                { firstName: { contains: search, mode: 'insensitive' as const } },
+                { lastName: { contains: search, mode: 'insensitive' as const } },
+                { referenceNumber: { contains: search, mode: 'insensitive' as const } },
+                { phone: { contains: search } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    /**
+     * The page and the count in one round trip.
+     *
+     * `$transaction` rather than two awaits so both read the same snapshot — a
+     * payment settled between the two would otherwise give a total that
+     * disagrees with the rows beside it, and the page counter would flicker
+     * against a list that had not changed.
+     */
+    const [rows, total, collected, byMethod, awaiting] = await withConnectionRetry(() =>
+      this.db.$transaction([
+        this.db.citizenPayment.findMany({
+          where,
+          /**
+           * A transactions view is a chronology, so it is ordered by when the
+           * money moved — newest first — rather than by what is most overdue.
+           * `paidAt` sorts nulls last so a part-payment (which never gets one,
+           * see below) falls to `updatedAt` instead of to the top.
+           *
+           * `id` breaks every tie. Without it two rows sharing a timestamp can
+           * come back in either order between queries, and a row seen at the
+           * foot of page one reappears at the head of page two — the classic
+           * unstable-sort duplicate that makes a paginated list untrustworthy.
+           */
+          orderBy: filter.transactionsOnly
+            ? [{ paidAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }, { id: 'asc' }]
+            : [{ paymentStatus: 'asc' }, { dueDate: 'asc' }, { id: 'asc' }],
+          take,
+          skip,
+          include: {
+            citizen: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                referenceNumber: true,
+              },
+            },
+            collectedBy: { select: { firstName: true, lastName: true } },
+            feeNotice: { select: { frequency: true } },
           },
-          collectedBy: { select: { firstName: true, lastName: true } },
-          feeNotice: { select: { frequency: true } },
-        },
-      }),
+        }),
+        this.db.citizenPayment.count({ where }),
+        /**
+         * Aggregates over the *whole filtered set*, not the page.
+         *
+         * The screen's summary tiles read "إجمالي المحصّل" and "نقداً / Whish /
+         * محصّل". Once the rows became one page of many, computing those in the
+         * browser would have quietly turned them into "…on this page" — a
+         * total that shrinks when the clerk changes the page size, which is the
+         * kind of wrong number nobody notices until it is quoted in a meeting.
+         */
+        this.db.citizenPayment.aggregate({
+          where: { ...where, paidAmount: { gt: 0 } },
+          _sum: { paidAmount: true },
+        }),
+        this.db.citizenPayment.groupBy({
+          by: ['paymentMethod'],
+          where: { ...where, paidAmount: { gt: 0 } },
+          _count: { _all: true },
+        }),
+        this.db.citizenPayment.count({
+          where: { ...where, paymentStatus: 'PENDING_REVIEW' },
+        }),
+      ]),
     );
 
     const now = new Date();
-    return rows.map((row) => ({
+    const items = rows.map((row) => ({
       id: row.id,
       title: row.title,
       amount: Number(row.amount),
@@ -730,6 +787,22 @@ export class FeesService {
       citizenPhone: row.citizen.phone,
       citizenReference: row.citizen.referenceNumber,
     }));
+
+    const methodCount = (method: string) =>
+      byMethod.find((group) => group.paymentMethod === method)?._count._all ?? 0;
+
+    return {
+      items,
+      total,
+      /** Across every row the filters match — never just the page. */
+      totals: {
+        collected: Number(collected._sum.paidAmount ?? 0),
+        cash: methodCount('CASH'),
+        whish: methodCount('WHISH_MONEY'),
+        collector: methodCount('COLLECTOR'),
+        awaiting,
+      },
+    };
   }
 
   /**

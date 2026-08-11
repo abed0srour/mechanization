@@ -582,11 +582,12 @@ export function listCitizens(
   query.set('limit', String(filter.limit ?? 200));
   query.set('offset', String(filter.offset ?? 0));
 
-  return apiFetch<{ items: CitizenListItem[]; total: number }>(
-    tenant,
-    `/citizens?${query}`,
-    { token },
-  );
+  return apiFetch<{
+    items: CitizenListItem[];
+    total: number;
+    /** Computed over every matching citizen, not the returned page. */
+    totals: { outstanding: number; overdue: number; inArrears: number };
+  }>(tenant, `/citizens?${query}`, { token });
 }
 
 /**
@@ -847,14 +848,22 @@ export interface AuditEntry {
 export function getAuditLog(
   tenant: string,
   token: string,
-  filter: { actorId?: string; entityType?: string; from?: string; to?: string; limit?: number } = {},
+  filter: {
+    actorId?: string;
+    entityType?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
 ) {
   const query = new URLSearchParams();
   if (filter.actorId) query.set('actorId', filter.actorId);
   if (filter.entityType) query.set('entityType', filter.entityType);
   if (filter.from) query.set('from', filter.from);
   if (filter.to) query.set('to', filter.to);
-  query.set('limit', String(filter.limit ?? 100));
+  query.set('limit', String(filter.limit ?? 50));
+  query.set('offset', String(filter.offset ?? 0));
 
   return apiFetch<{ items: AuditEntry[]; total: number }>(tenant, `/audit?${query}`, { token });
 }
@@ -1131,6 +1140,8 @@ export function getAllPayments(
     citizenId?: string;
     method?: string;
     transactionsOnly?: boolean;
+    limit?: number;
+    offset?: number;
   } = {},
 ) {
   const query = new URLSearchParams();
@@ -1139,8 +1150,21 @@ export function getAllPayments(
   if (filter.citizenId) query.set('citizenId', filter.citizenId);
   if (filter.method) query.set('method', filter.method);
   if (filter.transactionsOnly) query.set('transactionsOnly', 'true');
+  if (filter.limit !== undefined) query.set('limit', String(filter.limit));
+  if (filter.offset !== undefined) query.set('offset', String(filter.offset));
   const suffix = query.toString() ? `?${query}` : '';
-  return apiFetch<{ items: AdminPaymentItem[] }>(tenant, `/fees/payments${suffix}`, { token });
+  return apiFetch<{
+    items: AdminPaymentItem[];
+    total: number;
+    /** Computed over every matching row, not the returned page. */
+    totals: {
+      collected: number;
+      cash: number;
+      whish: number;
+      collector: number;
+      awaiting: number;
+    };
+  }>(tenant, `/fees/payments${suffix}`, { token });
 }
 
 /** A one-off charge against a single citizen — no notice, no recurrence. */
