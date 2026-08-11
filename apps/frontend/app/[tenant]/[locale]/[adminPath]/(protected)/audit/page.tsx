@@ -7,6 +7,7 @@ import { History, ShieldCheck } from 'lucide-react';
 import { ApiRequestError, getAuditLog, logApiError } from '@/lib/api-client';
 import type { AuditEntry, Session } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
+import { formatDateTime } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -171,7 +172,7 @@ export default function AuditTrailPage({
         header: 'الوقت',
         cell: ({ row }) => (
           <span dir="ltr" className="text-sm">
-            {new Date(row.original.createdAt).toLocaleString('ar-LB')}
+            {formatDateTime(row.original.createdAt)}
           </span>
         ),
       },

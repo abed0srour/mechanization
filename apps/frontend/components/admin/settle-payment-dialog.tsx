@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/dialog';
 import { ChoiceCard, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
 /**
@@ -60,7 +67,17 @@ export interface SettleValues {
   amount: number;
   /** Only ever sent for a Whish payment; the server rejects it as missing. */
   whishTransactionRef?: string;
+  /** Only ever sent for a collector payment; the server rejects it as missing. */
+  collectedById?: string;
   note?: string;
+}
+
+/** The subset of a staff record this dialog needs to offer a collector. */
+export interface CollectorOption {
+  id: string;
+  fullName: string;
+  role: string;
+  isActive: boolean;
 }
 
 /**
@@ -93,6 +110,7 @@ export function SettlePaymentDialog({
   payment,
   submitting,
   error,
+  collectors = [],
   onSubmit,
 }: {
   open: boolean;
@@ -100,10 +118,13 @@ export function SettlePaymentDialog({
   payment: SettleTarget | null;
   submitting: boolean;
   error: string | null;
+  /** Active staff, offered as the محصّل when that method is chosen. */
+  collectors?: CollectorOption[];
   onSubmit: (values: SettleValues) => void;
 }) {
   const [method, setMethod] = useState<SettleValues['method']>('CASH');
   const [reference, setReference] = useState('');
+  const [collectedById, setCollectedById] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
@@ -117,6 +138,7 @@ export function SettlePaymentDialog({
     // the deliberate choice, not the one you land on by not reading.
     setMethod('CASH');
     setReference('');
+    setCollectedById('');
     setNote('');
   }, [open, payment]);
 
@@ -124,12 +146,15 @@ export function SettlePaymentDialog({
 
   const received = Number(amount.replace(/\D/g, ''));
   const isWhish = method === 'WHISH_MONEY';
+  const isCollector = method === 'COLLECTOR';
   const missingReference = isWhish && reference.trim() === '';
+  const missingCollector = isCollector && collectedById === '';
   const valid =
     Number.isFinite(received) &&
     received > 0 &&
     received <= payment.remaining &&
-    !missingReference;
+    !missingReference &&
+    !missingCollector;
   const isPartial = received > 0 && received < payment.remaining;
 
   const tooMuch = received > payment.remaining;
@@ -170,11 +195,12 @@ export function SettlePaymentDialog({
                   checked={method === option.value}
                   onChange={(next) => {
                     setMethod(next as SettleValues['method']);
-                    // Dropping back to cash clears the reference so a number
-                    // typed by mistake cannot ride along on a cash payment —
-                    // the server nulls it anyway, and the two agreeing is what
-                    // keeps this form from lying about what it will send.
-                    if (next === 'CASH') setReference('');
+                    // Each method carries exactly one extra fact, so switching
+                    // away drops the other's. The server nulls them anyway; the
+                    // two agreeing is what keeps this form from showing a value
+                    // it will not send.
+                    if (next !== 'WHISH_MONEY') setReference('');
+                    if (next !== 'COLLECTOR') setCollectedById('');
                   }}
                   title={option.title}
                   description={option.description}
@@ -200,6 +226,34 @@ export function SettlePaymentDialog({
                 value={reference}
                 onChange={(event) => setReference(event.target.value)}
               />
+            </Field>
+          ) : null}
+
+          {isCollector ? (
+            <Field
+              label="المحصّل"
+              htmlFor="settle-collector"
+              required
+              hint="من استلم المبلغ في جولته — يبقى المبلغ في عهدته حتى تسليمه."
+            >
+              {collectors.length === 0 ? (
+                <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+                  لا توجد حسابات موظفين فعّالة لاختيار محصّل منها.
+                </p>
+              ) : (
+                <Select value={collectedById} onValueChange={setCollectedById}>
+                  <SelectTrigger id="settle-collector">
+                    <SelectValue placeholder="اختر المحصّل…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {collectors.map((collector) => (
+                      <SelectItem key={collector.id} value={collector.id}>
+                        {collector.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </Field>
           ) : null}
 
@@ -276,6 +330,7 @@ export function SettlePaymentDialog({
                 method,
                 amount: received,
                 whishTransactionRef: isWhish ? reference.trim() : undefined,
+                collectedById: isCollector ? collectedById : undefined,
                 note: note.trim() || undefined,
               })
             }

@@ -26,6 +26,7 @@ import {
 } from '@/lib/api-client';
 import type { StaffSummary } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
+import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -254,7 +255,7 @@ export default function StaffPage({
         header: 'آخر دخول',
         cell: ({ row }) =>
           row.original.lastLoginAt
-            ? new Date(row.original.lastLoginAt).toLocaleDateString('ar-LB')
+            ? formatDate(row.original.lastLoginAt)
             : '—',
       },
       {

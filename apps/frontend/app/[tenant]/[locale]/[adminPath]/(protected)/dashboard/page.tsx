@@ -33,6 +33,7 @@ import {
 import type { DashboardAnalytics } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
+import { formatMonth } from '@/lib/dates';
 import { useSectionNav } from '@/lib/use-section-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -100,8 +101,11 @@ function monthLabels(month: string): { short: string; long: string } {
   const [year, index] = month.split('-').map(Number);
   const date = new Date(Date.UTC(year, (index ?? 1) - 1, 1));
   return {
-    short: date.toLocaleDateString('ar-LB', { month: 'short', timeZone: 'UTC' }),
-    long: date.toLocaleDateString('ar-LB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    // `formatMonth`, not `formatDate`: a chart axis wants the Arabic month
+    // name, and the only thing that changes here is that the year beside it is
+    // now Latin like every other figure on the dashboard.
+    short: formatMonth(date, { month: 'short', timeZone: 'UTC' }),
+    long: formatMonth(date, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
   };
 }
 

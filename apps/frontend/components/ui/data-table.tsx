@@ -48,12 +48,47 @@ import { cn } from '@/lib/utils';
 declare module '@tanstack/react-table' {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData, TValue> {
+    /**
+     * Which edge this column's contents sit against — **header and cells
+     * together**.
+     *
+     * One knob rather than a class on each, because the two drifting apart is
+     * the failure this replaces: a column whose cells were given `text-end`
+     * while its `<th>` kept the default put the heading at one edge of the
+     * column and every value at the other, so nothing lined up under its own
+     * label. Alignment is a property of the column, so it is declared once.
+     *
+     * Logical, not physical: `start` is the right edge in this RTL portal and
+     * the left in an LTR one, which is what keeps a single set of column
+     * definitions correct in both.
+     */
+    align?: 'start' | 'end' | 'center';
     /** Extra classes applied to this column's `<th>` (e.g. fixed width). */
     headerClassName?: string;
     /** Extra classes applied to this column's `<td>` cells. */
     cellClassName?: string;
   }
 }
+
+/** Text alignment per `meta.align`, applied to both `<th>` and `<td>`. */
+const ALIGN_TEXT = {
+  start: 'text-start',
+  end: 'text-end',
+  center: 'text-center',
+} as const;
+
+/**
+ * How the header's inner row distributes itself.
+ *
+ * A sortable heading is a flex button (label + sort glyph), so `text-*` alone
+ * does not move it — it needs a justification to match, or an end-aligned
+ * column's heading stays at the start while its values sit at the end.
+ */
+const ALIGN_JUSTIFY = {
+  start: 'justify-start',
+  end: 'justify-end',
+  center: 'justify-center',
+} as const;
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_SEARCH_DEBOUNCE_MS = 300;
@@ -350,18 +385,30 @@ export function DataTable<TData, TValue = unknown>({
                           : canSort
                             ? 'none'
                             : undefined;
+                    const align = header.column.columnDef.meta?.align ?? 'start';
                     return (
                       <TableHead
                         key={header.id}
                         scope="col"
                         aria-sort={ariaSort}
-                        className={header.column.columnDef.meta?.headerClassName}
+                        className={cn(
+                          ALIGN_TEXT[align],
+                          header.column.columnDef.meta?.headerClassName,
+                        )}
                       >
                         {header.isPlaceholder ? null : canSort ? (
                           <button
                             type="button"
                             onClick={header.column.getToggleSortingHandler()}
-                            className="-ms-2 inline-flex items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className={cn(
+                              'inline-flex w-full items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              ALIGN_JUSTIFY[align],
+                              // Pulls the button's own padding back so the
+                              // label sits flush with the cells beneath it
+                              // rather than inset by 8px — on whichever side
+                              // this column is aligned to.
+                              align === 'end' ? '-me-2' : align === 'start' ? '-ms-2' : '',
+                            )}
                             title={
                               sortState === 'asc'
                                 ? labels.sortDescending
@@ -404,7 +451,10 @@ export function DataTable<TData, TValue = unknown>({
                       {row.getVisibleCells().map((cell) => (
                         <TableCell
                           key={cell.id}
-                          className={cell.column.columnDef.meta?.cellClassName}
+                          className={cn(
+                            ALIGN_TEXT[cell.column.columnDef.meta?.align ?? 'start'],
+                            cell.column.columnDef.meta?.cellClassName,
+                          )}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>

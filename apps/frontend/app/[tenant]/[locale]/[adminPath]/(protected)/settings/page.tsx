@@ -21,6 +21,7 @@ import {
 } from '@/lib/api-client';
 import type { MunicipalitySettings } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
+import { formatDateTime } from '@/lib/dates';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field } from '@/components/ui/field';
@@ -280,7 +281,7 @@ export default function SettingsPage({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
               {saved?.updatedAt
-                ? `آخر تحديث: ${new Date(saved.updatedAt).toLocaleString('ar-LB')}`
+                ? `آخر تحديث: ${formatDateTime(saved.updatedAt)}`
                 : 'لم تُحفظ أي إعدادات بعد.'}
             </p>
             <Button size="lg" onClick={() => void save()} disabled={saving}>

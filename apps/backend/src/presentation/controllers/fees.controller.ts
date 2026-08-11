@@ -191,6 +191,7 @@ export class FeesController {
       amount: body.amount,
       method: body.method,
       whishTransactionRef: body.whishTransactionRef,
+      collectedById: body.collectedById,
       note: body.note,
       actor: { id: user.sub, role: user.role ?? '' },
     });

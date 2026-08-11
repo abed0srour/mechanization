@@ -3,6 +3,7 @@
 import { Banknote, Loader2 } from 'lucide-react';
 import type { AdminPaymentItem } from '@/lib/api-client';
 import { formatLbp } from '@/lib/currency';
+import { formatDate } from '@/lib/dates';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -63,7 +64,7 @@ export function ConfirmCashPaymentDialog({
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">تاريخ الاستحقاق</span>
               <span className="font-medium">
-                {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                {formatDate(payment.dueDate)}
               </span>
             </div>
             <div className="flex items-center justify-between border-t pt-2">

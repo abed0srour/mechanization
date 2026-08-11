@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 
 export interface IssueFeeValues {
   title: string;
@@ -434,7 +435,7 @@ export function IssueFeeDialog({
                   label="تاريخ الاستحقاق"
                   value={
                     values.dueDate
-                      ? new Date(values.dueDate).toLocaleDateString('ar-LB')
+                      ? formatDate(values.dueDate)
                       : '—'
                   }
                 />

@@ -6,12 +6,21 @@ import {
   BadgeCheck,
   Building2,
   CalendarDays,
+  Check,
   Clock,
+  Copy,
   CreditCard,
+  FileDigit,
+  Flag,
+  HeartHandshake,
+  Home,
   IdCard,
   Loader2,
   LogOut,
+  MessageCircle,
   MessageSquareWarning,
+  Phone,
+  Users,
   Wallet,
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
@@ -25,6 +34,7 @@ import {
 import type { CitizenPaymentItem, MyCitizenSummary } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
+import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +43,70 @@ import { cn } from '@/lib/utils';
 /** A bill is settled, or it is not — everything else is a shade of "not". */
 function isSettled(payment: CitizenPaymentItem): boolean {
   return payment.paymentStatus === 'PAID';
+}
+
+/**
+ * First letters of the first two words, for the avatar.
+ *
+ * Arabic has no case, so this is not "initials" in the Latin sense — it is the
+ * opening letter of the given name and of the family name, which is what a
+ * clerk writes on a folder tab.
+ */
+function initials(fullName: string | undefined): string {
+  if (!fullName) return '—';
+  const words = fullName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '—';
+  const first = words[0][0] ?? '';
+  const last = words.length > 1 ? (words[words.length - 1][0] ?? '') : '';
+  return `${first}${last}`;
+}
+
+/**
+ * One labelled fact in the profile grid.
+ *
+ * Renders nothing at all when the municipality holds no value — an empty row
+ * saying «الحالة الاجتماعية —» tells a citizen nothing and makes the grid
+ * ragged. The grid is a `<dl>` because that is what a list of labelled values
+ * is, and a screen reader then reads the label with its value rather than
+ * announcing nine loose strings.
+ */
+function Detail({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  mono,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | null | undefined;
+  hint?: string;
+  mono?: boolean;
+}) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start gap-3 p-4 sm:border-b sm:border-e last:sm:border-e-0">
+      <span
+        aria-hidden
+        className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+      >
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd
+          className={cn('truncate font-medium', mono && 'font-mono')}
+          dir={mono ? 'ltr' : undefined}
+          // `text-start` restores reading order for the LTR values above,
+          // which would otherwise be flush-right inside this RTL column.
+          style={mono ? { textAlign: 'start' } : undefined}
+        >
+          {value}
+        </dd>
+        {hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -65,6 +139,14 @@ export default function MyFilePage({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  /** Copies the رقم مرجعي — the one thing a citizen is asked to quote. */
+  const copyReference = useCallback((value: string) => {
+    void navigator.clipboard?.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }, []);
 
   /**
    * The way in is the landing page, not this one.
@@ -171,37 +253,124 @@ export default function MyFilePage({
         </p>
       ) : null}
 
-      {/* ── Who this is ── */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center gap-4 p-6">
-          <span
-            aria-hidden
-            className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
-          >
-            <IdCard className="size-6" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-xl font-bold tracking-tight">
-              {summary?.fullName ?? '—'}
-            </h1>
-            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              {summary?.referenceNumber ? (
-                <span className="font-mono" dir="ltr">
-                  {summary.referenceNumber}
-                </span>
-              ) : null}
-              {summary?.registeredAt ? (
-                <span className="inline-flex items-center gap-1">
-                  <CalendarDays className="size-3.5" aria-hidden />
-                  مسجّل منذ {new Date(summary.registeredAt).toLocaleDateString('ar-LB')}
-                </span>
-              ) : null}
-            </p>
+      {/* ── Who this is ──
+          A tinted banner rather than another white card: it is the one block on
+          the page that identifies the reader, and it should not look like the
+          fourth section of a list. */}
+      <Card className="overflow-hidden">
+        <div className="border-b bg-primary/5 p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <span
+              aria-hidden
+              className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary text-2xl font-bold text-primary-foreground"
+            >
+              {initials(summary?.fullName)}
+            </span>
+
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                  {summary?.fullName ?? '—'}
+                </h1>
+                {summary && !summary.isActive ? (
+                  <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
+                    حساب معطّل
+                  </Badge>
+                ) : null}
+              </div>
+
+              {/* The reference is the credential this portal opens on, so it is
+                  given its own chip with a copy button rather than being set as
+                  grey run-on text next to the join date. */}
+              <div className="flex flex-wrap items-center gap-2">
+                {summary?.referenceNumber ? (
+                  <button
+                    type="button"
+                    onClick={() => copyReference(summary.referenceNumber!)}
+                    className="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1 font-mono text-sm transition-colors hover:bg-accent"
+                    dir="ltr"
+                    title="نسخ الرقم المرجعي"
+                  >
+                    {summary.referenceNumber}
+                    {copied ? (
+                      <Check className="size-3.5 text-success" aria-hidden />
+                    ) : (
+                      <Copy className="size-3.5 text-muted-foreground" aria-hidden />
+                    )}
+                  </button>
+                ) : null}
+                {summary?.registeredAt ? (
+                  <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                    <CalendarDays className="size-3.5" aria-hidden />
+                    مسجّل منذ {formatDate(summary.registeredAt)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <Button variant="outline" onClick={signOut} className="w-full sm:w-auto">
+              <LogOut className="size-4" aria-hidden />
+              خروج
+            </Button>
           </div>
-          <Button variant="outline" onClick={signOut}>
-            <LogOut className="size-4" aria-hidden />
-            خروج
-          </Button>
+        </div>
+
+        {/* ── The details themselves ── */}
+        <CardContent className="p-0">
+          <dl className="grid grid-cols-1 divide-y sm:grid-cols-2 sm:divide-y-0 md:grid-cols-3">
+            <Detail icon={Phone} label="رقم الهاتف" value={summary?.phone} mono />
+            <Detail icon={MessageCircle} label="واتساب" value={summary?.whatsapp} mono />
+            <Detail
+              icon={IdCard}
+              label={
+                summary?.identityDocType
+                  ? (ar.identityDocType[summary.identityDocType as never] ?? 'وثيقة الإثبات')
+                  : 'وثيقة الإثبات'
+              }
+              value={summary?.identityDocNumberMasked}
+              mono
+              hint="آخر ثلاثة أرقام فقط"
+            />
+            <Detail
+              icon={Flag}
+              label="الجنسية"
+              value={summary?.nationality ?? (summary?.isLebanese ? 'لبناني' : null)}
+            />
+            <Detail
+              icon={Home}
+              label="صفة الإقامة"
+              value={
+                summary?.residentStatus
+                  ? (ar.residentStatus[summary.residentStatus as never] ?? summary.residentStatus)
+                  : null
+              }
+            />
+            <Detail
+              icon={HeartHandshake}
+              label="الحالة الاجتماعية"
+              value={
+                summary?.maritalStatus
+                  ? (ar.maritalStatus[summary.maritalStatus as never] ?? summary.maritalStatus)
+                  : null
+              }
+            />
+            <Detail
+              icon={Users}
+              label="عدد أفراد الأسرة"
+              value={summary?.familySize ? String(summary.familySize) : null}
+            />
+            <Detail
+              icon={FileDigit}
+              label="رقم السجل"
+              value={summary?.civilRecordNumberMasked}
+              mono
+            />
+            <Detail
+              icon={Building2}
+              label="عدد العقارات"
+              value={summary ? String(summary.properties.length) : null}
+            />
+          </dl>
         </CardContent>
       </Card>
 
@@ -287,30 +456,78 @@ export default function MyFilePage({
             <p className="p-6 text-sm text-muted-foreground">لا توجد عقارات مسجّلة.</p>
           ) : (
             <ul className="divide-y">
-              {summary.properties.map((property) => (
-                <li
-                  key={property.id}
-                  className="flex flex-wrap items-center justify-between gap-3 p-4"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <p className="font-medium">
-                      {ar.propertyType[property.propertyType as never] ??
-                        property.propertyType}
-                      {property.buildingName ? ` — ${property.buildingName}` : ''}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {property.neighborhood} · رقم العقار{' '}
-                      <span className="font-mono" dir="ltr">
-                        {property.propertyNumber}
-                      </span>
-                    </p>
-                  </div>
-                  <Badge variant="secondary">
-                    {ar.occupancyType[property.occupancyType as never] ??
-                      property.occupancyType}
-                  </Badge>
-                </li>
-              ))}
+              {summary.properties.map((property) => {
+                // Only the facts that apply to this property type — a plot has
+                // no floor, a tent has no area, and printing «—» for each is
+                // noise a citizen has to read past to find what is there.
+                const facts = [
+                  property.unitArea ? `${property.unitArea} م²` : null,
+                  property.floor ? `الطابق ${property.floor}` : null,
+                  property.side,
+                  property.landType
+                    ? (ar.landType[property.landType as never] ?? property.landType)
+                    : null,
+                  property.unitType
+                    ? (ar.unitType[property.unitType as never] ?? property.unitType)
+                    : null,
+                  property.unitCount > 0 ? `${property.unitCount} وحدة` : null,
+                  property.tentLocation,
+                ].filter(Boolean) as string[];
+
+                return (
+                  <li key={property.id} className="space-y-2 p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium">
+                          {ar.propertyType[property.propertyType as never] ??
+                            property.propertyType}
+                          {property.buildingName ? ` — ${property.buildingName}` : ''}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {property.neighborhood} · رقم العقار{' '}
+                          <span className="font-mono" dir="ltr">
+                            {property.propertyNumber}
+                          </span>
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="w-fit shrink-0">
+                        {ar.occupancyType[property.occupancyType as never] ??
+                          property.occupancyType}
+                      </Badge>
+                    </div>
+
+                    {facts.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {facts.map((fact) => (
+                          <span
+                            key={fact}
+                            className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                          >
+                            {fact}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {/* A tenant's landlord is on the municipality's record and
+                        is the person they chase about the property, so it is
+                        shown rather than left to the office to look up. */}
+                    {property.landlordName ? (
+                      <p className="text-xs text-muted-foreground">
+                        المالك: {property.landlordName}
+                        {property.landlordPhone ? (
+                          <>
+                            {' · '}
+                            <span className="font-mono" dir="ltr">
+                              {property.landlordPhone}
+                            </span>
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
@@ -421,10 +638,10 @@ function PaymentList({
                     <p className="font-medium">{payment.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {settled && payment.paidAt ? (
-                        <>سُدّد في {new Date(payment.paidAt).toLocaleDateString('ar-LB')}</>
+                        <>سُدّد في {formatDate(payment.paidAt)}</>
                       ) : (
                         <>
-                          استحقاق {new Date(payment.dueDate).toLocaleDateString('ar-LB')}
+                          استحقاق {formatDate(payment.dueDate)}
                           {partly
                             ? ` · سدّدت ${formatLbp(payment.paidAmount)} من ${formatLbp(payment.amount)}`
                             : ''}
