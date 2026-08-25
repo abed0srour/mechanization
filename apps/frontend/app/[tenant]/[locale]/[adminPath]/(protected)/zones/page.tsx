@@ -19,6 +19,8 @@ import {
 import { clearSession, loadSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { ZoneModal, type ZoneFormValues } from '@/components/admin/zone-modal';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 
 const ZoneEditorMap = dynamic(
   () => import('@/components/admin/zone-editor-map').then((m) => m.ZoneEditorMap),
@@ -66,6 +68,9 @@ export default function ZonesPage({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  /** The sector whose deletion is being confirmed, or null. */
+  const [pendingDelete, setPendingDelete] = useState<ZoneSummary | null>(null);
+  const toast = useToast();
 
   const token = session?.accessToken ?? null;
   const canEdit = session?.user.role === 'SUPER_ADMIN';
@@ -235,22 +240,25 @@ export default function ZonesPage({
     }
   };
 
+  /*
+   * Confirmed because it is not undoable and the sector may carry hundreds of
+   * parcels a colleague assigned; the count is named so the cost is visible.
+   * In a dialog rather than `window.confirm`, which renders LTR over an RTL
+   * page and quotes the sector's Arabic name into a Latin-ordered sentence.
+   */
   const handleDelete = async (zone: ZoneSummary) => {
-    if (!token) return;
-    // Confirmed because it is not undoable and the sector may carry hundreds of
-    // parcels a colleague assigned; the count is named so the cost is visible.
-    const ok = window.confirm(
-      `حذف القطاع "${zone.name}"؟ سيتم إلغاء ربط ${zone.parcelCount} عقار به.`,
-    );
-    if (!ok) return;
-
+    if (!token) throw new Error('انتهت الجلسة.');
     try {
       await deleteZone(tenant, token, zone.id);
       if (editing?.id === zone.id) closeEditor();
       await reload();
-      setNotice('تم حذف القطاع');
+      toast.success('تم حذف القطاع', {
+        description: `${zone.name} — أصبح ${zone.parcelCount} عقار بلا قطاع.`,
+      });
     } catch (caught) {
-      setError(handleApiError(caught, 'تعذّر حذف القطاع.'));
+      const message = handleApiError(caught, 'تعذّر حذف القطاع.');
+      setError(message);
+      throw new Error(message);
     }
   };
 
@@ -381,7 +389,7 @@ export default function ZonesPage({
                             variant="ghost"
                             size="icon"
                             className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => void handleDelete(zone)}
+                            onClick={() => setPendingDelete(zone)}
                             aria-label={`حذف ${zone.name}`}
                           >
                             <Trash2 className="size-3.5" aria-hidden />
@@ -439,6 +447,27 @@ export default function ZonesPage({
         fieldErrors={fieldErrors}
         onSave={handleSave}
         onOpenChange={setModalOpen}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="حذف القطاع"
+        description={
+          pendingDelete ? (
+            <>
+              سيُحذف القطاع{' '}
+              <span className="font-semibold text-foreground">{pendingDelete.name}</span>، وسيصبح{' '}
+              {pendingDelete.parcelCount} عقار بلا قطاع. العقارات نفسها لا تتأثر.
+            </>
+          ) : null
+        }
+        confirmLabel="حذف القطاع"
+        onConfirm={async () => {
+          if (pendingDelete) await handleDelete(pendingDelete);
+        }}
       />
     </div>
   );

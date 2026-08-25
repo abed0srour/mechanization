@@ -30,7 +30,9 @@ import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
+import { useToast } from '@/components/ui/toast';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { StaffForm, type StaffFormValues } from '@/components/admin/staff-form';
 
@@ -80,6 +82,9 @@ export default function StaffPage({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** The account whose deletion is being confirmed, or null. */
+  const [pendingDelete, setPendingDelete] = useState<StaffSummary | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -162,41 +167,49 @@ export default function StaffPage({
     async (staff: StaffSummary) => {
       if (!token) return;
       setBusyId(staff.id);
+      const reactivating = !staff.isActive;
       try {
-        await setStaffActive(tenant, token, staff.id, !staff.isActive);
+        await setStaffActive(tenant, token, staff.id, reactivating);
         await load();
+        toast.success(reactivating ? 'تمت إعادة تفعيل الحساب' : 'تم تعطيل الحساب', {
+          description: reactivating
+            ? `${staff.fullName} — يستطيع تسجيل الدخول من جديد.`
+            : `${staff.fullName} — لن يستطيع تسجيل الدخول. الحساب وسجل نشاطه محفوظان.`,
+        });
       } catch (caught) {
         logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.');
+        const message =
+          caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.';
+        setError(message);
+        toast.error('تعذّر تحديث الحساب', { description: message });
       } finally {
         setBusyId(null);
       }
     },
-    [tenant, token, load],
+    [tenant, token, load, toast],
   );
 
   const removeStaff = useCallback(
     async (staff: StaffSummary) => {
-      if (!token) return;
-      if (
-        !confirm(
-          `حذف حساب ${staff.fullName} نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`,
-        )
-      ) {
-        return;
-      }
+      if (!token) throw new Error('انتهت الجلسة.');
       setBusyId(staff.id);
       try {
         await deleteStaff(tenant, token, staff.id);
         await load();
+        toast.success('تم حذف الحساب', { description: staff.fullName });
       } catch (caught) {
         logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الحساب.');
+        const message =
+          caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الحساب.';
+        setError(message);
+        // Rethrown so the dialog stays open with the reason in place — the
+        // server refuses the last SUPER_ADMIN, and that is worth reading.
+        throw new Error(message);
       } finally {
         setBusyId(null);
       }
     },
-    [tenant, token, load],
+    [tenant, token, load, toast],
   );
 
   const columns = useMemo<ColumnDef<StaffSummary>[]>(
@@ -317,7 +330,7 @@ export default function StaffPage({
                     aria-label="حذف نهائي"
                     className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={busy}
-                    onClick={() => void removeStaff(staff)}
+                    onClick={() => setPendingDelete(staff)}
                   >
                     <Trash2 className="size-4" aria-hidden />
                   </Button>
@@ -399,6 +412,35 @@ export default function StaffPage({
           if (!next) setEditing(null);
         }}
         onSubmit={(values) => void submitForm(values)}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="حذف الحساب نهائياً"
+        description={
+          pendingDelete ? (
+            <>
+              سيُحذف حساب{' '}
+              <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> ولن
+              يستطيع تسجيل الدخول. سجل نشاطه في «سجل النشاطات» يبقى كما هو.
+              {/* The gentler option, offered at the moment the harsher one is
+                  being considered: disabling keeps the account attributable in
+                  the audit trail, and is what most of these actually want. */}
+              <span className="mt-2 block text-muted-foreground">
+                إن كان الهدف منع الدخول مؤقتاً، «التعطيل» يكفي ويمكن التراجع عنه.
+              </span>
+            </>
+          ) : null
+        }
+        confirmLabel="حذف نهائي"
+        requireText={pendingDelete?.email}
+        requireTextHint="اكتب البريد الإلكتروني للحساب للتأكيد"
+        onConfirm={async () => {
+          if (pendingDelete) await removeStaff(pendingDelete);
+        }}
       />
     </div>
   );

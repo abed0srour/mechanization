@@ -33,9 +33,12 @@ interface ToastRecord {
   duration: number;
 }
 
-type ToastInput = Omit<ToastRecord, 'id' | 'tone' | 'duration'> & {
-  duration?: number;
-};
+/**
+ * Everything except the title, which every raiser passes positionally —
+ * `toast.success('تم الحفظ', { description })` reads as a sentence, and an
+ * options bag whose one required key is the message does not.
+ */
+type ToastInput = Partial<Omit<ToastRecord, 'id' | 'tone'>>;
 
 interface ToastApi {
   success: (title: string, options?: ToastInput) => void;

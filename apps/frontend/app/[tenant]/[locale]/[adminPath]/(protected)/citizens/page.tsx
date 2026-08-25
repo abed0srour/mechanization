@@ -37,8 +37,10 @@ import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import { Money } from '@/components/ui/money';
+import { useToast } from '@/components/ui/toast';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
@@ -51,7 +53,9 @@ const TABLE_LABELS: DataTableLabels = {
   searchPlaceholder: 'ابحث بالاسم أو الهاتف أو الرقم المرجعي…',
   clearSearch: 'مسح البحث',
   empty: 'لا يوجد مواطنون مسجّلون بعد.',
+  emptyHint: 'أضف أول مواطن، أو استورد سجلاً من ملف Excel.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',
+  emptySearchHint: 'جرّب الاسم الأول وحده، أو الرقم المرجعي، أو رقم الهاتف بدون صفر البداية.',
   loadError: 'تعذّر تحميل سجل المواطنين.',
   retry: 'إعادة المحاولة',
   previous: 'السابق',
@@ -105,6 +109,9 @@ export default function CitizensPage({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  /** The row whose deletion is being confirmed, or null. */
+  const [pendingDelete, setPendingDelete] = useState<CitizenListItem | null>(null);
+  const toast = useToast();
 
   const canWrite = role ? CAN_WRITE.includes(role) : false;
   const canDelete = role === 'SUPER_ADMIN';
@@ -160,42 +167,62 @@ export default function CitizensPage({
     async (citizen: CitizenListItem) => {
       if (!token) return;
       setBusyId(citizen.id);
+      const reactivating = !citizen.isActive;
       try {
-        await setCitizenActive(tenant, token, citizen.id, !citizen.isActive);
+        await setCitizenActive(tenant, token, citizen.id, reactivating);
         await load();
+        toast.success(
+          reactivating ? 'تمت إعادة تفعيل الملف' : 'تم تعطيل الملف',
+          {
+            description: reactivating
+              ? `${citizen.fullName} — يمكن الآن إصدار رسوم جديدة على هذا الملف.`
+              : `${citizen.fullName} — لن تُصدر رسوم جديدة. السجل والفواتير القائمة كما هي.`,
+          },
+        );
       } catch (caught) {
         logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.');
+        const message =
+          caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.';
+        setError(message);
+        toast.error('تعذّر تحديث الحساب', { description: message });
       } finally {
         setBusyId(null);
       }
     },
-    [tenant, token, load],
+    [tenant, token, load, toast],
   );
 
+  /*
+   * Deletion is confirmed in a dialog rather than `confirm()`.
+   *
+   * The browser's prompt is unstyled, LTR whatever the page direction, and
+   * renders "\n\n" as literal characters in some browsers — so the sentence
+   * naming what is about to be destroyed arrived as one run-on line. It also
+   * offers a Cancel/OK pair that gives no clue which button is the
+   * irreversible one. This asks for the citizen's own name to be typed, which
+   * is the one confirmation muscle memory cannot dismiss.
+   */
   const removeCitizen = useCallback(
     async (citizen: CitizenListItem) => {
-      if (!token) return;
-      if (
-        !confirm(
-          `حذف ملف ${citizen.fullName} نهائياً؟\n\n` +
-            'سيتم حذف جميع طلباته وعقاراته ومستنداته وفواتيره. لا يمكن التراجع عن هذا الإجراء.',
-        )
-      ) {
-        return;
-      }
+      if (!token) throw new Error('انتهت الجلسة.');
       setBusyId(citizen.id);
       try {
         await deleteCitizen(tenant, token, citizen.id);
         await load();
+        toast.success('تم حذف الملف نهائياً', { description: citizen.fullName });
       } catch (caught) {
         logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الملف.');
+        const message =
+          caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الملف.';
+        setError(message);
+        // Rethrown so ConfirmDialog stays open and shows the reason in place:
+        // a refusal usually names something the clerk must deal with first.
+        throw new Error(message);
       } finally {
         setBusyId(null);
       }
     },
-    [tenant, token, load],
+    [tenant, token, load, toast],
   );
 
   const columns = useMemo<ColumnDef<CitizenListItem>[]>(
@@ -430,7 +457,7 @@ export default function CitizensPage({
                     aria-label="حذف نهائي"
                     className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={busy}
-                    onClick={() => void removeCitizen(citizen)}
+                    onClick={() => setPendingDelete(citizen)}
                   >
                     <Trash2 className="size-4" aria-hidden />
                   </Button>
@@ -441,7 +468,7 @@ export default function CitizensPage({
         },
       },
     ],
-    [base, busyId, canWrite, canDelete, toggleActive, removeCitizen],
+    [base, busyId, canWrite, canDelete, toggleActive],
   );
 
   /**
@@ -573,6 +600,37 @@ export default function CitizensPage({
           return importCitizens(tenant, token, input);
         }}
         onDone={() => void load()}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="حذف الملف نهائياً"
+        description={
+          pendingDelete ? (
+            <>
+              سيُحذف ملف <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
+              بكل ما فيه: {pendingDelete.registrationCount} طلب، {pendingDelete.propertyCount} عقار،
+              ومستنداته وفواتيره. لا يمكن التراجع.
+              {pendingDelete.outstandingTotal > 0 ? (
+                // Named rather than left to be discovered afterwards: deleting
+                // a file with money owed against it deletes the debt too, and
+                // that is a decision the municipality should make knowingly.
+                <span className="mt-2 block font-medium text-destructive">
+                  على هذا الملف رسوم غير مسدّدة — سيُحذف الدين معه.
+                </span>
+              ) : null}
+            </>
+          ) : null
+        }
+        confirmLabel="حذف نهائي"
+        requireText={pendingDelete?.fullName}
+        requireTextHint="اكتب اسم المواطن بالكامل للتأكيد"
+        onConfirm={async () => {
+          if (pendingDelete) await removeCitizen(pendingDelete);
+        }}
       />
     </div>
   );

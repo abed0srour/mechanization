@@ -51,6 +51,7 @@ import type {
   MunicipalitySettings,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
+import { useToast } from '@/components/ui/toast';
 import { findLocatedProperty, mapHref } from '@/lib/map-link';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -119,6 +120,7 @@ export default function CitizenProfilePage({
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
   const [openingDocId, setOpeningDocId] = useState<string | null>(null);
+  const toast = useToast();
   /** Printed on the receipt header — the tenant config is the only source. */
   const [municipalityName, setMunicipalityName] = useState('');
   /** Office numbers printed on a receipt — see إعدادات البلدية. */
@@ -222,7 +224,14 @@ export default function CitizenProfilePage({
         router.replace(`${base}/login`);
         return;
       }
-      alert('تعذّر فتح الملف.');
+      // A toast rather than `alert()`, which blocks the whole tab until it is
+      // dismissed — for a failure whose remedy is simply "try the next
+      // document", freezing the page the reader is working through is a
+      // heavier interruption than the problem.
+      toast.error('تعذّر فتح الملف', {
+        description:
+          caught instanceof ApiRequestError ? caught.message : 'قد يكون الرابط منتهي الصلاحية.',
+      });
     } finally {
       setOpeningDocId(null);
     }
