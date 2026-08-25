@@ -31,6 +31,7 @@ import {
   logApiError,
 } from '@/lib/api-client';
 import type { DashboardAnalytics } from '@/lib/api-client';
+import { ar } from '@mechanization/shared-schemas';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { formatMonth } from '@/lib/dates';
@@ -242,7 +243,15 @@ export default function StaffDashboard({
         <div className="space-y-2">
           <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
             لوحة التحكم
-            {role ? <Badge variant="secondary">{role}</Badge> : null}
+            {/* `ar.staffRole`, not the raw enum: this rendered as the literal
+                string "SUPER_ADMIN" beside an otherwise fully Arabic heading.
+                The label table already exists and the staff table already
+                uses it. */}
+            {role ? (
+              <Badge variant="soft-default">
+                {ar.staffRole?.[role as never] ?? role}
+              </Badge>
+            ) : null}
           </h1>
           <p className="text-sm text-muted-foreground">
             مؤشرات البلدية: السكان، الرسوم والتحصيل، وحالة الطلبات

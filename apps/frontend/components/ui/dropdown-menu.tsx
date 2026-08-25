@@ -149,6 +149,17 @@ const DropdownMenuRadioItem = React.forwardRef<
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-2.5 rounded-md py-2 pe-2.5 ps-8 text-sm outline-none transition-colors',
       'focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      /*
+       * The selected row is tinted and weighted, not just dotted.
+       *
+       * A 8px dot at the start edge is the whole of shadcn's selected state,
+       * and in a menu of three near-identical icon+label rows it is easy to
+       * miss entirely — which leaves a radio group that appears to have
+       * nothing chosen. The dot stays; this makes the answer readable without
+       * hunting for it.
+       */
+      'data-[state=checked]:bg-primary/10 data-[state=checked]:font-medium data-[state=checked]:text-primary',
+      'data-[state=checked]:[&_svg]:text-primary',
       className,
     )}
     {...props}

@@ -27,6 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ar } from '@mechanization/shared-schemas';
 import type { Session } from '@/lib/api-client';
 import { clearSession } from '@/lib/session';
 
@@ -194,7 +195,11 @@ export function AdminHeader({
             <span className="block truncate text-sm font-semibold text-foreground">
               {displayName || 'مستخدم'}
             </span>
-            {role ? <span className="block text-xs font-normal">{ROLE_LABEL[role] ?? role}</span> : null}
+            {role ? (
+              <span className="block text-xs font-normal">
+                {ar.staffRole?.[role as never] ?? role}
+              </span>
+            ) : null}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
 
@@ -238,11 +243,3 @@ export function AdminHeader({
   );
 }
 
-/** Staff roles, as a clerk would say them rather than as the enum spells them. */
-const ROLE_LABEL: Record<string, string> = {
-  SUPER_ADMIN: 'مدير النظام',
-  AUDITOR: 'مدقّق',
-  FIELD_INSPECTOR: 'مفتّش ميداني',
-};
-
-export { ROLE_LABEL };

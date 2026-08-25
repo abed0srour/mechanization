@@ -396,6 +396,10 @@ export default function CitizensPage({
         id: 'actions',
         header: 'إجراء',
         enableSorting: false,
+        // Pinned to the card footer on a phone rather than rendered as a
+        // label/value row, which squeezed four icon buttons into a
+        // right-aligned <dd>.
+        meta: { mobile: 'actions' },
         cell: ({ row }) => {
           const citizen = row.original;
           const busy = busyId === citizen.id;

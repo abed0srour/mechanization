@@ -275,6 +275,10 @@ export default function StaffPage({
         id: 'actions',
         header: 'إجراء',
         enableSorting: false,
+        // Pinned to the card footer on a phone rather than rendered as a
+        // label/value row, which squeezed four icon buttons into a
+        // right-aligned <dd>.
+        meta: { mobile: 'actions' },
         cell: ({ row }) => {
           const staff = row.original;
           const isSelf = staff.id === selfId;

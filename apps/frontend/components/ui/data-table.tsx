@@ -75,13 +75,19 @@ declare module '@tanstack/react-table' {
      * `primary` promotes it to the card's heading line; `hide` drops it from
      * the card entirely — for a column that only earns its width on a desktop
      * grid (an internal id, a secondary timestamp) and would otherwise become
-     * one more label/value row on a screen that has none to spare.
+     * one more label/value row on a screen that has none to spare. `actions`
+     * pins it to the card footer as a full-width row of controls.
+     *
+     * A column whose header is blank is treated as `actions` without being
+     * told. That covers the unlabelled button columns, but not the ones that
+     * *do* carry a heading — «إجراء» — which were landing in the label/value
+     * list and squeezing four icon buttons into a right-aligned `<dd>`.
      *
      * Unset, the first column becomes the heading and the rest render as
      * label/value pairs, which is the right default for every table here: they
      * all lead with the name or the number the row is *about*.
      */
-    mobile?: 'primary' | 'hide';
+    mobile?: 'primary' | 'hide' | 'actions';
   }
 }
 
@@ -251,6 +257,9 @@ function MobileCards<TData>({
     return typeof header === 'string' && header.length > 0 ? header : null;
   };
 
+  const isActionColumn = (column: Cell<TData, unknown>['column']): boolean =>
+    column.columnDef.meta?.mobile === 'actions' || headerText(column) === null;
+
   if (loading) {
     return (
       <div className="space-y-3 p-3">
@@ -279,8 +288,8 @@ function MobileCards<TData>({
         const cells = row
           .getVisibleCells()
           .filter((cell) => cell.column.columnDef.meta?.mobile !== 'hide');
-        const actionCells = cells.filter((cell) => headerText(cell.column) === null);
-        const dataCells = cells.filter((cell) => headerText(cell.column) !== null);
+        const actionCells = cells.filter((cell) => isActionColumn(cell.column));
+        const dataCells = cells.filter((cell) => !isActionColumn(cell.column));
         const headingCell =
           dataCells.find((cell) => cell.column.columnDef.meta?.mobile === 'primary') ??
           dataCells[0];
@@ -311,7 +320,7 @@ function MobileCards<TData>({
             ) : null}
 
             {actionCells.length > 0 ? (
-              <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t pt-3">
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t pt-3 [&_button]:size-9">
                 {actionCells.map((cell) => (
                   <React.Fragment key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

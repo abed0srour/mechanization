@@ -47,6 +47,13 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        // Overlay surfaces: tooltip, dropdown, command palette. Absent here
+        // while `bg-popover` was already used in charts.tsx, which is why
+        // those tooltips were transparent.
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
         warning: 'hsl(var(--warning))',
         success: 'hsl(var(--success))',
       },
