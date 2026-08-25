@@ -211,14 +211,34 @@ export function PaymentReceipt({
         closeLabel="إغلاق"
         className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-3xl"
       >
-        {/* `receipt-print-area` is what the print stylesheet keeps; everything
-            else on the page — including this dialog's own chrome — is hidden. */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {/* `overflow-auto`, not `overflow-y-auto`: the receipt below has a
+            floor width, and with only the vertical axis scrollable its
+            overflow escapes the dialog instead of scrolling inside it. */}
+        <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">
+          {/* `receipt-print-area` is what the print stylesheet keeps; everything
+              else on the page — including this dialog's own chrome — is hidden. */}
           <div
             id="receipt-print-area"
             ref={printRef}
             dir="rtl"
-            className="mx-auto max-w-[700px] border-2 border-black bg-white p-6 text-black"
+            /*
+             * `min-w-[560px]` because this is a facsimile, not a layout.
+             *
+             * The amount row alone needs ~530px — two fixed pill boxes at
+             * 190px and 120px, their labels, and the gaps between them —
+             * and it is the one row here with no `flex-wrap`. At 360px it
+             * had ~240px to render into and simply overflowed the dialog.
+             *
+             * Reflowing it was the wrong fix. A clerk opens this to check a
+             * receipt against the printed book before printing it, so the
+             * copy on screen has to be the copy that comes out of the
+             * printer. The document keeps its geometry and the dialog body
+             * pans instead — the same trade the data tables make.
+             *
+             * Under `max-w-[700px]`, so nothing changes at desktop width or
+             * on paper: A4 at 96dpi is ~794px, well past the floor.
+             */
+            className="mx-auto min-w-[560px] max-w-[700px] border-2 border-black bg-white p-6 text-black"
           >
             <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
               <p className="text-lg font-bold">ايصال جباية بدل النفايات</p>
