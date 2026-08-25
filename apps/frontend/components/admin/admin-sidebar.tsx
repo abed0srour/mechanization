@@ -1,13 +1,85 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
-import { activeNavItem, visibleGroups } from '@/components/admin/nav';
+import { ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { activeNavItem, visibleGroups, type NavItem } from '@/components/admin/nav';
 import { cn } from '@/lib/utils';
 
 const COLLAPSE_STORAGE_KEY = 'mechanization.sidebar.collapsed';
+const GROUPS_STORAGE_KEY = 'mechanization.sidebar.groups';
+
+/**
+ * Which nav groups are folded away.
+ *
+ * A module-level store rather than `useState` inside `SidebarNav`, because that
+ * component is mounted twice at once: the rail is `hidden lg:flex`, so it stays
+ * in the DOM behind the drawer rather than unmounting. Two independent copies
+ * of this state means folding «الأرض» in the drawer on a tablet, then rotating
+ * to landscape, reveals a rail that never heard about it.
+ *
+ * Folded labels are stored rather than open ones so that a group added to
+ * `NAV_GROUPS` later starts open — the state is a set of exceptions, and the
+ * default is the useful one.
+ */
+const NO_GROUPS_FOLDED: ReadonlySet<string> = new Set<string>();
+let foldedGroups: ReadonlySet<string> = NO_GROUPS_FOLDED;
+let readFromStorage = false;
+const foldListeners = new Set<() => void>();
+
+function subscribeFolds(listener: () => void): () => void {
+  foldListeners.add(listener);
+  return () => {
+    foldListeners.delete(listener);
+  };
+}
+
+/**
+ * Hydrate once, on the first mount. The stored folds cannot be known while
+ * rendering on the server, so every group starts open and corrects itself here
+ * — the same trade the rail's own collapsed width makes below.
+ */
+function hydrateFolds(): void {
+  if (readFromStorage) return;
+  readFromStorage = true;
+  try {
+    const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    foldedGroups = new Set(parsed.filter((entry): entry is string => typeof entry === 'string'));
+    for (const listener of foldListeners) listener();
+  } catch {
+    /* default: every group open */
+  }
+}
+
+function setGroupFolded(label: string, folded: boolean): void {
+  // `<details onToggle>` fires on mount as well as on a real click, so without
+  // this guard every page load rewrites storage and re-renders both instances
+  // for no change.
+  if (foldedGroups.has(label) === folded) return;
+  const next = new Set(foldedGroups);
+  if (folded) next.add(label);
+  else next.delete(label);
+  foldedGroups = next;
+  try {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify([...next]));
+  } catch {
+    /* the fold still holds for this page load */
+  }
+  for (const listener of foldListeners) listener();
+}
+
+function useFoldedGroups(): ReadonlySet<string> {
+  useEffect(hydrateFolds, []);
+  return useSyncExternalStore(
+    subscribeFolds,
+    () => foldedGroups,
+    () => NO_GROUPS_FOLDED,
+  );
+}
 
 /**
  * The navigation rail.
@@ -130,54 +202,132 @@ export function SidebarNav({
   const pathname = usePathname();
   const groups = visibleGroups(role);
   const active = activeNavItem(pathname, base, role);
+  const folded = useFoldedGroups();
+
+  /*
+   * A folded group never hides where you actually are.
+   *
+   * Keyed on the group label rather than on the pathname, so this fires on a
+   * real section change and not on every navigation within one — which is what
+   * lets a clerk fold the group they are standing in and have it stay folded
+   * until they leave it.
+   */
+  const activeGroupLabel = groups.find((group) =>
+    group.items.some((item) => item.path === active?.path),
+  )?.label;
+  useEffect(() => {
+    if (activeGroupLabel) setGroupFolded(activeGroupLabel, false);
+  }, [activeGroupLabel]);
+
+  const renderItems = useCallback(
+    (items: NavItem[]) => (
+      <div className="space-y-0.5">
+        {items.map((item) => {
+          const href = `${base}${item.path}`;
+          const isActive = active?.path === item.path;
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.path}
+              href={href}
+              onClick={onNavigate}
+              aria-current={isActive ? 'page' : undefined}
+              title={collapsed ? item.label : undefined}
+              className={cn(
+                // 44px tall below `lg` rather than the rail's 36: in the
+                // drawer these are thumb targets, not cursor targets.
+                'flex items-center gap-2.5 rounded-md px-2.5 py-2.5 text-sm transition-colors lg:py-2',
+                collapsed && 'justify-center px-0',
+                // A tinted row rather than a solid primary bar: with ten of
+                // these stacked, a filled block is the loudest thing on the
+                // page and pulls the eye off the content it introduces.
+                isActive
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              <Icon className="size-[18px] shrink-0" />
+              {!collapsed ? <span className="truncate">{item.label}</span> : null}
+            </Link>
+          );
+        })}
+      </div>
+    ),
+    [active?.path, base, collapsed, onNavigate],
+  );
 
   return (
     <nav className="flex-1 space-y-4 overflow-y-auto p-3">
-      {groups.map((group) => (
-        <div key={group.label}>
-          {/* Folded, a heading is a word floating in a 72px rail — the divider
-              carries the grouping instead. */}
-          {collapsed ? (
-            <div aria-hidden className="mx-auto mb-2 h-px w-6 bg-border first:hidden" />
-          ) : (
-            <div className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground">
-              {group.label}
+      {groups.map((group) => {
+        /* Folded to the icon rail, a heading is a word floating in 72px — the
+           divider carries the grouping instead. There is no heading left to
+           fold against, so the group stays open. */
+        if (collapsed) {
+          return (
+            <div key={group.label}>
+              <div aria-hidden className="mx-auto mb-2 h-px w-6 bg-border first:hidden" />
+              {renderItems(group.items)}
             </div>
-          )}
+          );
+        }
 
-          <div className="space-y-0.5">
-            {group.items.map((item) => {
-              const href = `${base}${item.path}`;
-              const isActive = active?.path === item.path;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.path}
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={isActive ? 'page' : undefined}
-                  title={collapsed ? item.label : undefined}
-                  className={cn(
-                    // 44px tall below `lg` rather than the rail's 36: in the
-                    // drawer these are thumb targets, not cursor targets.
-                    'flex items-center gap-2.5 rounded-md px-2.5 py-2.5 text-sm transition-colors lg:py-2',
-                    collapsed && 'justify-center px-0',
-                    // A tinted row rather than a solid primary bar: with ten of
-                    // these stacked, a filled block is the loudest thing on the
-                    // page and pulls the eye off the content it introduces.
-                    isActive
-                      ? 'bg-primary/10 font-medium text-primary'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}
-                >
-                  <Icon className="size-[18px] shrink-0" />
-                  {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+        const isFolded = folded.has(group.label);
+        const holdsActive = group.items.some((item) => item.path === active?.path);
+
+        return (
+          /*
+           * `<details>` rather than a `useState` toggle and a hand-paired
+           * `aria-expanded` button, matching `CollapsibleSection`: browser
+           * find-in-page can open a folded group to reveal a match, the summary
+           * is keyboard operable with no `tabIndex` of ours, and — the reason
+           * it matters here specifically — the links inside a folded group
+           * leave the tab order without us tracking `inert` by hand.
+           */
+          <details
+            key={group.label}
+            open={!isFolded}
+            onToggle={(event) => setGroupFolded(group.label, !event.currentTarget.open)}
+            className="group/nav"
+          >
+            <summary
+              className={cn(
+                'flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1.5',
+                'text-[11px] font-semibold tracking-wider text-muted-foreground',
+                'transition-colors hover:bg-accent/50 hover:text-foreground',
+                // Safari still paints its own disclosure triangle without this.
+                '[&::-webkit-details-marker]:hidden',
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate">{group.label}</span>
+              {/* The one thing a folded group must still say: your current
+                  section is in here. Without it, folding «السجل» while on the
+                  dashboard leaves nothing on screen saying where you are. */}
+              {isFolded && holdsActive ? (
+                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
+              ) : null}
+              <ChevronDown
+                aria-hidden
+                className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-open/nav:rotate-180 motion-reduce:transition-none"
+              />
+            </summary>
+
+            {/* `grid-rows-[0fr]` → `[1fr]` animates a panel whose height nobody
+                has measured. The inner `min-h-0 overflow-hidden` is required:
+                without it the child refuses to shrink below its content height
+                and the animation does nothing at all. */}
+            <div
+              className={cn(
+                'grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+                isFolded ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]',
+              )}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="pt-0.5">{renderItems(group.items)}</div>
+              </div>
+            </div>
+          </details>
+        );
+      })}
     </nav>
   );
 }
