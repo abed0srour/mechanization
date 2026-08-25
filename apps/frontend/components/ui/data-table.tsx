@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import {
+  Cell,
   ColumnDef,
   OnChangeFn,
   PaginationState,
@@ -21,9 +22,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
-  FileSearch,
   Search,
-  TriangleAlert,
+  SearchX,
   X,
 } from 'lucide-react';
 import { Button } from './button';
@@ -43,6 +43,8 @@ import {
   TableHeader,
   TableRow,
 } from './table';
+import { EmptyState, ErrorState } from './states';
+import { Skeleton } from './skeleton';
 import { cn } from '@/lib/utils';
 
 declare module '@tanstack/react-table' {
@@ -67,6 +69,19 @@ declare module '@tanstack/react-table' {
     headerClassName?: string;
     /** Extra classes applied to this column's `<td>` cells. */
     cellClassName?: string;
+    /**
+     * How this column behaves in the phone card layout below `sm`.
+     *
+     * `primary` promotes it to the card's heading line; `hide` drops it from
+     * the card entirely — for a column that only earns its width on a desktop
+     * grid (an internal id, a secondary timestamp) and would otherwise become
+     * one more label/value row on a screen that has none to spare.
+     *
+     * Unset, the first column becomes the heading and the rest render as
+     * label/value pairs, which is the right default for every table here: they
+     * all lead with the name or the number the row is *about*.
+     */
+    mobile?: 'primary' | 'hide';
   }
 }
 
@@ -112,6 +127,10 @@ export interface DataTableLabels {
   clearSearch: string;
   empty: string;
   emptySearch: string;
+  /** Optional second line: what would put a row here. */
+  emptyHint?: string;
+  /** Optional second line for a search that matched nothing. */
+  emptySearchHint?: string;
   loadError: string;
   retry: string;
   previous: string;
@@ -195,6 +214,116 @@ export interface DataTableProps<TData, TValue = unknown> {
 
   className?: string;
   emptyIcon?: React.ReactNode;
+}
+
+/**
+ * The phone layout: one card per row.
+ *
+ * Split out of the table body rather than driven by CSS on the same markup,
+ * because the two are genuinely different documents. A `<table>` reflowed with
+ * `display: block` on its cells loses the header association that makes each
+ * value mean something — the reader gets a column of bare values with no
+ * labels — and re-attaching labels through `::before` content puts the copy in
+ * a stylesheet where it cannot be translated. Rendering the label beside the
+ * value is the honest version, and it costs one extra pass over the same
+ * column definitions.
+ */
+function MobileCards<TData>({
+  rows,
+  loading,
+  columnCount,
+  pageSize,
+}: {
+  rows: Row<TData>[];
+  loading: boolean;
+  columnCount: number;
+  pageSize: number;
+}): React.JSX.Element {
+  /*
+   * A column with no header text is an action column — the row's edit and
+   * delete buttons. Those are pulled out of the label/value list and pinned to
+   * the card footer: rendered inline they read as a value whose label is
+   * blank, and they belong under a thumb rather than in the middle of a stack
+   * of facts.
+   */
+  const headerText = (column: Cell<TData, unknown>['column']): string | null => {
+    const header = column.columnDef.header;
+    return typeof header === 'string' && header.length > 0 ? header : null;
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-3 p-3">
+        {Array.from({ length: Math.min(pageSize, 4) }, (_, index) => (
+          <div key={index} className="space-y-3 rounded-xl border bg-card p-4">
+            <Skeleton className="h-5 w-2/3" />
+            <div className="space-y-2 border-t pt-3">
+              {Array.from({ length: Math.min(columnCount - 1, 4) }, (_, line) => (
+                <Skeleton key={line} className="h-3.5" style={{ width: `${85 - line * 12}%` }} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 p-3">
+      {rows.map((row) => {
+        /*
+         * Partitioned per row from the row's own cells rather than from the
+         * column definitions, so nothing here depends on the caller's column
+         * objects still being reference-identical to the ones TanStack holds.
+         */
+        const cells = row
+          .getVisibleCells()
+          .filter((cell) => cell.column.columnDef.meta?.mobile !== 'hide');
+        const actionCells = cells.filter((cell) => headerText(cell.column) === null);
+        const dataCells = cells.filter((cell) => headerText(cell.column) !== null);
+        const headingCell =
+          dataCells.find((cell) => cell.column.columnDef.meta?.mobile === 'primary') ??
+          dataCells[0];
+        const detailCells = dataCells.filter((cell) => cell !== headingCell);
+
+        return (
+          <div key={row.id} className="rounded-xl border bg-card p-4 shadow-sm">
+            {headingCell ? (
+              // `break-words`: an Arabic full name with four parts often has
+              // no space to break on inside a long segment, and a card that
+              // cannot wrap it pushes its own border past the screen edge.
+              <div className="break-words text-base font-semibold leading-snug text-foreground">
+                {flexRender(headingCell.column.columnDef.cell, headingCell.getContext())}
+              </div>
+            ) : null}
+
+            {detailCells.length > 0 ? (
+              <dl className="mt-3 space-y-2 border-t pt-3 text-xs">
+                {detailCells.map((cell) => (
+                  <div key={cell.id} className="flex items-start justify-between gap-3">
+                    <dt className="shrink-0 text-muted-foreground">{headerText(cell.column)}</dt>
+                    <dd className="min-w-0 break-words text-end font-medium text-foreground">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+
+            {actionCells.length > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t pt-3">
+                {actionCells.map((cell) => (
+                  <React.Fragment key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </React.Fragment>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -411,29 +540,39 @@ export function DataTable<TData, TValue = unknown>({
       ) : null}
 
       {error ? (
-        <div className="flex flex-col items-center gap-3 p-12 text-center">
-          <TriangleAlert className="h-8 w-8 text-destructive" />
-          <p className="text-destructive">{labels.loadError}</p>
-          {onRetry ? (
-            <Button variant="outline" onClick={onRetry}>
-              {labels.retry}
-            </Button>
-          ) : null}
-        </div>
+        // The shared state components rather than three bespoke ones: a table,
+        // a chart panel and a drawer answering "where is my data" differently
+        // is how a portal stops reading as one product.
+        <ErrorState description={labels.loadError} onRetry={onRetry} retryLabel={labels.retry} />
       ) : !loading && rows.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 p-14 text-center">
-          {emptyIcon ?? <FileSearch className="h-10 w-10 text-muted-foreground/60" />}
-          <p className="font-medium text-muted-foreground">
-            {hasSearchTerm ? labels.emptySearch : labels.empty}
-          </p>
-        </div>
+        <EmptyState
+          title={hasSearchTerm ? labels.emptySearch : labels.empty}
+          description={hasSearchTerm ? labels.emptySearchHint : labels.emptyHint}
+          icon={hasSearchTerm ? SearchX : undefined}
+          iconNode={hasSearchTerm ? undefined : emptyIcon}
+        />
       ) : (
-        // The single scroll container for both axes — `overflow-x` for a wide
-        // row of action buttons, `overflow-y` under `max-h` for a long page.
-        // `Table` deliberately adds no wrapper of its own; see table.tsx.
-        // No border of its own now: the card around the whole component draws
-        // it, and the toolbar and footer supply the horizontal rules.
-        <div className="max-h-[70vh] overflow-auto">
+        <>
+        {/* Phone layout: one card per row.
+            A table of eight columns on a 390px screen is a horizontal scroll
+            hunt where the reader loses which row they were on the moment the
+            first column leaves the viewport — and the first column is the
+            name. Each row becomes a card instead: the heading is what the row
+            is about, the rest are label/value pairs, and the action buttons
+            are pinned to a footer where a thumb can reach them. */}
+        <div className="sm:hidden">
+          <MobileCards
+            rows={rows}
+            loading={loading && rows.length === 0}
+            columnCount={columnCount}
+            pageSize={pagination.pageSize}
+          />
+        </div>
+
+        {/* The single scroll container for both axes — `overflow-x` for a wide
+            row of action buttons, `overflow-y` under `max-h` for a long page.
+            `Table` deliberately adds no wrapper of its own; see table.tsx. */}
+        <div className="hidden max-h-[70vh] overflow-auto sm:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/95 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/80">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -537,6 +676,7 @@ export function DataTable<TData, TValue = unknown>({
             )}
           </Table>
         </div>
+        </>
       )}
 
       {/* Pagination + page-size footer, inside the card and ruled off from the

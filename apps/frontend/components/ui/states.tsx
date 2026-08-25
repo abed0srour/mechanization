@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 
 export function EmptyState({
   icon: Icon = Inbox,
+  iconNode,
   title,
   description,
   action,
@@ -26,6 +27,14 @@ export function EmptyState({
   compact = false,
 }: {
   icon?: React.ComponentType<{ className?: string }>;
+  /**
+   * An already-rendered icon, when the caller wants one sized or coloured its
+   * own way. Takes precedence over `icon`, and exists because `DataTable`'s
+   * `emptyIcon` prop is a node — its callers pass `<Users className="…" />`
+   * rather than the component — and turning that into a breaking change to
+   * make this signature tidier would be the wrong trade.
+   */
+  iconNode?: React.ReactNode;
   title: string;
   /** What would put something here — not a restatement of the title. */
   description?: string;
@@ -44,9 +53,9 @@ export function EmptyState({
     >
       <span
         aria-hidden
-        className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        className="mb-3 flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground [&_svg]:size-6"
       >
-        <Icon className="size-6" />
+        {iconNode ?? <Icon className="size-6" />}
       </span>
       <p className="text-sm font-semibold text-foreground">{title}</p>
       {description ? (
