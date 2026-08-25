@@ -1,0 +1,26 @@
+# Normalise line endings in the repository.
+#
+# The working tree on Windows/OneDrive was checking every file out as CRLF while
+# the repository stores LF, so `git status` reported all 251 tracked files as
+# modified — 49,422 insertions against 49,422 deletions with not one real change
+# in them. That buries genuine work and makes every diff unreviewable.
+#
+# `text=auto` tells git to store LF and convert on checkout per platform, which
+# is the setting that should have been here from the first commit. Pair it with
+# `git config core.fileMode false` locally: the same mount also flips 644 to 755.
+* text=auto
+
+# Binary — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.kmz binary
+*.node binary
+*.woff binary
+*.woff2 binary
+
+# Generated: collapse in diffs and exclude from language stats.
+pnpm-lock.yaml linguist-generated=true -diff
