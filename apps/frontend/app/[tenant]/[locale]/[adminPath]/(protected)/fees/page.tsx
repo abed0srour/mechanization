@@ -20,7 +20,6 @@ import {
   Settings2,
   UserPlus,
   Wallet,
-  X,
   XCircle,
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
@@ -64,6 +63,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
+import { useToast } from '@/components/ui/toast';
 import {
   WorkflowEmpty,
   WorkflowRail,
@@ -137,7 +137,17 @@ export default function FeesPage({
   const [chargeError, setChargeError] = useState<string | null>(null);
   const [runningBilling, setRunningBilling] = useState(false);
   const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  /*
+   * Success messages are toasts now, not the inline banner this held.
+   *
+   * The banner rendered at the very top of a page four sections long. Every
+   * action that raised one — issuing a fee from the third section, settling a
+   * payment from the fourth — left the reader scrolled well past it, so the
+   * confirmation for the thing they had just done was off-screen. Errors keep
+   * their inline banner: an error is a state the page is *in* until it is
+   * resolved, not an event that has finished.
+   */
+  const toast = useToast();
   /** Which citizen's itemised breakdown is open, if any. */
   const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
   const [settling, setSettling] = useState<AdminPaymentItem | null>(null);
@@ -371,7 +381,9 @@ export default function FeesPage({
         });
 
         setIssueOpen(false);
-        setNotice(`تم إصدار ${result.issued} مطالبة.`);
+        toast.success('تم إصدار الرسم', {
+          description: `${result.issued} مطالبة على المواطنين المشمولين.`,
+        });
         await load();
       } catch (caught) {
         logApiError(caught);
@@ -398,7 +410,7 @@ export default function FeesPage({
           dueDate: new Date(values.dueDate).toISOString(),
         });
         setChargeOpen(false);
-        setNotice('تمت إضافة المطالبة.');
+        toast.success('تمت إضافة المطالبة');
         await load();
       } catch (caught) {
         logApiError(caught);
@@ -471,11 +483,13 @@ export default function FeesPage({
             : method === 'COLLECTOR'
               ? 'عبر المحصّل'
               : 'نقداً';
-        setNotice(
-          amount < target.remaining
-            ? `تم تسجيل دفعة جزئية ${how} بقيمة ${lbp(amount)} — متبقٍ ${lbp(target.remaining - amount)}.`
-            : `تم تسجيل الدفعة بالكامل ${how}.`,
-        );
+        if (amount < target.remaining) {
+          toast.warning('دفعة جزئية', {
+            description: `${lbp(amount)} ${how} — متبقٍ ${lbp(target.remaining - amount)}.`,
+          });
+        } else {
+          toast.success('تم تسجيل الدفعة بالكامل', { description: how });
+        }
         await load();
         // Straight into the receipt, so the citizen leaves the counter with
         // one. It is opened after `load()` so the figures on it are the
@@ -506,11 +520,18 @@ export default function FeesPage({
     setRunningBilling(true);
     try {
       const result = await runRecurringBilling(tenant, token);
-      setNotice(
-        result.invoicesCreated > 0
-          ? `تم إصدار ${result.invoicesCreated} مطالبة للدورة الحالية.`
-          : 'لا توجد مطالبات جديدة — الدورة الحالية مُصدرة بالفعل.',
-      );
+      if (result.invoicesCreated > 0) {
+        toast.success('تم إصدار مطالبات الدورة', {
+          description: `${result.invoicesCreated} مطالبة جديدة.`,
+        });
+      } else {
+        // Not an error and not a success — the job is idempotent within a
+        // period, so pressing it twice is expected and reporting "0 created"
+        // as a failure would teach clerks to distrust a correct answer.
+        toast.info('لا مطالبات جديدة', {
+          description: 'الدورة الحالية مُصدرة بالفعل.',
+        });
+      }
       await load();
     } catch (caught) {
       logApiError(caught);
@@ -614,20 +635,6 @@ export default function FeesPage({
           <XCircle className="mt-0.5 size-5 shrink-0" aria-hidden />
           <span className="flex-1">{error}</span>
         </p>
-      ) : null}
-      {notice ? (
-        <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success/5 p-4 text-sm">
-          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
-          <p className="flex-1">{notice}</p>
-          <button
-            type="button"
-            onClick={() => setNotice(null)}
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <X className="size-4" aria-hidden />
-            <span className="sr-only">إخفاء الإشعار</span>
-          </button>
-        </div>
       ) : null}
 
       {/* The four figures, each a jump into the stage that would change it —

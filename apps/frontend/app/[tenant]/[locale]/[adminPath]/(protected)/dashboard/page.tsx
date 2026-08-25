@@ -39,6 +39,7 @@ import { useSectionNav } from '@/lib/use-section-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Money } from '@/components/ui/money';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   ChartCard,
   ColumnChart,
@@ -359,7 +360,11 @@ export default function StaffDashboard({
             {/* Proportional figures, not tabular: at 48px `tabular-nums` gives
                 every digit a `0`'s width and the number reads loose. */}
             <p className="mt-2 text-5xl font-bold leading-none">
-              {loading ? '—' : data!.populationTotal.toLocaleString('en-US')}
+              {loading ? (
+                <Skeleton className="h-[1em] w-28" />
+              ) : (
+                data!.populationTotal.toLocaleString('en-US')
+              )}
             </p>
             <p className="mt-3 text-sm text-muted-foreground">
               مجموع أفراد الأسر في {data?.citizenRecords.toLocaleString('en-US') ?? '—'} أسرة
@@ -428,7 +433,11 @@ export default function StaffDashboard({
                 نسبة التحصيل
               </p>
               <p className="mt-2 text-2xl font-bold">
-                {loading ? '—' : `${Math.round(collectionRate * 100)}%`}
+                {loading ? (
+                  <Skeleton className="h-[1em] w-16" />
+                ) : (
+                  `${Math.round(collectionRate * 100)}%`
+                )}
               </p>
               <div
                 role="meter"
@@ -609,7 +618,17 @@ function StatTile({
             total widens its own block rather than pushing the icon out. */}
         <div className="min-w-0 space-y-1">
           <p className="text-sm text-muted-foreground">{label}</p>
-          <div className="text-2xl font-bold">{loading ? '—' : value}</div>
+          {/*
+            A bar the width the number will take, not an em dash.
+
+            "—" is a *value*: on a dashboard whose whole job is to report
+            figures, a tile reading "—" says the municipality has none, which
+            is a different and much worse claim than "this has not loaded yet".
+            The bar is unmistakably an absence.
+          */}
+          <div className="text-2xl font-bold">
+            {loading ? <Skeleton className="h-[1em] w-24" /> : value}
+          </div>
         </div>
         <div className={`shrink-0 rounded-lg p-2.5 ${accent}`}>{icon}</div>
       </div>
@@ -659,7 +678,7 @@ function UnitTile({
             value === 0 && 'text-muted-foreground',
           )}
         >
-          {loading ? '—' : value.toLocaleString('en-US')}
+          {loading ? <Skeleton className="h-[1em] w-10" /> : value.toLocaleString('en-US')}
         </p>
         <p className="truncate text-xs text-muted-foreground">{label}</p>
       </div>
