@@ -6,6 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { History, ShieldCheck } from 'lucide-react';
 import { ApiRequestError, getAuditLog, logApiError } from '@/lib/api-client';
 import type { AuditEntry, Session } from '@/lib/api-client';
+import { ar } from '@mechanization/shared-schemas';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatDateTime } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
@@ -180,8 +181,15 @@ export default function AuditTrailPage({
         cell: ({ row }) => (
           <div className="space-y-0.5">
             <p className="font-medium">{row.original.actorEmail ?? 'غير معروف'}</p>
+            {/* The Arabic label, not the enum: this line read "SUPER_ADMIN"
+                and "FIELD_INSPECTOR" under an Arabic heading. `actorType`
+                stays raw when there is no role — it is STAFF or CITIZEN, a
+                distinction the audit log itself makes rather than a role a
+                clerk holds. */}
             <p className="text-xs text-muted-foreground">
-              {row.original.actorRole ?? row.original.actorType}
+              {row.original.actorRole
+                ? (ar.staffRole?.[row.original.actorRole as never] ?? row.original.actorRole)
+                : row.original.actorType}
             </p>
           </div>
         ),

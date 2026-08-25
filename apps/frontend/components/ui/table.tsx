@@ -87,7 +87,25 @@ const TableCell = React.forwardRef<
   HTMLTableCellElement,
   React.TdHTMLAttributes<HTMLTableCellElement>
 >(({ className, ...props }, ref) => (
-  <td ref={ref} className={cn('px-4 py-3 align-middle', className)} {...props} />
+  <td
+    ref={ref}
+    /*
+     * `whitespace-nowrap`, matching the header above it.
+     *
+     * Only `<th>` carried it, so headings held their line while values below
+     * them broke at every space — at tablet width a phone number rendered as
+     * four stacked fragments ("+961 / 70 / 899 / 495"), which is not a phone
+     * number any more. The table already lives in a container that scrolls
+     * horizontally, and below `sm` it is not a table at all but a stack of
+     * cards, so there is nothing left for wrapping to rescue: it only ever
+     * mangled the value.
+     *
+     * A cell that genuinely wants to wrap — a long note, an audit summary —
+     * opts out with `meta.cellClassName: 'whitespace-normal'`.
+     */
+    className={cn('whitespace-nowrap px-4 py-3 align-middle', className)}
+    {...props}
+  />
 ));
 TableCell.displayName = 'TableCell';
 
