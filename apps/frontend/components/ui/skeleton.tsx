@@ -18,14 +18,23 @@ import { cn } from '@/lib/utils';
 function Skeleton({
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+}: React.HTMLAttributes<HTMLSpanElement>): React.JSX.Element {
   return (
-    <div
-      // Not `aria-hidden`: the region it fills is announced as busy by the
-      // container, and hiding the shape too leaves a screen reader with an
-      // empty page and no explanation.
+    /*
+     * A `<span>` set to `block`, not a `<div>`.
+     *
+     * Half the places a skeleton belongs are inside a paragraph — a stat
+     * tile's value, a caption, a line of a description. A `<div>` there is
+     * invalid HTML that the browser silently repairs by closing the `<p>`
+     * early, so the repaired DOM stops matching what the server sent and
+     * React reports a hydration error. (It did: the dashboard's unit tiles
+     * put one inside a `<p>` and every load logged one.) A span is phrasing
+     * content and legal in both, and `block` gives it the same layout a div
+     * had, so nothing that already used this moves.
+     */
+    <span
       aria-hidden
-      className={cn('animate-pulse rounded-md bg-muted', className)}
+      className={cn('block animate-pulse rounded-md bg-muted', className)}
       {...props}
     />
   );

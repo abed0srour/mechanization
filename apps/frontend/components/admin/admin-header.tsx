@@ -86,6 +86,22 @@ export function AdminHeader({
   /** A detail route — `/citizens/:id` — sits one level under its section. */
   const onDetailRoute = Boolean(active && pathname !== `${base}${active.path}`);
 
+  /*
+   * What the last crumb says.
+   *
+   * It read «التفاصيل» for every sub-route, which is wrong on exactly the two
+   * that are not details: `/citizens/new` is a blank form and
+   * `/citizens/:id/edit` is that form filled in. A clerk halfway through
+   * entering a resident was told they were looking at that resident's details,
+   * which is the one thing the page is not.
+   */
+  const leafLabel = ((): string => {
+    const last = (pathname ?? '').split('/').filter(Boolean).pop();
+    if (last === 'new') return 'جديد';
+    if (last === 'edit') return 'تعديل';
+    return 'التفاصيل';
+  })();
+
   function switchLanguage(): void {
     const other = locale === 'ar' ? 'en' : 'ar';
     // Swaps only the locale segment, so switching language keeps whatever page
@@ -142,7 +158,7 @@ export function AdminHeader({
                   aria-hidden
                   className="size-3.5 shrink-0 text-muted-foreground/60 ltr:rotate-180"
                 />
-                <span className="truncate font-semibold text-foreground">التفاصيل</span>
+                <span className="truncate font-semibold text-foreground">{leafLabel}</span>
               </>
             ) : (
               <span className="truncate font-semibold text-foreground">{active.label}</span>
