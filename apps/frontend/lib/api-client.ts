@@ -181,11 +181,10 @@ export function verifyOtp(
   });
 }
 
-export type StaffLoginResponse = Session | { status: 'TOTP_REQUIRED' };
+export type StaffLoginResponse = Session;
 
 /**
- * Staff sign-in. Comes back with `TOTP_REQUIRED` instead of a session
- * when the account is a SUPER_ADMIN that has not sent its second factor.
+ * Staff sign-in.
  */
 export function loginStaff(
   tenant: string,

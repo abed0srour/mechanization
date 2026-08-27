@@ -16,13 +16,19 @@
 -- ON DELETE SET NULL rather than CASCADE — deleting a staff account must never
 -- delete the payments they collected. The money was still received.
 ALTER TABLE "citizen_payments"
-  ADD COLUMN "collectedById" UUID;
+  ADD COLUMN IF NOT EXISTS "collectedById" UUID;
 
-ALTER TABLE "citizen_payments"
-  ADD CONSTRAINT "citizen_payments_collectedById_fkey"
-  FOREIGN KEY ("collectedById") REFERENCES "users"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'citizen_payments_collectedById_fkey'
+  ) THEN
+    ALTER TABLE "citizen_payments"
+      ADD CONSTRAINT "citizen_payments_collectedById_fkey"
+      FOREIGN KEY ("collectedById") REFERENCES "users"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 -- The reconciliation query this exists to answer: what each collector holds.
-CREATE INDEX "citizen_payments_collectedById_idx"
+CREATE INDEX IF NOT EXISTS "citizen_payments_collectedById_idx"
   ON "citizen_payments" ("collectedById");

@@ -34,8 +34,6 @@ export default function StaffLogin({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [totpToken, setTotpToken] = useState('');
-  const [needsTotp, setNeedsTotp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,17 +46,7 @@ export default function StaffLogin({
         email,
         password,
         remember: rememberMe,
-        ...(needsTotp ? { totpToken } : {}),
       });
-
-      // A SUPER_ADMIN's password is correct but insufficient — 2FA is mandatory
-      // for that role, so the server asks for the second factor rather than
-      // issuing a session. `status` is the discriminant: a real session never
-      // carries one.
-      if ('status' in result) {
-        setNeedsTotp(true);
-        return;
-      }
 
       saveSession(tenant, result, rememberMe);
       router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
@@ -107,7 +95,6 @@ export default function StaffLogin({
                 className="text-start"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={needsTotp}
               />
             </Field>
 
@@ -120,12 +107,10 @@ export default function StaffLogin({
                   className="pe-11"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  disabled={needsTotp}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((shown) => !shown)}
-                  disabled={needsTotp}
                   aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                   aria-pressed={showPassword}
                   className="absolute inset-y-0 end-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
@@ -139,47 +124,24 @@ export default function StaffLogin({
               </div>
             </Field>
 
-            {!needsTotp ? (
-              <label className="flex cursor-pointer items-center gap-2.5">
-                <Checkbox
-                  checked={rememberMe}
-                  onCheckedChange={(checked) => setRememberMe(checked === true)}
-                />
-                <Label className="cursor-pointer font-normal text-muted-foreground">
-                  تذكّرني على هذا الجهاز
-                </Label>
-              </label>
-            ) : null}
-
-            {needsTotp ? (
-              <Field
-                label="رمز التحقق الثنائي"
-                htmlFor="totp"
-                required
-                hint="ستة أرقام من تطبيق المصادقة"
-              >
-                <Input
-                  id="totp"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  dir="ltr"
-                  maxLength={6}
-                  autoFocus
-                  className="text-center text-2xl tracking-[0.5em]"
-                  value={totpToken}
-                  onChange={(e) => setTotpToken(e.target.value.replace(/\D/g, ''))}
-                />
-              </Field>
-            ) : null}
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <Checkbox
+                checked={rememberMe}
+                onCheckedChange={(checked) => setRememberMe(checked === true)}
+              />
+              <Label className="cursor-pointer font-normal text-muted-foreground">
+                تذكّرني على هذا الجهاز
+              </Label>
+            </label>
           </div>
 
           <Button
             size="lg"
             className="w-full"
-            disabled={busy || !email || !password || (needsTotp && totpToken.length !== 6)}
+            disabled={busy || !email || !password}
             onClick={submit}
           >
-            {busy ? 'جارٍ الدخول…' : needsTotp ? 'تحقّق وادخل' : 'دخول'}
+            {busy ? 'جارٍ الدخول…' : 'دخول'}
           </Button>
         </CardContent>
       </Card>

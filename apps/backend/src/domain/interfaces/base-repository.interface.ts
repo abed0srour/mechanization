@@ -21,3 +21,4 @@ export const IMAGE_STORAGE_SERVICE = Symbol('IMAGE_STORAGE_SERVICE');
 export const SMS_SENDER = Symbol('SMS_SENDER');
 export const PASSWORD_HASHER = Symbol('PASSWORD_HASHER');
 export const TOTP_SERVICE = Symbol('TOTP_SERVICE');
+export const SUPABASE_AUTH_SERVICE = Symbol('SUPABASE_AUTH_SERVICE');

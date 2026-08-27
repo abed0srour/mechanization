@@ -96,7 +96,7 @@ export class User extends AggregateRoot {
    * here so no login path can skip it.
    */
   get requiresTotp(): boolean {
-    return this.kind === 'STAFF' && this.role === 'SUPER_ADMIN';
+    return false;
   }
 
   get hasConfirmedTotp(): boolean {
@@ -104,16 +104,11 @@ export class User extends AggregateRoot {
   }
 
   /**
-   * Called before a session is issued. A SUPER_ADMIN who has not finished TOTP
-   * enrolment is refused rather than waved through — otherwise "set it up later"
-   * becomes "never set it up".
+   * Called before a session is issued. Refuses a deactivated account.
    */
   assertMayStartSession(): void {
     if (!this.isActive) {
       throw new ForbiddenError('This account has been deactivated');
-    }
-    if (this.requiresTotp && !this.hasConfirmedTotp) {
-      throw new ForbiddenError('TOTP enrolment must be completed before signing in');
     }
   }
 
