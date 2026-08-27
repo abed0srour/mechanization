@@ -81,6 +81,7 @@ export const disambiguationSchema = z.object({
 /** The single session shape, whichever way the user signed in. */
 export const sessionSchema = z.object({
   accessToken: z.string(),
+  supabaseAccessToken: z.string().optional(),
   expiresIn: z.string(),
   user: z.object({
     id: z.string().uuid(),

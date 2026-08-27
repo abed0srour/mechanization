@@ -31,6 +31,7 @@ export interface SessionClaims {
 
 export interface SessionResult {
   accessToken: string;
+  supabaseAccessToken?: string;
   expiresIn: string;
   user: { id: string; name: string; kind: 'STAFF' | 'CITIZEN'; role?: StaffRole };
 }
@@ -123,6 +124,7 @@ export class IdentityService {
       role: user.role,
       tenantSlug: input.tenantSlug,
       remember: input.remember,
+      supabaseAccessToken: supabaseResult.accessToken,
     });
   }
 
@@ -341,6 +343,7 @@ export class IdentityService {
     tenantSlug: string;
     /** STAFF only — see loginStaff. */
     remember?: boolean;
+    supabaseAccessToken?: string;
   }): SessionResult {
     const claims: SessionClaims = {
       sub: input.id,
@@ -359,6 +362,7 @@ export class IdentityService {
 
     return {
       accessToken: this.jwt.sign(claims, { expiresIn }),
+      ...(input.supabaseAccessToken ? { supabaseAccessToken: input.supabaseAccessToken } : {}),
       expiresIn,
       user: { id: input.id, name: input.name, kind: input.kind, role: input.role },
     };
