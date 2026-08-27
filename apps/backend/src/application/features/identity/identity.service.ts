@@ -58,7 +58,7 @@ export class IdentityService {
   // ────────────────────────────  Staff  ────────────────────────────
 
   /**
-   * Email + password, verified via Supabase Auth.
+   * Email + password, authenticated strictly via Supabase Auth.
    */
   async loginStaff(input: {
     tenantSlug: string;
@@ -69,41 +69,38 @@ export class IdentityService {
     remember?: boolean;
     context: { ip?: string; userAgent?: string };
   }): Promise<SessionResult> {
-    const user = await this.users.findStaffByEmail(input.email.toLowerCase());
+    // 1. Authenticate with Supabase Auth (throws UnauthorizedError if invalid credentials)
+    const supabaseResult = await this.supabaseAuth.authenticateStaff(input.email, input.password);
+
+    // 2. Resolve staff profile in tenant database
+    let user = await this.users.findStaffByEmail(input.email.toLowerCase());
 
     if (!user) {
-      // Burn comparable time so a missing account is not faster than a wrong
-      // password.
-      await this.hasher.verify(input.password, DUMMY_HASH);
-      throw new UnauthorizedError('بيانات الدخول غير صحيحة');
-    }
+      // User is verified in Supabase Auth — provision their profile in this municipality
+      const metadata = supabaseResult.user.userMetadata || {};
+      const userTenant = (metadata.tenantSlug as string) || input.tenantSlug;
+      const role = (metadata.role as StaffRole) || 'SUPER_ADMIN';
+      const firstName = (metadata.firstName as string) || 'مدير';
+      const lastName = (metadata.lastName as string) || 'النظام';
 
-    let supabaseAuthSuccess = false;
-    try {
-      await this.supabaseAuth.authenticateStaff(input.email, input.password);
-      supabaseAuthSuccess = true;
-    } catch {
-      // Supabase auth failed or user not yet in Supabase Auth
-    }
-
-    if (!supabaseAuthSuccess) {
-      // Fallback to local password hash comparison (e.g. for seeded/local accounts not yet synced)
-      const passwordValid = await this.hasher.verify(input.password, user.passwordHash ?? '');
-      if (!passwordValid) {
-        throw new UnauthorizedError('بيانات الدخول غير صحيحة');
+      if (userTenant !== input.tenantSlug) {
+        throw new UnauthorizedError('هذا الحساب غير مسجّل في هذه البلدية');
       }
 
-      // Auto-sync valid account into Supabase Auth in the background
-      this.supabaseAuth
-        .createStaffUser({
-          email: user.email ?? input.email,
-          password: input.password,
-          tenantSlug: user.tenantSlug,
-          role: user.role ?? 'SUPER_ADMIN',
-          firstName: user.fullName.split(' ')[0] || 'Staff',
-          lastName: user.fullName.split(' ').slice(1).join(' ') || 'User',
-        })
-        .catch(() => {});
+      const id = await this.users.createStaff({
+        tenantSlug: input.tenantSlug,
+        email: input.email.toLowerCase(),
+        passwordHash: '',
+        firstName,
+        lastName,
+        role,
+      });
+
+      user = await this.users.findById(id);
+    }
+
+    if (!user) {
+      throw new UnauthorizedError('بيانات الدخول غير صحيحة');
     }
 
     // Refuses a deactivated account
