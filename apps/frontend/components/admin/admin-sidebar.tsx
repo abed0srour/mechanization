@@ -3,26 +3,13 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { ChevronDown, Landmark, PanelLeftClose, PanelLeftOpen, ShieldCheck, Sparkles } from 'lucide-react';
 import { activeNavItem, visibleGroups, type NavItem } from '@/components/admin/nav';
 import { cn } from '@/lib/utils';
 
 const COLLAPSE_STORAGE_KEY = 'mechanization.sidebar.collapsed';
 const GROUPS_STORAGE_KEY = 'mechanization.sidebar.groups';
 
-/**
- * Which nav groups are folded away.
- *
- * A module-level store rather than `useState` inside `SidebarNav`, because that
- * component is mounted twice at once: the rail is `hidden lg:flex`, so it stays
- * in the DOM behind the drawer rather than unmounting. Two independent copies
- * of this state means folding «الأرض» in the drawer on a tablet, then rotating
- * to landscape, reveals a rail that never heard about it.
- *
- * Folded labels are stored rather than open ones so that a group added to
- * `NAV_GROUPS` later starts open — the state is a set of exceptions, and the
- * default is the useful one.
- */
 const NO_GROUPS_FOLDED: ReadonlySet<string> = new Set<string>();
 let foldedGroups: ReadonlySet<string> = NO_GROUPS_FOLDED;
 let readFromStorage = false;
@@ -35,11 +22,6 @@ function subscribeFolds(listener: () => void): () => void {
   };
 }
 
-/**
- * Hydrate once, on the first mount. The stored folds cannot be known while
- * rendering on the server, so every group starts open and corrects itself here
- * — the same trade the rail's own collapsed width makes below.
- */
 function hydrateFolds(): void {
   if (readFromStorage) return;
   readFromStorage = true;
@@ -56,9 +38,6 @@ function hydrateFolds(): void {
 }
 
 function setGroupFolded(label: string, folded: boolean): void {
-  // `<details onToggle>` fires on mount as well as on a real click, so without
-  // this guard every page load rewrites storage and re-renders both instances
-  // for no change.
   if (foldedGroups.has(label) === folded) return;
   const next = new Set(foldedGroups);
   if (folded) next.add(label);
@@ -82,23 +61,7 @@ function useFoldedGroups(): ReadonlySet<string> {
 }
 
 /**
- * The navigation rail.
- *
- * It used to be the whole of the admin chrome — it also carried the theme
- * toggle, the language switch and sign-out in its footer, because there was no
- * header to put them in. There is one now (`AdminHeader`), and those three
- * belong to the person rather than to the section list, so they moved there
- * and this is navigation only.
- *
- * It also used to be a plain flex child that was always on screen at 256px,
- * with no breakpoint anywhere in it. On a 390px phone that left 134px for the
- * page — a table rendered into a gutter. Below `lg` this is no longer mounted
- * as a rail at all: `AdminShell` renders the same `SidebarNav` in a drawer.
- *
- * `lg` rather than the `md` a marketing site would use. The content beside it
- * is a wide RTL data table; at 768px a 256px rail leaves 512px, which is not
- * enough for one and turns every table into a horizontal scroll hunt. A tablet
- * gets the full width and reaches navigation through the drawer.
+ * Premium Admin Sidebar Rail.
  */
 export function AdminSidebar({
   tenant,
@@ -114,8 +77,6 @@ export function AdminSidebar({
   const base = `/${tenant}/${locale}/${adminPath}`;
   const [collapsed, setCollapsed] = useState(false);
 
-  // Read on mount only. The rail's stored width cannot be known while
-  // rendering on the server, so it starts expanded and corrects itself here.
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem(COLLAPSE_STORAGE_KEY) === 'true');
@@ -139,54 +100,91 @@ export function AdminSidebar({
   return (
     <aside
       className={cn(
-        'hidden h-screen shrink-0 flex-col border-e bg-card transition-[width] duration-200 lg:flex',
-        collapsed ? 'w-[72px]' : 'w-64',
+        'hidden h-screen shrink-0 flex-col border-e border-border/70 bg-card/95 backdrop-blur-xl supports-[backdrop-filter]:bg-card/75 shadow-xs transition-[width] duration-300 ease-in-out lg:flex z-20',
+        collapsed ? 'w-[76px]' : 'w-[264px]',
       )}
     >
-      {/* h-14 matches the header beside it, so the rail's rule and the
-          header's are one continuous line across the top of the app. */}
+      {/* Brand Header */}
       <div
         className={cn(
-          'flex h-14 shrink-0 items-center gap-2.5 border-b px-4',
+          'flex h-16 shrink-0 items-center justify-between border-b border-border/60 px-4 transition-all',
           collapsed && 'justify-center px-2',
         )}
       >
         {!collapsed ? (
-          <>
-            <span
+          <div className="flex min-w-0 items-center gap-3">
+            <div
               aria-hidden
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/20 ring-1 ring-white/20"
             >
-              <ShieldCheck className="size-[18px]" />
-            </span>
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold">لوحة البلدية</p>
-          </>
-        ) : null}
+              <Landmark className="size-4.5" />
+              <span className="absolute -bottom-0.5 -end-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold tracking-tight text-foreground">بوابة الإدارة</p>
+              <p className="truncate text-[11px] font-medium text-muted-foreground">نظام المكننة البلدي</p>
+            </div>
+          </div>
+        ) : (
+          <div
+            aria-hidden
+            className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/20"
+          >
+            <Landmark className="size-4.5" />
+            <span className="absolute -bottom-0.5 -end-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-card" />
+          </div>
+        )}
+
         <button
           type="button"
           onClick={toggleCollapsed}
           aria-label={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
           title={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className={cn(
+            'flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground',
+            collapsed && 'hidden',
+          )}
         >
-          {collapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
+          <PanelLeftClose className="size-4.5" />
         </button>
       </div>
 
+      {/* Navigation List */}
       <SidebarNav base={base} role={role} collapsed={collapsed} />
+
+      {/* Footer info & collapse affordance */}
+      <div className="mt-auto border-t border-border/60 p-3">
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="إظهار الشريط الجانبي"
+            title="إظهار الشريط الجانبي"
+            className="flex size-10 w-full items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
+          >
+            <PanelLeftOpen className="size-5" />
+          </button>
+        ) : (
+          <div className="flex items-center justify-between rounded-xl bg-muted/40 p-2.5 ring-1 ring-border/40">
+            <div className="flex items-center gap-2">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">النظام متصل</span>
+            </div>
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              {role ?? 'STAFF'}
+            </span>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
 
 /**
- * The grouped link list itself, shared by the desktop rail and the mobile
- * drawer so the two can never drift.
- *
- * `onNavigate` is how the drawer closes on a tap: the rail passes nothing, the
- * drawer passes its close handler. Doing it here rather than with a
- * route-change effect inside the drawer means the panel starts closing on the
- * press instead of after the next page has resolved — on a slow connection,
- * the difference between a responsive tap and one that looks ignored.
+ * Grouped link list shared between desktop rail and mobile drawer.
  */
 export function SidebarNav({
   base,
@@ -204,14 +202,6 @@ export function SidebarNav({
   const active = activeNavItem(pathname, base, role);
   const folded = useFoldedGroups();
 
-  /*
-   * A folded group never hides where you actually are.
-   *
-   * Keyed on the group label rather than on the pathname, so this fires on a
-   * real section change and not on every navigation within one — which is what
-   * lets a clerk fold the group they are standing in and have it stay folded
-   * until they leave it.
-   */
   const activeGroupLabel = groups.find((group) =>
     group.items.some((item) => item.path === active?.path),
   )?.label;
@@ -221,7 +211,7 @@ export function SidebarNav({
 
   const renderItems = useCallback(
     (items: NavItem[]) => (
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {items.map((item) => {
           const href = `${base}${item.path}`;
           const isActive = active?.path === item.path;
@@ -234,20 +224,35 @@ export function SidebarNav({
               aria-current={isActive ? 'page' : undefined}
               title={collapsed ? item.label : undefined}
               className={cn(
-                // 44px tall below `lg` rather than the rail's 36: in the
-                // drawer these are thumb targets, not cursor targets.
-                'flex items-center gap-2.5 rounded-md px-2.5 py-2.5 text-sm transition-colors lg:py-2',
-                collapsed && 'justify-center px-0',
-                // A tinted row rather than a solid primary bar: with ten of
-                // these stacked, a filled block is the loudest thing on the
-                // page and pulls the eye off the content it introduces.
+                'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200',
+                collapsed && 'justify-center px-0 py-2.5',
                 isActive
-                  ? 'bg-primary/10 font-medium text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  ? 'bg-gradient-to-r from-primary/15 via-primary/10 to-primary/5 text-primary shadow-xs ring-1 ring-primary/25 font-semibold'
+                  : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground hover:translate-x-0.5',
               )}
             >
-              <Icon className="size-[18px] shrink-0" />
-              {!collapsed ? <span className="truncate">{item.label}</span> : null}
+              {/* Active pill bar */}
+              {isActive && !collapsed ? (
+                <span
+                  aria-hidden
+                  className="absolute start-0 top-2 bottom-2 w-1 rounded-e-full bg-primary"
+                />
+              ) : null}
+
+              <div
+                className={cn(
+                  'flex size-8 shrink-0 items-center justify-center rounded-lg transition-all duration-200',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-xs shadow-primary/30'
+                    : 'bg-muted/40 text-muted-foreground group-hover:bg-muted group-hover:text-foreground',
+                )}
+              >
+                <Icon className="size-4 shrink-0 transition-transform duration-200 group-hover:scale-110" />
+              </div>
+
+              {!collapsed ? (
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              ) : null}
             </Link>
           );
         })}
@@ -257,15 +262,12 @@ export function SidebarNav({
   );
 
   return (
-    <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+    <nav className="flex-1 space-y-5 overflow-y-auto p-3 scrollbar-thin">
       {groups.map((group) => {
-        /* Folded to the icon rail, a heading is a word floating in 72px — the
-           divider carries the grouping instead. There is no heading left to
-           fold against, so the group stays open. */
         if (collapsed) {
           return (
-            <div key={group.label}>
-              <div aria-hidden className="mx-auto mb-2 h-px w-6 bg-border first:hidden" />
+            <div key={group.label} className="space-y-1">
+              <div aria-hidden className="mx-auto my-2.5 h-px w-6 bg-border/60 first:hidden" />
               {renderItems(group.items)}
             </div>
           );
@@ -275,46 +277,32 @@ export function SidebarNav({
         const holdsActive = group.items.some((item) => item.path === active?.path);
 
         return (
-          /*
-           * `<details>` rather than a `useState` toggle and a hand-paired
-           * `aria-expanded` button, matching `CollapsibleSection`: browser
-           * find-in-page can open a folded group to reveal a match, the summary
-           * is keyboard operable with no `tabIndex` of ours, and — the reason
-           * it matters here specifically — the links inside a folded group
-           * leave the tab order without us tracking `inert` by hand.
-           */
           <details
             key={group.label}
             open={!isFolded}
             onToggle={(event) => setGroupFolded(group.label, !event.currentTarget.open)}
-            className="group/nav"
+            className="group/nav space-y-1.5"
           >
             <summary
               className={cn(
-                'flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1.5',
-                'text-[11px] font-semibold tracking-wider text-muted-foreground',
-                'transition-colors hover:bg-accent/50 hover:text-foreground',
-                // Safari still paints its own disclosure triangle without this.
+                'flex cursor-pointer list-none items-center justify-between rounded-lg px-2.5 py-1.5',
+                'text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80',
+                'transition-colors hover:bg-muted/50 hover:text-foreground',
                 '[&::-webkit-details-marker]:hidden',
               )}
             >
-              <span className="min-w-0 flex-1 truncate">{group.label}</span>
-              {/* The one thing a folded group must still say: your current
-                  section is in here. Without it, folding «السجل» while on the
-                  dashboard leaves nothing on screen saying where you are. */}
-              {isFolded && holdsActive ? (
-                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
-              ) : null}
+              <div className="flex items-center gap-2">
+                <span>{group.label}</span>
+                {isFolded && holdsActive ? (
+                  <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
+                ) : null}
+              </div>
               <ChevronDown
                 aria-hidden
-                className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-open/nav:rotate-180 motion-reduce:transition-none"
+                className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-open/nav:rotate-180 motion-reduce:transition-none"
               />
             </summary>
 
-            {/* `grid-rows-[0fr]` → `[1fr]` animates a panel whose height nobody
-                has measured. The inner `min-h-0 overflow-hidden` is required:
-                without it the child refuses to shrink below its content height
-                and the animation does nothing at all. */}
             <div
               className={cn(
                 'grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
@@ -322,7 +310,7 @@ export function SidebarNav({
               )}
             >
               <div className="min-h-0 overflow-hidden">
-                <div className="pt-0.5">{renderItems(group.items)}</div>
+                <div className="pt-1">{renderItems(group.items)}</div>
               </div>
             </div>
           </details>
