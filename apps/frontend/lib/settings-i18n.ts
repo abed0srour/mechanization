@@ -93,7 +93,57 @@ export interface SettingsCopy {
     logoWrongType: string;
     logoConstraints: string;
   };
+  finance: {
+    title: string;
+    description: string;
+    defaultsHeading: string;
+    defaultsHint: string;
+    defaultFrequency: string;
+    defaultFrequencyHint: string;
+    dueDays: string;
+    dueDaysHint: string;
+    priceDisplay: string;
+    priceDisplayHint: string;
+    priceDisplayCompact: string;
+    priceDisplayExact: string;
+    rateHeading: string;
+    rateHint: string;
+    defaultRate: string;
+    defaultRateHint: string;
+    rateAppliesTo: string;
+    ratePreview: string;
+    ratePreviewBase: string;
+    ratePreviewCharge: string;
+    ratePreviewTotal: string;
+    currencyHeading: string;
+    currencyHint: string;
+    baseCurrency: string;
+    baseCurrencyHint: string;
+    secondaryCurrency: string;
+    secondaryCurrencyHint: string;
+    secondaryNone: string;
+    exchangeRate: string;
+    exchangeRateHint: string;
+    exchangeRateUnit: string;
+    exchangeRateUpdated: string;
+    exchangeRateNever: string;
+    conversionPreview: string;
+    whishHeading: string;
+    whishHint: string;
+    whishNumber: string;
+    invalidRate: string;
+    invalidExchange: string;
+  };
 }
+
+/** The currencies a Lebanese municipality actually quotes in. */
+export const CURRENCIES = ['LBP', 'USD', 'EUR'] as const;
+export type CurrencyCode = (typeof CURRENCIES)[number];
+
+export const CURRENCY_NAMES: Record<SettingsLocale, Record<CurrencyCode, string>> = {
+  ar: { LBP: 'ليرة لبنانية (ل.ل)', USD: 'دولار أميركي ($)', EUR: 'يورو (€)' },
+  en: { LBP: 'Lebanese pound (LBP)', USD: 'US dollar (USD)', EUR: 'Euro (EUR)' },
+};
 
 const AR: SettingsCopy = {
   page: {
@@ -164,6 +214,47 @@ const AR: SettingsCopy = {
     logoTooLarge: 'حجم الصورة يتجاوز الحد المسموح.',
     logoWrongType: 'الملف ليس صورة.',
     logoConstraints: 'PNG أو SVG أو JPG — حتى ٥٠٠ كيلوبايت.',
+  },
+  finance: {
+    title: 'المالية',
+    description: 'القيم الافتراضية للفواتير الجديدة، ونسبة الرسم، وإدارة العملات.',
+    defaultsHeading: 'الإعدادات الافتراضية',
+    defaultsHint: 'تُطبَّق على كل فاتورة جديدة، ويمكن تعديلها عند الإصدار.',
+    defaultFrequency: 'دورية الرسم الافتراضية',
+    defaultFrequencyHint: 'الدورية المقترحة في نافذة إصدار رسم جديد.',
+    dueDays: 'مهلة السداد (أيام)',
+    dueDaysHint: 'عدد الأيام بين إصدار الفاتورة وتاريخ استحقاقها.',
+    priceDisplay: 'عرض المبالغ',
+    priceDisplayHint: 'كيف تُعرض المبالغ الكبيرة في الجداول واللوحات.',
+    priceDisplayCompact: 'مختصر (١.٢٥ مليون ل.ل)',
+    priceDisplayExact: 'كامل (1,250,000 ل.ل)',
+    rateHeading: 'نسبة الرسم الافتراضية',
+    rateHint: 'النسبة المضافة إلى مبلغ الفاتورة ما لم تُحدَّد نسبة أخرى.',
+    defaultRate: 'النسبة (%)',
+    defaultRateHint: 'من 0 إلى 100. اتركها صفراً إن كانت الرسوم بمبالغ مقطوعة.',
+    rateAppliesTo: 'تُطبَّق على الفواتير الجديدة فقط — الفواتير الصادرة لا تتغيّر.',
+    ratePreview: 'مثال',
+    ratePreviewBase: 'المبلغ الأساسي',
+    ratePreviewCharge: 'الرسم المضاف',
+    ratePreviewTotal: 'الإجمالي',
+    currencyHeading: 'العملات وسعر الصرف',
+    currencyHint: 'العملة الأساسية للسجلات، وعملة ثانوية اختيارية للعرض.',
+    baseCurrency: 'العملة الأساسية',
+    baseCurrencyHint: 'عملة القيد والإيصالات. تغييرها لا يحوّل الأرصدة القائمة.',
+    secondaryCurrency: 'العملة الثانوية',
+    secondaryCurrencyHint: 'تُعرض بجانب المبلغ الأساسي عند الاقتضاء.',
+    secondaryNone: 'بلا عملة ثانوية',
+    exchangeRate: 'سعر الصرف',
+    exchangeRateHint: 'كم وحدة من العملة الأساسية تعادل وحدة واحدة من الثانوية.',
+    exchangeRateUnit: 'لكل وحدة',
+    exchangeRateUpdated: 'آخر تحديث',
+    exchangeRateNever: 'لم يُحدَّث بعد',
+    conversionPreview: 'المعادلة',
+    whishHeading: 'الدفع عبر Whish Money',
+    whishHint: 'الرقم الذي يحوّل إليه المواطن. يبقى الخيار مخفياً إن تُرك فارغاً.',
+    whishNumber: 'رقم Whish Money',
+    invalidRate: 'النسبة يجب أن تكون بين 0 و100.',
+    invalidExchange: 'سعر الصرف يجب أن يكون أكبر من صفر.',
   },
 };
 
@@ -236,6 +327,47 @@ const EN: SettingsCopy = {
     logoTooLarge: 'The image is larger than the allowed size.',
     logoWrongType: 'That file is not an image.',
     logoConstraints: 'PNG, SVG, or JPG — up to 500 KB.',
+  },
+  finance: {
+    title: 'Finance',
+    description: 'Defaults for new invoices, the standard fee rate, and currency management.',
+    defaultsHeading: 'Default settings',
+    defaultsHint: 'Applied to every new invoice, and editable at the point of issue.',
+    defaultFrequency: 'Default fee frequency',
+    defaultFrequencyHint: 'Pre-selected when a new fee is issued.',
+    dueDays: 'Payment term (days)',
+    dueDaysHint: 'Days between issuing an invoice and its due date.',
+    priceDisplay: 'Amount display',
+    priceDisplayHint: 'How large amounts are shown in tables and dashboards.',
+    priceDisplayCompact: 'Compact (1.25M LBP)',
+    priceDisplayExact: 'Full (1,250,000 LBP)',
+    rateHeading: 'Default tax / fee rate',
+    rateHint: 'Added to an invoice amount unless a different rate is given.',
+    defaultRate: 'Rate (%)',
+    defaultRateHint: '0 to 100. Leave at zero if fees are flat amounts.',
+    rateAppliesTo: 'Applies to new invoices only — issued invoices do not change.',
+    ratePreview: 'Example',
+    ratePreviewBase: 'Base amount',
+    ratePreviewCharge: 'Rate applied',
+    ratePreviewTotal: 'Total',
+    currencyHeading: 'Currencies and exchange rate',
+    currencyHint: 'The currency records are kept in, plus an optional display currency.',
+    baseCurrency: 'Base currency',
+    baseCurrencyHint: 'The currency of record and of receipts. Changing it converts nothing.',
+    secondaryCurrency: 'Secondary currency',
+    secondaryCurrencyHint: 'Shown alongside the base amount where it helps.',
+    secondaryNone: 'No secondary currency',
+    exchangeRate: 'Exchange rate',
+    exchangeRateHint: 'How many units of the base currency equal one of the secondary.',
+    exchangeRateUnit: 'per unit',
+    exchangeRateUpdated: 'Last updated',
+    exchangeRateNever: 'Never updated',
+    conversionPreview: 'Equivalent',
+    whishHeading: 'Whish Money payments',
+    whishHint: 'The number citizens transfer to. Left empty, the option stays hidden.',
+    whishNumber: 'Whish Money number',
+    invalidRate: 'The rate must be between 0 and 100.',
+    invalidExchange: 'The exchange rate must be greater than zero.',
   },
 };
 
