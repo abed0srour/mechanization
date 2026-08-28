@@ -35,6 +35,7 @@ export interface SettingsCopy {
     profile: string;
     finance: string;
     numbering: string;
+    cadastre: string;
     security: string;
     backup: string;
     users: string;
@@ -287,6 +288,24 @@ export interface SettingsCopy {
     outcomeFailed: string;
     tables: Record<string, string>;
   };
+  cadastre: {
+    title: string;
+    heading: string;
+    hint: string;
+    replaceWarning: string;
+    replaceWarningWhy: string;
+    upload: string;
+    uploading: string;
+    dropHint: string;
+    constraints: string;
+    wrongFormat: string;
+    imported: string;
+    failed: string;
+    parcelsImported: string;
+    linesImported: string;
+    parcelsSkipped: string;
+    reloadMapHint: string;
+  };
   users: {
     title: string;
     description: string;
@@ -385,6 +404,7 @@ const AR: SettingsCopy = {
     profile: 'الملف الشخصي للبلدية',
     finance: 'المالية',
     numbering: 'تسلسل الترقيم',
+    cadastre: 'السجل العقاري',
     security: 'الأمان',
     backup: 'النسخ الاحتياطي والاستعادة',
     users: 'المستخدمون والأدوار',
@@ -663,6 +683,25 @@ const AR: SettingsCopy = {
       settings: 'الإعدادات',
     },
   },
+  cadastre: {
+    title: 'السجل العقاري',
+    heading: 'حدود العقارات',
+    hint: 'ملف GeoJSON الذي ترسم منه الخريطة العقارات وخطوط الحدود.',
+    replaceWarning: 'الاستيراد يستبدل طبقة العقارات بالكامل',
+    replaceWarningWhy:
+      'يصبح الملف الجديد هو حدود عقارات البلدية، وكل ما ليس فيه يختفي عن الخريطة. عضوية القطاعات محفوظة برقم العقار، فالعقار الغائب عن الملف الجديد يفقد قطاعه.',
+    upload: 'اختر ملف GeoJSON',
+    uploading: 'جارٍ الاستيراد…',
+    dropHint: 'أو اسحبه إلى هنا',
+    constraints: '.geojson أو .json — مضلّعات العقارات وخطوط الحدود.',
+    wrongFormat: 'الملف ليس بصيغة .geojson أو .json.',
+    imported: 'تم استيراد السجل العقاري',
+    failed: 'تعذّر الاستيراد.',
+    parcelsImported: 'عقارات مستوردة',
+    linesImported: 'خطوط حدودية',
+    parcelsSkipped: 'تم تجاوزها',
+    reloadMapHint: 'افتح الخريطة من جديد لرؤية الطبقة المحدّثة.',
+  },
   users: {
     title: 'المستخدمون والأدوار',
     description: 'حسابات الموظفين وصلاحية كل منهم.',
@@ -728,6 +767,7 @@ const EN: SettingsCopy = {
     profile: 'Municipality profile',
     finance: 'Finance',
     numbering: 'Numbering sequences',
+    cadastre: 'Cadastre',
     security: 'Security',
     backup: 'Backup & restore',
     users: 'Users & roles',
@@ -1005,6 +1045,25 @@ const EN: SettingsCopy = {
       audit: 'Activity log',
       settings: 'Settings',
     },
+  },
+  cadastre: {
+    title: 'Cadastre',
+    heading: 'Parcel geometry',
+    hint: 'The GeoJSON the map draws parcels and boundary lines from.',
+    replaceWarning: 'Importing replaces the whole parcel layer',
+    replaceWarningWhy:
+      "The new file becomes the municipality's parcel geometry; anything not in it stops appearing on the map. Sector membership is kept by parcel number, so a parcel missing from the new file loses its sector.",
+    upload: 'Choose a GeoJSON file',
+    uploading: 'Importing…',
+    dropHint: 'or drag and drop',
+    constraints: '.geojson or .json — parcel polygons and boundary lines.',
+    wrongFormat: 'That file is not a .geojson or .json file.',
+    imported: 'Cadastre imported',
+    failed: 'The import failed.',
+    parcelsImported: 'Parcels imported',
+    linesImported: 'Boundary lines',
+    parcelsSkipped: 'Skipped as invalid',
+    reloadMapHint: 'Reopen the map to see the new layer.',
   },
   users: {
     title: 'Users & roles',

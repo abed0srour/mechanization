@@ -1,15 +1,15 @@
 'use client';
 
-import { use, useEffect, useMemo, useRef, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Loader2, Map as MapIcon, Upload } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import {
   ApiRequestError,
   getRegisteredParcels,
-  importCadastre,
+
   logApiError,
-  type CadastreImportResult,
+
 } from '@/lib/api-client';
 import type { RegisteredParcel, Session } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
@@ -80,11 +80,8 @@ export default function FullscreenMapPage({
     };
   }, [searchParams]);
 
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<CadastreImportResult | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Bumped after a cadastre import in settings would change the layers. */
+  const [refreshToken] = useState(0);
 
   const token = session?.accessToken ?? null;
 
@@ -96,29 +93,6 @@ export default function FullscreenMapPage({
     }
     setSession(existing);
   }, [tenant, base, router]);
-
-  const handleCadastreUpload = async (file: File) => {
-    if (!token) return;
-    setUploading(true);
-    setUploadError(null);
-    setUploadResult(null);
-    try {
-      const result = await importCadastre(tenant, token, file);
-      setUploadResult(result);
-      // Reloads the map's static GeoJSON layers with the freshly written file —
-      // otherwise the upload would silently require a full page reload to show.
-      setRefreshToken((n) => n + 1);
-      getRegisteredParcels(tenant, token).then((response) => setParcels(response.parcels));
-    } catch (caught) {
-      logApiError(caught);
-      setUploadError(
-        caught instanceof ApiRequestError ? caught.payload.message : 'تعذّر رفع الملف.',
-      );
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
 
   useEffect(() => {
     if (!token) return;
@@ -145,49 +119,14 @@ export default function FullscreenMapPage({
   }, [tenant, token, base, router]);
 
   return (
+    /*
+      The cadastre upload — and with it this page's whole header, which held
+      nothing else — moved to إعدادات البلدية. Replacing a municipality's parcel
+      geometry is configuration done once at setup, not a thing to have within
+      reach of a mis-click every time someone opens the map to look up an
+      address. The map is now only the map.
+    */
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-
-        {session?.user.role === 'SUPER_ADMIN' ? (
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".geojson,application/geo+json,application/json"
-              className="sr-only"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void handleCadastreUpload(file);
-              }}
-            />
-            <Button
-              variant="outline"
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {uploading ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Upload className="size-4" aria-hidden />
-              )}
-              رفع ملف GeoJSON
-            </Button>
-          </div>
-        ) : null}
-      </header>
-
-      {uploadResult ? (
-        <p className="border-b bg-primary/5 px-4 py-2 text-sm">
-          تم استيراد {uploadResult.parcelsImported} عقار و {uploadResult.linesImported} خط حدودي
-          {uploadResult.parcelsSkipped > 0 ? ` (تم تجاوز ${uploadResult.parcelsSkipped} عنصر غير صالح)` : ''}
-        </p>
-      ) : null}
-      {uploadError ? (
-        <p role="alert" className="border-b bg-destructive/5 px-4 py-2 text-sm text-destructive">
-          {uploadError}
-        </p>
-      ) : null}
-
       <div className="relative flex-1">
         {!token ? null : error ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-4">

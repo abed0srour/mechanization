@@ -7,6 +7,7 @@ import {
   Coins,
   DatabaseBackup,
   Hash,
+  Map as MapIcon,
   Settings as SettingsIcon,
   ShieldCheck,
   UsersRound,
@@ -21,10 +22,18 @@ import { NumberingSection } from '@/components/admin/settings/numbering-section'
 import { SecuritySection } from '@/components/admin/settings/security-section';
 import { BackupSection } from '@/components/admin/settings/backup-section';
 import { UsersSection } from '@/components/admin/settings/users-section';
+import { CadastreSection } from '@/components/admin/settings/cadastre-section';
 import { SettingsTabs } from '@/components/admin/settings/settings-ui';
 
 
-type SectionId = 'profile' | 'finance' | 'numbering' | 'security' | 'backup' | 'users';
+type SectionId =
+  | 'profile'
+  | 'finance'
+  | 'numbering'
+  | 'cadastre'
+  | 'security'
+  | 'backup'
+  | 'users';
 
 interface SectionDef {
   id: SectionId;
@@ -43,6 +52,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'profile', icon: Building2, label: (copy) => copy.nav.profile },
   { id: 'finance', icon: Coins, label: (copy) => copy.nav.finance },
   { id: 'numbering', icon: Hash, label: (copy) => copy.nav.numbering },
+  { id: 'cadastre', icon: MapIcon, label: (copy) => copy.nav.cadastre },
   { id: 'security', icon: ShieldCheck, label: (copy) => copy.nav.security },
   { id: 'backup', icon: DatabaseBackup, label: (copy) => copy.nav.backup },
   { id: 'users', icon: UsersRound, label: (copy) => copy.nav.users },
@@ -125,6 +135,9 @@ export default function SettingsPage({
           ) : null}
           {active === 'numbering' ? (
             <NumberingSection tenant={tenant} token={token} copy={copy} />
+          ) : null}
+          {active === 'cadastre' ? (
+            <CadastreSection tenant={tenant} token={token} copy={copy} />
           ) : null}
           {active === 'security' ? (
             <SecuritySection

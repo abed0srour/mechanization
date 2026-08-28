@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Loader2, Layers, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, X } from 'lucide-react';
 import {
   ApiRequestError,
   createZone,
@@ -19,6 +19,7 @@ import {
 import { clearSession, loadSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { ZoneModal, type ZoneFormValues } from '@/components/admin/zone-modal';
+import { DraggablePanel } from '@/components/admin/draggable-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 
@@ -264,31 +265,39 @@ export default function ZonesPage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-        {canEdit && !editorOpen ? (
-          <Button onClick={startNew}>
-            <Plus className="size-4" aria-hidden />
-            قطاع جديد
-          </Button>
-        ) : null}
-      </header>
-
+      {/*
+        The page header is gone with the one button it held. «قطاع جديد» now
+        sits at the foot of the sector panel, next to the list it adds to,
+        rather than in a bar at the top of the screen that existed only to
+        carry it.
+      */}
       {error ? (
         <p role="alert" className="border-b bg-destructive/5 px-4 py-2 text-sm text-destructive">
           {error}
         </p>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sector list — a fixed rail beside the map, not a table page. */}
-        <aside className="flex w-72 shrink-0 flex-col border-e bg-background">
+      <div className="relative flex min-h-0 flex-1">
+        {/*
+          The sector list floats over the map and can be dragged out of the way.
+          As a fixed rail it covered whichever part of the town happened to be
+          behind it, and the only way to see under it was to pan the map — which
+          moves the thing being looked at.
+        */}
+        {/*
+          The drag bar carries the title, so the editor's own heading row is
+          gone — two headings stacked on a 288px panel was most of its top
+          third. The selected-parcel count survives as the line under it, which
+          is the part that actually changes while editing.
+        */}
+        <DraggablePanel
+          storageKey="zones-list"
+          title={editorOpen ? (editing ? `تعديل: ${editing.name}` : 'قطاع جديد') : 'القطاعات'}
+        >
           {editorOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="border-b px-4 py-3">
-                <p className="text-sm font-bold">
-                  {editing ? `تعديل: ${editing.name}` : 'قطاع جديد'}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+              <div className="border-b px-4 py-2">
+                <p className="text-xs text-muted-foreground">
                   {selectedParcels.length} عقار محدّد
                 </p>
               </div>
@@ -342,14 +351,12 @@ export default function ZonesPage({
                   جاري التحميل…
                 </div>
               ) : zones.length === 0 ? (
+                // No "create the first sector" button here any more: the same
+                // button now sits permanently at the panel's foot, and two of
+                // them a centimetre apart is not encouragement, it is doubt
+                // about which one does what.
                 <div className="p-6 text-center">
                   <p className="text-sm text-muted-foreground">لا توجد قطاعات بعد</p>
-                  {canEdit ? (
-                    <Button variant="outline" size="sm" className="mt-3" onClick={startNew}>
-                      <Plus className="size-4" aria-hidden />
-                      إنشاء أول قطاع
-                    </Button>
-                  ) : null}
                 </div>
               ) : (
                 <ul className="divide-y">
@@ -391,9 +398,23 @@ export default function ZonesPage({
                   ))}
                 </ul>
               )}
+
+              {/*
+                At the foot of the list rather than in a page header: the button
+                that adds a sector belongs beside the sectors, and this is also
+                the one spot that stays put as the panel is dragged around.
+              */}
+              {canEdit ? (
+                <div className="sticky bottom-0 border-t bg-card p-3">
+                  <Button className="w-full" onClick={startNew}>
+                    <Plus className="size-4" aria-hidden />
+                    قطاع جديد
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )}
-        </aside>
+        </DraggablePanel>
 
         <div className="relative min-w-0 flex-1">
           {token ? (
