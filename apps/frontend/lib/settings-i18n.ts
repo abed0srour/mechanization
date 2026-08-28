@@ -251,6 +251,25 @@ export interface SettingsCopy {
     foreignArchive: string;
     restoreBlocked: string;
     restoreBlockedWhy: string;
+    csvNotRestorable: string;
+    snapshotHeading: string;
+    snapshotHint: string;
+    downloadSnapshot: string;
+    snapshotDropZone: string;
+    snapshotDropHint: string;
+    notASnapshot: string;
+    dryRun: string;
+    dryRunHint: string;
+    dryRunDone: string;
+    dryRunResult: string;
+    restoreDone: string;
+    restoreFailed: string;
+    restoreWarning: string;
+    restoreWarningWhy: string;
+    typeTenant: string;
+    colTable: string;
+    colRemoved: string;
+    colWritten: string;
     restoreSelected: string;
     restoreDisabled: string;
     clearFile: string;
@@ -599,7 +618,27 @@ const AR: SettingsCopy = {
     restoreBlocked: 'الاستعادة غير ممكنة من هذا الأرشيف',
     restoreBlockedWhy:
       'الأرشيف تصدير لما تعرضه واجهة البرمجة لا لصفوف الجداول — يحتوي مثلاً الاسم الكامل والمجاميع المحسوبة، بينما جدول المستخدمين يحتاج الاسم الأول والأوسط والأخير والجنس وحجم الأسرة وغيرها. تحتاج الاستعادة إلى نقطة خدمة على الخادم وإلى تصدير بصيغة الجداول نفسها.',
-    restoreSelected: 'بدء الاستعادة',
+    csvNotRestorable: 'هذا الأرشيف تقرير للقراءة ولا يمكن الاستعادة منه — استخدم «نسخة قابلة للاستعادة» أدناه.',
+    snapshotHeading: 'نسخة قابلة للاستعادة',
+    snapshotHint: 'ملف يحتوي صفوف الجداول كما هي، وهو الوحيد الذي يمكن إعادته إلى قاعدة البيانات.',
+    downloadSnapshot: 'تنزيل نسخة قابلة للاستعادة',
+    snapshotDropZone: 'اسحب ملف .json.gz إلى هنا',
+    snapshotDropHint: 'أو اخترْه من جهازك',
+    notASnapshot: 'الملف ليس نسخة قابلة للاستعادة (.json.gz).',
+    dryRun: 'تجربة دون تنفيذ',
+    dryRunHint: 'يتحقّق من الملف ويعرض ما سيحدث، دون أي تغيير.',
+    dryRunDone: 'انتهت التجربة — راجع الأرقام قبل التنفيذ.',
+    dryRunResult: 'نتيجة التجربة (لم يُنفَّذ أي تغيير)',
+    restoreDone: 'تمت الاستعادة.',
+    restoreFailed: 'تعذّرت الاستعادة.',
+    restoreWarning: 'هذه العملية تستبدل بيانات البلدية بالكامل',
+    restoreWarningWhy:
+      'ستُحذف كل الصفوف الحالية وتحلّ محلها صفوف النسخة، في عملية واحدة لا يمكن التراجع عنها. اكتب «{tenant}» للتأكيد.',
+    typeTenant: 'اكتب «{tenant}»',
+    colTable: 'الجدول',
+    colRemoved: 'سيُحذف',
+    colWritten: 'سيُكتب',
+    restoreSelected: 'تنفيذ الاستعادة',
     restoreDisabled: 'الاستعادة تحتاج نقطة خدمة على الخادم — غير متاحة بعد.',
     clearFile: 'إزالة الملف',
     historyHeading: 'سجل النسخ والاستعادة',
@@ -922,7 +961,27 @@ const EN: SettingsCopy = {
     restoreBlocked: 'This archive cannot be restored from',
     restoreBlockedWhy:
       'The archive is an export of what the API returns, not of table rows — it holds a joined full name and computed totals, while the users table needs first, middle and last name, gender, household size and more. Restore needs both a server endpoint and an export in the shape of the tables.',
-    restoreSelected: 'Start restore',
+    csvNotRestorable: 'This archive is a read-only report and cannot be restored from — use the restorable snapshot below.',
+    snapshotHeading: 'Restorable snapshot',
+    snapshotHint: 'A file holding the table rows themselves — the only one that can be written back to the database.',
+    downloadSnapshot: 'Download restorable snapshot',
+    snapshotDropZone: 'Drop a .json.gz snapshot here',
+    snapshotDropHint: 'or choose one from your computer',
+    notASnapshot: 'That file is not a restorable snapshot (.json.gz).',
+    dryRun: 'Rehearse',
+    dryRunHint: 'Checks the file and reports what would happen, changing nothing.',
+    dryRunDone: 'Rehearsal finished — check the numbers before running it.',
+    dryRunResult: 'Rehearsal result (nothing was changed)',
+    restoreDone: 'Restore complete.',
+    restoreFailed: 'The restore failed.',
+    restoreWarning: 'This replaces the municipality data entirely',
+    restoreWarningWhy:
+      'Every current row is deleted and replaced by the snapshot rows, in one operation that cannot be undone. Type «{tenant}» to confirm.',
+    typeTenant: 'Type «{tenant}»',
+    colTable: 'Table',
+    colRemoved: 'Removed',
+    colWritten: 'Written',
+    restoreSelected: 'Run restore',
     restoreDisabled: 'Restore needs a server endpoint — not available yet.',
     clearFile: 'Remove file',
     historyHeading: 'Backup & restore history',

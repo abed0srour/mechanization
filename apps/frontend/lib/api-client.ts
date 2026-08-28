@@ -1303,3 +1303,81 @@ export function setNoticeActive(
     { token, method: 'PATCH', body: JSON.stringify({ isActive }) },
   );
 }
+
+// ─────────────────────────  Backup and restore  ─────────────────────────
+
+export interface SnapshotManifest {
+  version: number;
+  tenantSlug: string;
+  createdAt: string;
+  migrations: string[];
+  counts: Record<string, number>;
+}
+
+export interface RestoreReport {
+  dryRun: boolean;
+  manifest: SnapshotManifest;
+  deleted: Record<string, number>;
+  written: Record<string, number>;
+}
+
+/**
+ * Downloads the restorable snapshot — real table rows, gzipped JSON.
+ *
+ * Not `apiFetch`, which parses every response as JSON: this one is a binary
+ * file the municipality keeps on disk. SUPER_ADMIN only, server-enforced.
+ */
+export async function exportSnapshot(tenant: string, token: string): Promise<Blob> {
+  const response = await fetch(`${API_URL}/t/${encodeURIComponent(tenant)}/backup/export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({
+      code: 'UNKNOWN',
+      message: 'تعذّر إنشاء النسخة الاحتياطية.',
+    }))) as ApiError;
+    throw new ApiRequestError(response.status, payload);
+  }
+  return response.blob();
+}
+
+/**
+ * Puts a snapshot back.
+ *
+ * `dryRun` defaults to true here as well as on the server. Two defaults for one
+ * decision is deliberate: this is the call that replaces a municipality's
+ * register, and a caller that forgets the flag should rehearse, not destroy.
+ */
+export async function restoreSnapshot(
+  tenant: string,
+  token: string,
+  snapshot: Blob,
+  options: { confirmTenantSlug: string; dryRun?: boolean },
+): Promise<RestoreReport> {
+  const query = new URLSearchParams({
+    confirm: options.confirmTenantSlug,
+    dryRun: String(options.dryRun !== false),
+  });
+  const response = await fetch(
+    `${API_URL}/t/${encodeURIComponent(tenant)}/backup/restore?${query}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // Anything but application/json, so no body parser consumes the stream
+        // before the controller reads it.
+        'Content-Type': 'application/gzip',
+      },
+      body: snapshot,
+    },
+  );
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiRequestError(
+      response.status,
+      (payload as ApiError) ?? { code: 'UNKNOWN', message: 'تعذّرت الاستعادة.' },
+    );
+  }
+  return payload as RestoreReport;
+}

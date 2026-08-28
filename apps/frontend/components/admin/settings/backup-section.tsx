@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   DatabaseBackup,
   FileArchive,
+  HardDrive,
   History,
   XCircle,
   Loader2,
@@ -23,8 +24,12 @@ import {
   getZones,
   listCitizens,
   logApiError,
+  exportSnapshot,
+  restoreSnapshot,
+  ApiRequestError,
   updateMunicipalitySettings,
 } from '@/lib/api-client';
+import type { RestoreReport } from '@/lib/api-client';
 import { useSettingsSlice } from '@/lib/settings-store';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import {
@@ -197,13 +202,17 @@ function nextRunAt(schedule: ScheduleSettings, from: Date): Date | null {
  * recovery plan needs the database's own backups; this is the copy a
  * municipality can hold, read in Excel, and hand to an auditor.
  *
- * The restore half reads the archive and reports what is in it — tables, row
- * counts, the manifest's tenant and date — but cannot write it back, and now
- * says why rather than offering a disabled button with no explanation. Two
- * things block it, neither of them a frontend job: there is no endpoint that
- * accepts an archive, and the archive is an export of API read models rather
- * than table rows, so feeding it back would flatten the register instead of
- * restoring it.
+ * Restore is real, and lives in its own card on the restorable snapshot — not
+ * on the CSV archive, which is a report: it exports what the API returns (a
+ * joined `fullName`, computed totals) and cannot be written back into tables
+ * that want `firstName`/`middleName`/`lastName`, `gender` and `familySize`.
+ * The CSV panel says so where the file is dropped.
+ *
+ * The snapshot flow rehearses before it writes. The rehearsal is a real request
+ * that parses the file, checks the tenant and the migration set and reports how
+ * many rows would go and how many would arrive — all server-side, all without
+ * writing. Only then does the destructive button appear, behind the tenant slug
+ * typed out.
  */
 export function BackupSection({
   tenant,
@@ -224,6 +233,21 @@ export function BackupSection({
   const [archive, setArchive] = useState<File | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const [inspection, setInspection] = useState<ArchiveInspection | null>(null);
+
+  /*
+   * The restorable snapshot, kept entirely separate from the CSV archive above.
+   * Sharing one piece of state between the two is how a screen ends up letting
+   * someone press "restore" on a report.
+   */
+  const snapshotInput = useRef<HTMLInputElement>(null);
+  const [snapshot, setSnapshot] = useState<File | null>(null);
+  const [snapshotDragging, setSnapshotDragging] = useState(false);
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  /** Which of the two restore buttons is spinning. */
+  const [dryRunPending, setDryRunPending] = useState(false);
+  const [report, setReport] = useState<RestoreReport | null>(null);
+  const [confirmSlug, setConfirmSlug] = useState('');
 
   const [schedule, setSchedule] = useState<ScheduleSettings>(DEFAULT_SCHEDULE);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
@@ -414,6 +438,112 @@ export function BackupSection({
    * not after a restore they cannot undo. So the archive is actually read: its
    * manifest, its tables, its row counts.
    */
+
+  /** Downloads the restorable snapshot — real table rows, built server-side. */
+  const downloadSnapshot = useCallback(async () => {
+    setSnapshotBusy(true);
+    const stamp = new Date();
+    try {
+      const blob = await exportSnapshot(tenant, token);
+      const iso = stamp.toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      downloadBlob(blob, `${tenant}-snapshot-${iso}.json.gz`);
+      record({
+        at: stamp.toISOString(),
+        action: 'backup',
+        scope: 'snapshot',
+        bytes: blob.size,
+        ok: true,
+      });
+      toast.success(copy.backup.backupDone);
+    } catch (caught) {
+      logApiError(caught);
+      record({
+        at: stamp.toISOString(),
+        action: 'backup',
+        scope: 'snapshot',
+        bytes: 0,
+        ok: false,
+      });
+      toast.error(
+        caught instanceof ApiRequestError ? caught.message : copy.backup.backupFailed,
+      );
+    } finally {
+      setSnapshotBusy(false);
+    }
+  }, [tenant, token, record, toast, copy.backup]);
+
+  /**
+   * Takes the chosen snapshot file.
+   *
+   * Only the name is checked here. Everything that matters about the file —
+   * whether it unzips, which municipality it belongs to, which migrations it
+   * was taken at — is checked by the server on the rehearsal, where the answer
+   * is authoritative rather than a guess made from eight bytes of header.
+   */
+  const acceptSnapshot = useCallback(
+    (file: File) => {
+      if (!file.name.toLowerCase().endsWith('.gz')) {
+        toast.error(copy.backup.notASnapshot);
+        return;
+      }
+      setSnapshot(file);
+      // A new file invalidates the rehearsal: leaving the old report on screen
+      // would let someone approve a restore against counts from another file.
+      setReport(null);
+      setConfirmSlug('');
+    },
+    [toast, copy.backup.notASnapshot],
+  );
+
+  const runRestore = useCallback(
+    async (dryRun: boolean) => {
+      if (!snapshot) return;
+      setRestoreBusy(true);
+      setDryRunPending(dryRun);
+      const stamp = new Date();
+      try {
+        const result = await restoreSnapshot(tenant, token, snapshot, {
+          confirmTenantSlug: dryRun ? tenant : confirmSlug.trim(),
+          dryRun,
+        });
+        setReport(result);
+
+        if (dryRun) {
+          toast.info(copy.backup.dryRunDone);
+        } else {
+          const rows = Object.values(result.written).reduce((a, b) => a + b, 0);
+          record({
+            at: stamp.toISOString(),
+            action: 'restore',
+            scope: `${rows}`,
+            bytes: snapshot.size,
+            ok: true,
+          });
+          toast.success(copy.backup.restoreDone);
+          // Everything on screen elsewhere in the portal now describes rows
+          // that no longer exist. A reload is blunt and correct.
+          setTimeout(() => window.location.reload(), 1500);
+        }
+      } catch (caught) {
+        logApiError(caught);
+        if (!dryRun) {
+          record({
+            at: stamp.toISOString(),
+            action: 'restore',
+            scope: '—',
+            bytes: snapshot.size,
+            ok: false,
+          });
+        }
+        toast.error(
+          caught instanceof ApiRequestError ? caught.message : copy.backup.restoreFailed,
+        );
+      } finally {
+        setRestoreBusy(false);
+      }
+    },
+    [tenant, token, snapshot, confirmSlug, record, toast, copy.backup],
+  );
   const acceptArchive = useCallback(
     async (file: File) => {
       setArchive(file);
@@ -727,12 +857,12 @@ export function BackupSection({
             }}
           />
         </div>
-
         {/*
-          What the archive turned out to contain, read from the file itself.
-          An administrator about to overwrite a register deserves to see the
-          contents named and counted first — and, far more often, to find out
-          here that the file they kept is not the one they thought it was.
+          A CSV archive is a report and cannot be restored from — it holds a
+          joined name and computed totals where the tables want first/middle/
+          last, gender and household size. Saying so here, next to the file that
+          was just dropped, is the only place the distinction lands before
+          someone relies on it.
         */}
         {inspection?.ok ? (
           <div className="mt-4 space-y-3 rounded-lg border bg-muted/20 p-4">
@@ -758,13 +888,6 @@ export function BackupSection({
               ))}
             </ul>
 
-            {/*
-              A backup from another municipality is the one mistake on this
-              screen that cannot be walked back, and the file name will not
-              catch it — «albazourieh-backup-….zip» in the hands of Zahle looks
-              like a backup either way. The manifest is the only thing that
-              knows, so it is checked and said out loud.
-            */}
             {inspection.manifest?.tenant && inspection.manifest.tenant !== tenant ? (
               <p className="flex items-start gap-2 text-xs leading-relaxed text-destructive">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
@@ -774,50 +897,218 @@ export function BackupSection({
               </p>
             ) : null}
 
-            {!inspection.manifest ? (
-              <p className="flex items-start gap-2 text-xs leading-relaxed text-warning">
-                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                {copy.backup.noManifest}
-              </p>
-            ) : null}
-
-            {inspection.manifest?.failedTables?.length ? (
-              <p className="flex items-start gap-2 text-xs leading-relaxed text-warning">
-                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                {copy.backup.archiveIncomplete}{' '}
-                <span dir="ltr">{inspection.manifest.failedTables.join(', ')}</span>
-              </p>
-            ) : null}
+            <p className="flex items-start gap-2 text-xs leading-relaxed text-warning">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              {copy.backup.csvNotRestorable}
+            </p>
           </div>
         ) : null}
+      </SettingsCard>
 
-        {/*
-          Still disabled, and now for a stated reason rather than a shrug.
+      {/*
+        The restorable pair, kept in its own card and away from the CSV export
+        above. They are different files for different purposes, and every
+        confusion on this screen has come from their sharing a heading: one is
+        the copy a municipality reads in Excel, the other is the one that can
+        put the register back.
+      */}
+      <SettingsCard
+        icon={DatabaseBackup}
+        title={copy.backup.snapshotHeading}
+        hint={copy.backup.snapshotHint}
+      >
+        <div className="space-y-5">
+          <Button variant="outline" onClick={() => void downloadSnapshot()} disabled={snapshotBusy}>
+            {snapshotBusy ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                {copy.backup.backingUp}
+              </>
+            ) : (
+              <>
+                <HardDrive className="size-4" aria-hidden />
+                {copy.backup.downloadSnapshot}
+              </>
+            )}
+          </Button>
 
-          Two things have to exist before this button can write anything, and
-          neither is a frontend job. There is no endpoint that accepts an
-          archive — restoring means writing rows across every table in
-          dependency order inside one transaction, which a browser cannot do
-          safely. And the archive above is an export of what the *API* returns,
-          not of table rows: `citizens.csv` carries a joined `fullName` and
-          computed totals like `feesTotal`, while the `users` table wants
-          `firstName`/`middleName`/`lastName`, `gender`, `familySize` and a
-          dozen columns the export never saw. Feeding it back would not restore
-          the register; it would flatten it.
-        */}
-        <div className="mt-5 space-y-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
-          <p className="flex items-start gap-2 text-sm leading-relaxed">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-            <span>
-              <span className="font-semibold text-warning">{copy.backup.restoreBlocked}</span>
-              <span className="mt-0.5 block text-muted-foreground">
-                {copy.backup.restoreBlockedWhy}
-              </span>
-            </span>
-          </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button disabled>{copy.backup.restoreSelected}</Button>
-            <p className="text-xs text-muted-foreground">{copy.backup.restoreDisabled}</p>
+          <div className="space-y-3 border-t pt-5">
+            <p className="text-sm font-semibold">{copy.backup.restoreHeading}</p>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => snapshotInput.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  snapshotInput.current?.click();
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setSnapshotDragging(true);
+              }}
+              onDragLeave={() => setSnapshotDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setSnapshotDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) acceptSnapshot(file);
+              }}
+              className={cn(
+                'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all',
+                snapshotDragging
+                  ? 'border-primary/60 bg-muted/30'
+                  : 'border-muted-foreground/25 bg-muted/10 hover:border-primary/60 hover:bg-muted/30',
+              )}
+            >
+              {snapshot ? (
+                <>
+                  <CheckCircle2 className="size-6 text-success" aria-hidden />
+                  <p className="font-medium" dir="ltr">
+                    {snapshot.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{formatBytes(snapshot.size)}</p>
+                </>
+              ) : (
+                <>
+                  <Upload className="size-6 text-muted-foreground" aria-hidden />
+                  <p className="text-sm font-medium">{copy.backup.snapshotDropZone}</p>
+                  <p className="text-xs text-muted-foreground">{copy.backup.snapshotDropHint}</p>
+                </>
+              )}
+              <input
+                ref={snapshotInput}
+                type="file"
+                accept=".gz,application/gzip"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) acceptSnapshot(file);
+                  e.target.value = '';
+                }}
+              />
+            </div>
+
+            {snapshot ? (
+              <>
+                {/*
+                  The rehearsal runs first and is not optional. It parses the
+                  file, checks the tenant and the migration set, and reports how
+                  many rows would go and how many would arrive — all without
+                  writing. An operator who sees "would delete 4,812, write 12"
+                  has caught the wrong file before it cost them the register.
+                */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => void runRestore(true)}
+                    disabled={restoreBusy}
+                  >
+                    {restoreBusy && dryRunPending ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                    ) : (
+                      <RotateCcw className="size-4" aria-hidden />
+                    )}
+                    {copy.backup.dryRun}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">{copy.backup.dryRunHint}</p>
+                </div>
+
+                {report ? (
+                  <div
+                    className={cn(
+                      'space-y-3 rounded-lg border p-4',
+                      report.dryRun
+                        ? 'border-primary/25 bg-primary/5'
+                        : 'border-success/30 bg-success/5',
+                    )}
+                  >
+                    <p className="text-sm font-semibold">
+                      {report.dryRun ? copy.backup.dryRunResult : copy.backup.restoreDone}
+                    </p>
+                    <ScrollableTable minWidth="24rem">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{copy.backup.colTable}</TableHead>
+                            <TableHead>{copy.backup.colRemoved}</TableHead>
+                            <TableHead>{copy.backup.colWritten}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {Object.keys(report.written).map((name) => (
+                            <TableRow key={name}>
+                              <TableCell className="font-medium">
+                                {copy.backup.tables[name] ?? name}
+                              </TableCell>
+                              <TableCell className="tabular-nums text-destructive" dir="ltr">
+                                {(report.deleted[name] ?? 0).toLocaleString('en-US')}
+                              </TableCell>
+                              <TableCell className="tabular-nums" dir="ltr">
+                                {report.written[name].toLocaleString('en-US')}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </ScrollableTable>
+                  </div>
+                ) : null}
+
+                {/*
+                  The destructive step, behind the tenant's own name typed out.
+                  The same guard this codebase already puts on deleting one
+                  citizen, for an action that deletes all of them — and the
+                  server checks it again, so this is a speed bump rather than
+                  the protection.
+                */}
+                {report?.dryRun ? (
+                  <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="flex items-start gap-2 text-sm leading-relaxed">
+                      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+                      <span>
+                        <span className="font-semibold text-destructive">
+                          {copy.backup.restoreWarning}
+                        </span>
+                        <span className="mt-0.5 block text-muted-foreground">
+                          {copy.backup.restoreWarningWhy.replace('{tenant}', tenant)}
+                        </span>
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="w-full max-w-[16rem]">
+                        <SettingsField
+                          label={copy.backup.typeTenant.replace('{tenant}', tenant)}
+                          htmlFor="confirm-tenant"
+                        >
+                          <Input
+                            id="confirm-tenant"
+                            dir="ltr"
+                            className="text-start font-mono"
+                            value={confirmSlug}
+                            onChange={(e) => setConfirmSlug(e.target.value)}
+                          />
+                        </SettingsField>
+                      </div>
+                      <Button
+                        variant="destructive"
+                        disabled={restoreBusy || confirmSlug.trim() !== tenant}
+                        onClick={() => void runRestore(false)}
+                      >
+                        {restoreBusy && !dryRunPending ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <RotateCcw className="size-4" aria-hidden />
+                        )}
+                        {copy.backup.restoreSelected}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </div>
         </div>
       </SettingsCard>

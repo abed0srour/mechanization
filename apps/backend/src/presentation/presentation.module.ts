@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApplicationModule } from '../application/application.module';
 import { AuditController } from './controllers/audit.controller';
+import { BackupController } from './controllers/backup.controller';
 import { AuthController } from './controllers/auth.controller';
 import { CadastreController } from './controllers/cadastre.controller';
 import { CitizenController } from './controllers/citizen.controller';
@@ -35,6 +36,7 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
     FeesController,
     StaffController,
     ZonesController,
+    BackupController,
   ],
   providers: [
     { provide: APP_FILTER, useClass: DomainExceptionFilter },
