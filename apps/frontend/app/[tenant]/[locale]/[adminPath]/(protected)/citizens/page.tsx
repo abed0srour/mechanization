@@ -44,6 +44,7 @@ import { useToast } from '@/components/ui/toast';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
+import { ar } from '@mechanization/shared-schemas';
 
 /** Roles allowed to write. Mirrors the server; the server is the enforcement. */
 const CAN_WRITE = ['SUPER_ADMIN', 'FIELD_INSPECTOR'];
@@ -66,6 +67,9 @@ const TABLE_LABELS: DataTableLabels = {
   sortAscending: 'ترتيب تصاعدي',
   sortDescending: 'ترتيب تنازلي',
   sortNone: 'إلغاء الترتيب',
+  columns: 'الأعمدة',
+  columnsHint: 'الأعمدة الظاهرة',
+  resetColumns: 'استعادة الافتراضي',
 };
 
 /**
@@ -230,6 +234,10 @@ export default function CitizensPage({
       {
         accessorKey: 'fullName',
         header: 'المواطن',
+        // Never hideable: a citizens table without the citizen is a grid of
+        // numbers belonging to nobody.
+        enableHiding: false,
+        meta: { label: 'المواطن' },
         cell: ({ row }) => {
           const citizen = row.original;
           return (
@@ -260,37 +268,113 @@ export default function CitizensPage({
           );
         },
       },
+      /*
+       * Phone and WhatsApp are two columns, not one stacked cell.
+       *
+       * They were one «التواصل» column with the WhatsApp number as a subtitle,
+       * which made the pair inseparable: a clerk who works entirely over
+       * WhatsApp could not drop the landline, and one who never uses WhatsApp
+       * could not drop that. Split, each is a row in the columns menu and the
+       * table becomes the one that particular desk needs.
+       */
       {
         accessorKey: 'phone',
-        header: 'التواصل',
+        header: 'الهاتف',
+        meta: { label: 'الهاتف' },
+        enableSorting: false,
+        cell: ({ row }) => {
+          const { phone } = row.original;
+          if (!phone) return <span className="text-muted-foreground">—</span>;
+          return (
+            // Click-to-call: the first move on a questionable record is to
+            // phone whoever is on it.
+            <a
+              href={`tel:${phone}`}
+              dir="ltr"
+              className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <Phone className="size-3.5 shrink-0" aria-hidden />
+              {phone}
+            </a>
+          );
+        },
+      },
+      {
+        accessorKey: 'whatsapp',
+        header: 'واتساب',
+        meta: { label: 'واتساب' },
         enableSorting: false,
         cell: ({ row }) => {
           const { phone, whatsapp } = row.original;
-          if (!phone) return <span className="text-muted-foreground">—</span>;
+          if (!whatsapp) return <span className="text-muted-foreground">—</span>;
           return (
-            <div className="space-y-1">
-              {/* Click-to-call: the first move on a questionable record is to
-                  phone whoever is on it. */}
-              <a
-                href={`tel:${phone}`}
-                dir="ltr"
-                className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
-              >
-                <Phone className="size-3.5 shrink-0" aria-hidden />
-                {phone}
-              </a>
-              {whatsapp && whatsapp !== phone ? (
-                <p
-                  dir="ltr"
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-                >
-                  <MessageCircle className="size-3.5 shrink-0" aria-hidden />
-                  {whatsapp}
+            <a
+              // `wa.me` wants digits only — no spaces, no dashes, no leading
+              // `+`. The stored string is whatever a clerk typed, so it is
+              // normalised here rather than at rest, where it is printed for a
+              // human to read and dial.
+              href={`https://wa.me/${whatsapp.replace(/\D/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              dir="ltr"
+              className="inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <MessageCircle className="size-3.5 shrink-0" aria-hidden />
+              {whatsapp}
+              {/* Says "same number as the landline" without repeating it — the
+                  common case, and worth distinguishing from a genuinely
+                  separate WhatsApp line. */}
+              {whatsapp === phone ? (
+                <span className="text-xs text-muted-foreground">(نفس الهاتف)</span>
+              ) : null}
+            </a>
+          );
+        },
+      },
+      {
+        accessorKey: 'identityDocNumber',
+        header: 'وثيقة الهوية',
+        meta: { label: 'وثيقة الهوية', mobile: 'hide' },
+        enableSorting: false,
+        cell: ({ row }) => {
+          const { identityDocType, identityDocNumber } = row.original;
+          if (!identityDocNumber) return <span className="text-muted-foreground">—</span>;
+          return (
+            <div className="space-y-0.5">
+              <p className="font-mono text-sm" dir="ltr">
+                {identityDocNumber}
+              </p>
+              {identityDocType ? (
+                <p className="text-xs text-muted-foreground">
+                  {ar.identityDocType?.[identityDocType as never] ?? identityDocType}
                 </p>
               ) : null}
             </div>
           );
         },
+      },
+      {
+        accessorKey: 'residentStatus',
+        header: 'صفة الإقامة',
+        meta: { label: 'صفة الإقامة', mobile: 'hide' },
+        enableSorting: false,
+        cell: ({ row }) => {
+          const { residentStatus } = row.original;
+          if (!residentStatus) return <span className="text-muted-foreground">—</span>;
+          return (
+            <Badge variant="soft-muted">
+              {ar.residentStatus?.[residentStatus as never] ?? residentStatus}
+            </Badge>
+          );
+        },
+      },
+      {
+        accessorKey: 'registeredAt',
+        header: 'تاريخ التسجيل',
+        meta: { label: 'تاريخ التسجيل', cellClassName: 'whitespace-nowrap', mobile: 'hide' },
+        cell: ({ row }) => (
+          <span className="text-sm">{formatDate(row.original.registeredAt)}</span>
+        ),
       },
       {
         // Was «الطلبات» — a review-status badge over a filing count. A record
@@ -299,6 +383,7 @@ export default function CitizensPage({
         // municipality last recorded one.
         accessorKey: 'propertyCount',
         header: 'العقارات',
+        meta: { label: 'العقارات' },
         cell: ({ row }) => {
           const citizen = row.original;
           if (citizen.propertyCount === 0) {
@@ -323,7 +408,7 @@ export default function CitizensPage({
         // eight-figure total widens its own block rather than wrapping to a
         // second line, which would leave that one row twice the height of its
         // neighbours. The table's own `overflow-x` absorbs the extra width.
-        meta: { cellClassName: 'whitespace-nowrap' },
+        meta: { label: 'الرسوم', cellClassName: 'whitespace-nowrap' },
         cell: ({ row }) => {
           const citizen = row.original;
           if (citizen.feesTotal === 0) {
@@ -342,7 +427,7 @@ export default function CitizensPage({
       {
         accessorKey: 'overdueTotal',
         header: 'المتأخرات',
-        meta: { cellClassName: 'whitespace-nowrap' },
+        meta: { label: 'المتأخرات', cellClassName: 'whitespace-nowrap' },
         cell: ({ row }) => {
           const citizen = row.original;
 
@@ -395,11 +480,15 @@ export default function CitizensPage({
       {
         id: 'actions',
         header: 'إجراء',
+        // Always on: hiding the row's own controls leaves a table nothing can
+        // be done from, and no obvious way to get them back.
+        enableHiding: false,
+
         enableSorting: false,
         // Pinned to the card footer on a phone rather than rendered as a
         // label/value row, which squeezed four icon buttons into a
         // right-aligned <dd>.
-        meta: { mobile: 'actions' },
+        meta: { label: 'إجراء', mobile: 'actions' },
         cell: ({ row }) => {
           const citizen = row.original;
           const busy = busyId === citizen.id;
@@ -574,6 +663,27 @@ export default function CitizensPage({
             loading={loading}
             onRetry={() => void load()}
             emptyIcon={<Users className="h-10 w-10 text-muted-foreground/60" />}
+            /*
+              The column layout is a per-desk preference, remembered here.
+              A clerk chasing arrears wants المتأخرات and no identity document;
+              the one entering records wants the reverse — and re-picking it on
+              every page load is what stops people using the feature at all.
+            */
+            columnStorageKey="citizens"
+            /*
+              Off by default. Eleven columns at once is a table nobody can read;
+              these four are the ones a clerk turns on for a specific job — the
+              identity document when verifying papers, صفة الإقامة when
+              reporting, تاريخ التسجيل when auditing intake. واتساب starts
+              hidden because it usually repeats the landline, and the pair is
+              only worth two columns when a municipality actually works over it.
+            */
+            initialHiddenColumns={[
+              'whatsapp',
+              'identityDocNumber',
+              'residentStatus',
+              'registeredAt',
+            ]}
             /*
               The registry can run to thousands of rows, so the page and the
               search both belong to the server. Sorting stays off rather than

@@ -52,6 +52,9 @@ const TABLE_LABELS: DataTableLabels = {
   sortAscending: 'ترتيب تصاعدي',
   sortDescending: 'ترتيب تنازلي',
   sortNone: 'إلغاء الترتيب',
+  columns: 'الأعمدة',
+  columnsHint: 'الأعمدة الظاهرة',
+  resetColumns: 'استعادة الافتراضي',
 };
 
 /**
@@ -399,6 +402,7 @@ export default function StaffPage({
             columns={columns}
             data={items}
             labels={TABLE_LABELS}
+            columnStorageKey="staff"
             getRowId={(row) => row.id}
             loading={loading}
             onRetry={() => void load()}

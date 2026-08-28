@@ -70,6 +70,9 @@ const TABLE_LABELS: DataTableLabels = {
   sortAscending: 'ترتيب تصاعدي',
   sortDescending: 'ترتيب تنازلي',
   sortNone: 'إلغاء الترتيب',
+  columns: 'الأعمدة',
+  columnsHint: 'الأعمدة الظاهرة',
+  resetColumns: 'استعادة الافتراضي',
 };
 
 /**
@@ -298,6 +301,7 @@ export default function AuditTrailPage({
             columns={columns}
             data={entries}
             labels={TABLE_LABELS}
+            columnStorageKey="audit"
             getRowId={(row) => row.id}
             loading={loading}
             onRetry={() => void load()}

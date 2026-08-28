@@ -59,6 +59,9 @@ const TABLE_LABELS: DataTableLabels = {
   sortAscending: 'ترتيب تصاعدي',
   sortDescending: 'ترتيب تنازلي',
   sortNone: 'إلغاء الترتيب',
+  columns: 'الأعمدة',
+  columnsHint: 'الأعمدة الظاهرة',
+  resetColumns: 'استعادة الافتراضي',
 };
 
 /** The method filter, as a segmented row above the table. */
@@ -520,6 +523,7 @@ export default function PaymentsPage({
             columns={columns}
             data={items}
             labels={TABLE_LABELS}
+            columnStorageKey="payments"
             getRowId={(row) => row.id}
             loading={loading}
             error={error}
