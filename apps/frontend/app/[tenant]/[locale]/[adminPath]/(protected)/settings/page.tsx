@@ -7,6 +7,7 @@ import {
   Coins,
   Hash,
   Settings as SettingsIcon,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { loadSession } from '@/lib/session';
@@ -15,9 +16,10 @@ import { PageHeader } from '@/components/ui/page-header';
 import { ProfileSection } from '@/components/admin/settings/profile-section';
 import { FinanceSection } from '@/components/admin/settings/finance-section';
 import { NumberingSection } from '@/components/admin/settings/numbering-section';
+import { SecuritySection } from '@/components/admin/settings/security-section';
 import { cn } from '@/lib/utils';
 
-type SectionId = 'profile' | 'finance' | 'numbering';
+type SectionId = 'profile' | 'finance' | 'numbering' | 'security';
 
 interface SectionDef {
   id: SectionId;
@@ -36,6 +38,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'profile', icon: Building2, label: (copy) => copy.nav.profile },
   { id: 'finance', icon: Coins, label: (copy) => copy.nav.finance },
   { id: 'numbering', icon: Hash, label: (copy) => copy.nav.numbering },
+  { id: 'security', icon: ShieldCheck, label: (copy) => copy.nav.security },
 ];
 
 /**
@@ -67,6 +70,7 @@ export default function SettingsPage({
   const copy = settingsCopy(locale);
 
   const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
   const [active, setActive] = useState<SectionId>('profile');
 
   useEffect(() => {
@@ -80,6 +84,7 @@ export default function SettingsPage({
       return;
     }
     setToken(session.accessToken);
+    setUserId(session.user.id);
   }, [tenant, base, router]);
 
   if (!token) return null;
@@ -138,6 +143,15 @@ export default function SettingsPage({
             <FinanceSection tenant={tenant} token={token} locale={locale} copy={copy} />
           ) : null}
           {active === 'numbering' ? <NumberingSection tenant={tenant} copy={copy} /> : null}
+          {active === 'security' ? (
+            <SecuritySection
+              tenant={tenant}
+              token={token}
+              userId={userId}
+              locale={locale}
+              copy={copy}
+            />
+          ) : null}
         </div>
       </div>
     </div>

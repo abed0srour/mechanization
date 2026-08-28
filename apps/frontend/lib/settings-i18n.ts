@@ -155,6 +155,56 @@ export interface SettingsCopy {
     invalidPadding: string;
     collision: string;
   };
+  security: {
+    title: string;
+    description: string;
+    designOnly: string;
+    designOnlyHint: string;
+    credentialsHeading: string;
+    credentialsHint: string;
+    currentEmail: string;
+    newEmail: string;
+    changeEmail: string;
+    passwordHeading: string;
+    passwordHint: string;
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+    changePassword: string;
+    passwordMismatch: string;
+    strength: string;
+    strengthWeak: string;
+    strengthFair: string;
+    strengthStrong: string;
+    verifyHeading: string;
+    verifyHint: string;
+    stepEdit: string;
+    stepEditHint: string;
+    stepConfirm: string;
+    stepConfirmHint: string;
+    stepApply: string;
+    stepApplyHint: string;
+    statePending: string;
+    stateWaiting: string;
+    twoFactorHeading: string;
+    twoFactorHint: string;
+    twoFactorOff: string;
+    twoFactorEnable: string;
+    twoFactorApp: string;
+    twoFactorAppHint: string;
+    twoFactorCode: string;
+    historyHeading: string;
+    historyHint: string;
+    historySample: string;
+    historySampleHint: string;
+    colWhen: string;
+    colIp: string;
+    colDevice: string;
+    colLocation: string;
+    colResult: string;
+    resultSuccess: string;
+    resultFailed: string;
+  };
 }
 
 /** The documents this portal issues a reference number for. */
@@ -320,6 +370,58 @@ const AR: SettingsCopy = {
     invalidPadding: 'خانات التصفير يجب أن تكون بين 1 و12.',
     collision: 'هذه البادئة مستخدمة في تسلسل آخر — الأرقام ستتشابه.',
   },
+  security: {
+    title: 'الأمان',
+    description: 'بيانات الدخول، التحقق بخطوتين، وسجل محاولات الدخول.',
+    designOnly: 'تصميم واجهة فقط',
+    designOnlyHint:
+      'هذا القسم يعرض الشكل والتدفّق المقصودين. الأزرار لا تنفّذ تغييراً بعد — تغيير البريد وكلمة المرور والتحقق بخطوتين تحتاج نقاط خدمة على الخادم.',
+    credentialsHeading: 'البريد الإلكتروني',
+    credentialsHint: 'البريد الذي تسجّل الدخول به وتصلك عليه رسائل التحقق.',
+    currentEmail: 'البريد الحالي',
+    newEmail: 'البريد الجديد',
+    changeEmail: 'تغيير البريد',
+    passwordHeading: 'كلمة المرور',
+    passwordHint: 'اختر كلمة طويلة لم تستخدمها في مكان آخر.',
+    currentPassword: 'كلمة المرور الحالية',
+    newPassword: 'كلمة المرور الجديدة',
+    confirmPassword: 'تأكيد كلمة المرور',
+    changePassword: 'تغيير كلمة المرور',
+    passwordMismatch: 'الكلمتان غير متطابقتين.',
+    strength: 'القوة',
+    strengthWeak: 'ضعيفة',
+    strengthFair: 'مقبولة',
+    strengthStrong: 'قوية',
+    verifyHeading: 'خطوات التحقق',
+    verifyHint: 'أي تغيير على بيانات الدخول يمرّ بهذه الخطوات الثلاث.',
+    stepEdit: 'إدخال التغيير',
+    stepEditHint: 'تكتب القيمة الجديدة هنا.',
+    stepConfirm: 'تأكيد الهوية',
+    stepConfirmHint: 'رسالة إلى بريدك، أو رمز من تطبيق المصادقة إن كان مفعّلاً.',
+    stepApply: 'سريان التغيير',
+    stepApplyHint: 'يُطبَّق بعد التأكيد، وتُنهى الجلسات الأخرى.',
+    statePending: 'بانتظار التنفيذ',
+    stateWaiting: 'لم تبدأ',
+    twoFactorHeading: 'التحقق بخطوتين',
+    twoFactorHint: 'رمز من تطبيق مصادقة إضافةً إلى كلمة المرور.',
+    twoFactorOff: 'غير مفعّل',
+    twoFactorEnable: 'تفعيل',
+    twoFactorApp: 'تطبيق المصادقة',
+    twoFactorAppHint: 'Google Authenticator أو Authy أو ما يماثلهما.',
+    twoFactorCode: 'الرمز المكوّن من ٦ أرقام',
+    historyHeading: 'سجل الدخول',
+    historyHint: 'آخر محاولات الدخول إلى هذا الحساب.',
+    historySample: 'بيانات عيّنة',
+    historySampleHint:
+      'الصفوف أدناه توضيحية لعرض شكل الجدول — لا تُقرأ كسجل دخول فعلي إلى أن يوصل القسم بالخادم.',
+    colWhen: 'التاريخ والوقت',
+    colIp: 'عنوان IP',
+    colDevice: 'الجهاز',
+    colLocation: 'الموقع',
+    colResult: 'النتيجة',
+    resultSuccess: 'ناجحة',
+    resultFailed: 'فاشلة',
+  },
 };
 
 const EN: SettingsCopy = {
@@ -465,6 +567,58 @@ const EN: SettingsCopy = {
     invalidNext: 'The next number must be a whole number greater than zero.',
     invalidPadding: 'Zero-padding must be between 1 and 12.',
     collision: 'Another sequence already uses this prefix — their numbers will look alike.',
+  },
+  security: {
+    title: 'Security',
+    description: 'Sign-in credentials, two-factor verification, and login history.',
+    designOnly: 'Interface design only',
+    designOnlyHint:
+      'This section shows the intended shape and flow. The buttons do not change anything yet — email, password, and two-factor changes need server endpoints that do not exist.',
+    credentialsHeading: 'Email address',
+    credentialsHint: 'The address you sign in with and receive verification messages at.',
+    currentEmail: 'Current email',
+    newEmail: 'New email',
+    changeEmail: 'Change email',
+    passwordHeading: 'Password',
+    passwordHint: 'Choose something long that you have not used elsewhere.',
+    currentPassword: 'Current password',
+    newPassword: 'New password',
+    confirmPassword: 'Confirm password',
+    changePassword: 'Change password',
+    passwordMismatch: 'The two passwords do not match.',
+    strength: 'Strength',
+    strengthWeak: 'Weak',
+    strengthFair: 'Fair',
+    strengthStrong: 'Strong',
+    verifyHeading: 'Verification steps',
+    verifyHint: 'Every credential change goes through these three steps.',
+    stepEdit: 'Enter the change',
+    stepEditHint: 'You type the new value here.',
+    stepConfirm: 'Confirm identity',
+    stepConfirmHint: 'A message to your inbox, or a code from your authenticator app.',
+    stepApply: 'Change takes effect',
+    stepApplyHint: 'Applied after confirmation, and other sessions are signed out.',
+    statePending: 'Pending implementation',
+    stateWaiting: 'Not started',
+    twoFactorHeading: 'Two-factor authentication',
+    twoFactorHint: 'A code from an authenticator app in addition to your password.',
+    twoFactorOff: 'Not enabled',
+    twoFactorEnable: 'Enable',
+    twoFactorApp: 'Authenticator app',
+    twoFactorAppHint: 'Google Authenticator, Authy, or similar.',
+    twoFactorCode: 'Six-digit code',
+    historyHeading: 'Login history',
+    historyHint: 'Recent sign-in attempts on this account.',
+    historySample: 'Sample data',
+    historySampleHint:
+      'The rows below are illustrative, to show the shape of the table — do not read them as a real login log until this section is wired to the server.',
+    colWhen: 'Date and time',
+    colIp: 'IP address',
+    colDevice: 'Device',
+    colLocation: 'Location',
+    colResult: 'Result',
+    resultSuccess: 'Successful',
+    resultFailed: 'Failed',
   },
 };
 
