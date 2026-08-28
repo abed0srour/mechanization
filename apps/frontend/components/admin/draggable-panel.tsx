@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { GripHorizontal } from 'lucide-react';
+import { Eye, EyeOff, GripHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /** Gap kept between the panel and its container's edges. */
@@ -10,6 +10,11 @@ const MARGIN = 12;
 interface Position {
   x: number;
   y: number;
+}
+
+/** What is remembered per panel: where it sits, and whether it is rolled up. */
+interface PanelState extends Position {
+  collapsed: boolean;
 }
 
 /**
@@ -27,8 +32,12 @@ interface Position {
  * — without it, moving the pointer faster than React re-renders drops the
  * gesture the moment the cursor leaves the few pixels of the grip.
  *
- * Position is remembered per `storageKey`. Where someone put their panel is a
- * preference, and restoring it costs one localStorage read.
+ * It also rolls up to just its bar, which is the answer when the question is
+ * "what is under it *everywhere*" rather than "what is under it here".
+ *
+ * Both — where it sits and whether it is rolled up — are remembered per
+ * `storageKey`. They are working preferences, and restoring them costs one
+ * localStorage read.
  */
 export function DraggablePanel({
   storageKey,
@@ -46,6 +55,15 @@ export function DraggablePanel({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<Position | null>(null);
+  /**
+   * Rolled up to just its bar.
+   *
+   * Moving the panel answers "what is under it here"; collapsing answers "what
+   * is under it everywhere", which is the question when reading the map rather
+   * than working a sector. Dragging it off-screen would do the same job and
+   * lose the panel, so this is the one that can be undone.
+   */
+  const [collapsed, setCollapsed] = useState(false);
   const [dragging, setDragging] = useState(false);
   /** The container's viewport origin, captured once per drag. */
   const parentOrigin = useRef<Position>({ x: 0, y: 0 });
@@ -89,6 +107,11 @@ export function DraggablePanel({
         typeof (parsed as Position).y === 'number'
       ) {
         restored = parsed as Position;
+        // Absent in entries written before this panel could collapse, so it is
+        // read defensively rather than assumed present.
+        if (typeof (parsed as PanelState).collapsed === 'boolean') {
+          setCollapsed((parsed as PanelState).collapsed);
+        }
       }
     } catch {
       /* fall through to the default corner */
@@ -110,6 +133,21 @@ export function DraggablePanel({
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [clamp]);
+
+  /** One entry holds both facts, so neither write can clobber the other. */
+  const remember = useCallback(
+    (at: Position, isCollapsed: boolean) => {
+      try {
+        localStorage.setItem(
+          `mechanization.panel.${storageKey}`,
+          JSON.stringify({ ...at, collapsed: isCollapsed } satisfies PanelState),
+        );
+      } catch {
+        /* the panel still behaves as asked for this page load */
+      }
+    },
+    [storageKey],
+  );
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     // Only the primary button drags; a right-click should open a menu, not
@@ -154,14 +192,25 @@ export function DraggablePanel({
     // pointer events, and a hundred synchronous localStorage writes is the
     // one thing that would make this gesture feel slow.
     setPosition((current) => {
-      if (current) {
-        try {
-          localStorage.setItem(`mechanization.panel.${storageKey}`, JSON.stringify(current));
-        } catch {
-          /* the panel still stays where it was put for this page load */
-        }
-      }
+      if (current) remember(current, collapsed);
       return current;
+    });
+  };
+
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    if (position) remember(position, next);
+    /*
+     * Re-clamped after the height changes, on the next frame so the new height
+     * has been laid out. Expanding a panel parked low on the map would
+     * otherwise push its body below the bottom edge, out of reach — the same
+     * problem the resize handler exists to prevent, arriving from the other
+     * direction.
+     */
+    requestAnimationFrame(() => {
+      setPosition((current) => (current ? clamp(current) : current));
     });
   };
 
@@ -193,18 +242,40 @@ export function DraggablePanel({
         <GripHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <p className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</p>
         {/*
-          Actions sit outside the drag surface's pointer handlers by being
-          later siblings in the same row — a click on a button inside a drag
-          handle would otherwise start a one-pixel drag and swallow the click.
+          `stopPropagation` on pointer-down, not a later sibling: a button
+          inside the drag surface would otherwise begin a one-pixel drag on
+          press and swallow the click that was meant for it.
         */}
-        {actions ? (
-          <div className="flex shrink-0 items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
-            {actions}
-          </div>
-        ) : null}
+        <div
+          className="flex shrink-0 items-center gap-1"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {actions}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'إظهار المحتوى' : 'إخفاء المحتوى'}
+            title={collapsed ? 'إظهار المحتوى' : 'إخفاء المحتوى'}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            {/* Open eye means "shown, press to hide" — the same pairing the
+                password fields in this portal already use. */}
+            {collapsed ? (
+              <Eye className="size-4" aria-hidden />
+            ) : (
+              <EyeOff className="size-4" aria-hidden />
+            )}
+          </button>
+        </div>
       </div>
 
-      {children}
+      {/*
+        Unmounted rather than hidden. The body of this panel is a live list —
+        collapsing it should stop it costing anything, and a `hidden` subtree
+        still holds every row's DOM and every handler on it.
+      */}
+      {collapsed ? null : children}
     </div>
   );
 }
