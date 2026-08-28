@@ -179,3 +179,137 @@ export function downloadBlob(blob: Blob, filename: string): void {
   // Safari, which has not necessarily read the blob by the time click returns.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+
+// ─────────────────────────────  Reading  ─────────────────────────────
+
+/** One file recovered from an archive. */
+export interface ZipReadEntry {
+  name: string;
+  text: string;
+}
+
+/** Offsets from the end where the end-of-central-directory record may start. */
+const EOCD_SIGNATURE = 0x06054b50;
+const MAX_EOCD_SCAN = 22 + 0xffff;
+
+/**
+ * Reads a ZIP back into its text entries.
+ *
+ * The counterpart to `createZip`, and deliberately more tolerant than it: this
+ * one has to accept archives it did not write. It reads the central directory
+ * rather than walking local headers, because the directory is the authoritative
+ * index — a stream of local headers can include entries the archive later
+ * deleted, and their presence is exactly the sort of thing a restore must not
+ * act on.
+ *
+ * Handles both stored and deflated entries. `createZip` only ever stores, but
+ * an archive that has been through a "compress folder" round trip in Explorer
+ * comes back deflated, and refusing those would reject files a municipality
+ * quite reasonably believes are their backup.
+ *
+ * Throws on anything it cannot make sense of. A caller validating a backup
+ * needs "this is not a readable archive" to be loud, not an empty list that
+ * looks like an archive with nothing in it.
+ */
+export async function readZip(blob: Blob): Promise<ZipReadEntry[]> {
+  const buffer = await blob.arrayBuffer();
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+
+  // Scanned backwards: the record is last, but a trailing comment of arbitrary
+  // length may sit after it, so its offset cannot simply be assumed.
+  let eocd = -1;
+  const scanFloor = Math.max(0, bytes.length - MAX_EOCD_SCAN);
+  for (let index = bytes.length - 22; index >= scanFloor; index -= 1) {
+    if (view.getUint32(index, true) === EOCD_SIGNATURE) {
+      eocd = index;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error('NOT_A_ZIP');
+
+  const entryCount = view.getUint16(eocd + 10, true);
+  const directoryOffset = view.getUint32(eocd + 16, true);
+
+  const decoder = new TextDecoder('utf-8');
+  const entries: ZipReadEntry[] = [];
+  let cursor = directoryOffset;
+
+  for (let index = 0; index < entryCount; index += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('BAD_DIRECTORY');
+
+    const method = view.getUint16(cursor + 10, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const commentLength = view.getUint16(cursor + 32, true);
+    const localOffset = view.getUint32(cursor + 42, true);
+    const name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
+
+    // The local header repeats the name and carries its *own* extra-field
+    // length, which is routinely different from the directory's. Reading the
+    // directory's would land the data pointer a few bytes off.
+    const localNameLength = view.getUint16(localOffset + 26, true);
+    const localExtraLength = view.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const raw = bytes.subarray(dataStart, dataStart + compressedSize);
+
+    // Directories are entries too, and have no content worth decoding.
+    if (!name.endsWith('/')) {
+      let text: string;
+      if (method === 0) {
+        text = decoder.decode(raw);
+      } else if (method === 8) {
+        // `deflate-raw`: a ZIP member carries a bare deflate stream with no
+        // zlib header, so `deflate` would fail on the first byte.
+        const stream = new Blob([raw]).stream().pipeThrough(
+          new DecompressionStream('deflate-raw'),
+        );
+        text = decoder.decode(await new Response(stream).arrayBuffer());
+      } else {
+        throw new Error('UNSUPPORTED_COMPRESSION');
+      }
+      // The BOM `toCsv` writes for Excel is not part of the data.
+      entries.push({ name, text: text.replace(/^﻿/, '') });
+    }
+
+    cursor += 46 + nameLength + extraLength + commentLength;
+  }
+
+  return entries;
+}
+
+/**
+ * How many data rows a CSV holds.
+ *
+ * Counts line breaks outside quoted fields rather than splitting on `\n`: a
+ * municipal register is full of addresses and notes containing newlines inside
+ * quotes, and splitting naively reports a row count several times the truth —
+ * which, on a screen whose job is to tell an administrator what is in their
+ * backup, is worse than reporting nothing.
+ */
+export function countCsvRows(csv: string): number {
+  let rows = 0;
+  let inQuotes = false;
+  let sawContent = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+    if (char === '"') {
+      // A doubled quote inside a quoted field is an escaped quote, not a close.
+      if (inQuotes && csv[index + 1] === '"') index += 1;
+      else inQuotes = !inQuotes;
+      sawContent = true;
+    } else if (!inQuotes && (char === '\n' || char === '\r')) {
+      if (char === '\r' && csv[index + 1] === '\n') index += 1;
+      if (sawContent) rows += 1;
+      sawContent = false;
+    } else {
+      sawContent = true;
+    }
+  }
+  if (sawContent) rows += 1;
+
+  // The header line is not a row of data.
+  return Math.max(rows - 1, 0);
+}

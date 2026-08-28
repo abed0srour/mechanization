@@ -27,7 +27,14 @@ import {
 } from '@/lib/api-client';
 import { useSettingsSlice } from '@/lib/settings-store';
 import type { SettingsCopy } from '@/lib/settings-i18n';
-import { createZip, downloadBlob, toCsv, type ZipEntry } from '@/lib/zip';
+import {
+  countCsvRows,
+  createZip,
+  downloadBlob,
+  readZip,
+  toCsv,
+  type ZipEntry,
+} from '@/lib/zip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -87,6 +94,15 @@ const DEFAULT_SCHEDULE: ScheduleSettings = {
   dayOfMonth: '1',
   keepCopies: '7',
 };
+
+/** What reading a dropped archive told us about it. */
+interface ArchiveInspection {
+  ok: boolean;
+  /** Why it is unusable, when it is. */
+  reason: 'empty' | null;
+  tables: Array<{ name: string; rows: number }>;
+  manifest: { tenant?: string; createdAt?: string; failedTables?: string[] } | null;
+}
 
 const EMPTY_HISTORY: { entries: HistoryEntry[] } = { entries: [] };
 
@@ -181,11 +197,13 @@ function nextRunAt(schedule: ScheduleSettings, from: Date): Date | null {
  * recovery plan needs the database's own backups; this is the copy a
  * municipality can hold, read in Excel, and hand to an auditor.
  *
- * The restore half does not work and says so on the control. Reading the
- * archive back means writing rows across every table in the right order, which
- * is a server-side transaction — a browser cannot do it safely and should not
- * pretend to. The drop zone accepts and validates a file so the flow is real up
- * to the point where the server would take over.
+ * The restore half reads the archive and reports what is in it — tables, row
+ * counts, the manifest's tenant and date — but cannot write it back, and now
+ * says why rather than offering a disabled button with no explanation. Two
+ * things block it, neither of them a frontend job: there is no endpoint that
+ * accepts an archive, and the archive is an export of API read models rather
+ * than table rows, so feeding it back would flatten the register instead of
+ * restoring it.
  */
 export function BackupSection({
   tenant,
@@ -204,6 +222,8 @@ export function BackupSection({
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [archive, setArchive] = useState<File | null>(null);
+  const [inspecting, setInspecting] = useState(false);
+  const [inspection, setInspection] = useState<ArchiveInspection | null>(null);
 
   const [schedule, setSchedule] = useState<ScheduleSettings>(DEFAULT_SCHEDULE);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
@@ -384,19 +404,60 @@ export function BackupSection({
     }
   }, [tenant, token, record, toast, copy.backup]);
 
+  /**
+   * Opens the dropped archive and says what is in it.
+   *
+   * The file extension is not the check. A `.zip` that turns out to be a
+   * half-finished download, an archive of holiday photographs, or last year's
+   * export from a different municipality all pass a name test, and the moment
+   * an administrator most needs to know otherwise is *before* they act on it —
+   * not after a restore they cannot undo. So the archive is actually read: its
+   * manifest, its tables, its row counts.
+   */
   const acceptArchive = useCallback(
-    (file: File) => {
-      const looksZipped =
-        file.type === 'application/zip' ||
-        file.type === 'application/x-zip-compressed' ||
-        file.name.toLowerCase().endsWith('.zip');
-      if (!looksZipped) {
-        toast.error(copy.backup.wrongFormat);
-        return;
-      }
+    async (file: File) => {
       setArchive(file);
+      setInspection(null);
+      setInspecting(true);
+      try {
+        const entries = await readZip(file);
+
+        const manifestEntry = entries.find((entry) => entry.name === 'manifest.json');
+        let manifest: { tenant?: string; createdAt?: string; failedTables?: string[] } | null =
+          null;
+        if (manifestEntry) {
+          try {
+            manifest = JSON.parse(manifestEntry.text) as typeof manifest;
+          } catch {
+            /* an unreadable manifest is reported below as a missing one */
+          }
+        }
+
+        const tables = entries
+          .filter((entry) => entry.name.toLowerCase().endsWith('.csv'))
+          .map((entry) => ({
+            name: entry.name.replace(/\.csv$/i, ''),
+            rows: countCsvRows(entry.text),
+          }));
+
+        if (tables.length === 0) {
+          setInspection({ ok: false, reason: 'empty', tables: [], manifest: null });
+          toast.error(copy.backup.archiveEmpty);
+          return;
+        }
+
+        setInspection({ ok: true, reason: null, tables, manifest });
+      } catch (caught) {
+        // Not `logApiError` — nothing here went near the network.
+        console.error(caught);
+        setArchive(null);
+        setInspection(null);
+        toast.error(copy.backup.wrongFormat, { description: copy.backup.unreadableArchive });
+      } finally {
+        setInspecting(false);
+      }
     },
-    [toast, copy.backup.wrongFormat],
+    [toast, copy.backup],
   );
 
   return (
@@ -613,12 +674,28 @@ export function BackupSection({
         >
           {archive ? (
             <>
-              <CheckCircle2 className="size-7 text-success" aria-hidden />
+              {inspecting ? (
+                <Loader2 className="size-7 animate-spin text-muted-foreground" aria-hidden />
+              ) : inspection?.ok ? (
+                <CheckCircle2 className="size-7 text-success" aria-hidden />
+              ) : (
+                <XCircle className="size-7 text-destructive" aria-hidden />
+              )}
               <p className="mt-3 font-medium" dir="ltr">
                 {archive.name}
               </p>
-              <p className="text-xs text-muted-foreground">{formatBytes(archive.size)}</p>
-              <Button variant="ghost" className="mt-3" onClick={() => setArchive(null)}>
+              <p className="text-xs text-muted-foreground">
+                {formatBytes(archive.size)}
+                {inspecting ? ` · ${copy.backup.reading}` : null}
+              </p>
+              <Button
+                variant="ghost"
+                className="mt-3"
+                onClick={() => {
+                  setArchive(null);
+                  setInspection(null);
+                }}
+              >
                 <Trash2 className="size-4" aria-hidden />
                 {copy.backup.clearFile}
               </Button>
@@ -651,9 +728,97 @@ export function BackupSection({
           />
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <Button disabled>{copy.backup.restoreSelected}</Button>
-          <p className="text-xs text-muted-foreground">{copy.backup.restoreDisabled}</p>
+        {/*
+          What the archive turned out to contain, read from the file itself.
+          An administrator about to overwrite a register deserves to see the
+          contents named and counted first — and, far more often, to find out
+          here that the file they kept is not the one they thought it was.
+        */}
+        {inspection?.ok ? (
+          <div className="mt-4 space-y-3 rounded-lg border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold">{copy.backup.archiveContents}</p>
+              {inspection.manifest?.createdAt ? (
+                <p className="text-xs text-muted-foreground">
+                  {dateFormat.format(new Date(inspection.manifest.createdAt))}
+                </p>
+              ) : null}
+            </div>
+
+            <ul className="flex flex-wrap gap-2">
+              {inspection.tables.map((table) => (
+                <li key={table.name}>
+                  <Badge variant="soft-muted" className="gap-1.5">
+                    {copy.backup.tables[table.name] ?? table.name}
+                    <span className="tabular-nums opacity-70" dir="ltr">
+                      {table.rows.toLocaleString('en-US')}
+                    </span>
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+
+            {/*
+              A backup from another municipality is the one mistake on this
+              screen that cannot be walked back, and the file name will not
+              catch it — «albazourieh-backup-….zip» in the hands of Zahle looks
+              like a backup either way. The manifest is the only thing that
+              knows, so it is checked and said out loud.
+            */}
+            {inspection.manifest?.tenant && inspection.manifest.tenant !== tenant ? (
+              <p className="flex items-start gap-2 text-xs leading-relaxed text-destructive">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                {copy.backup.foreignArchive
+                  .replace('{archive}', inspection.manifest.tenant)
+                  .replace('{current}', tenant)}
+              </p>
+            ) : null}
+
+            {!inspection.manifest ? (
+              <p className="flex items-start gap-2 text-xs leading-relaxed text-warning">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                {copy.backup.noManifest}
+              </p>
+            ) : null}
+
+            {inspection.manifest?.failedTables?.length ? (
+              <p className="flex items-start gap-2 text-xs leading-relaxed text-warning">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                {copy.backup.archiveIncomplete}{' '}
+                <span dir="ltr">{inspection.manifest.failedTables.join(', ')}</span>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/*
+          Still disabled, and now for a stated reason rather than a shrug.
+
+          Two things have to exist before this button can write anything, and
+          neither is a frontend job. There is no endpoint that accepts an
+          archive — restoring means writing rows across every table in
+          dependency order inside one transaction, which a browser cannot do
+          safely. And the archive above is an export of what the *API* returns,
+          not of table rows: `citizens.csv` carries a joined `fullName` and
+          computed totals like `feesTotal`, while the `users` table wants
+          `firstName`/`middleName`/`lastName`, `gender`, `familySize` and a
+          dozen columns the export never saw. Feeding it back would not restore
+          the register; it would flatten it.
+        */}
+        <div className="mt-5 space-y-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
+          <p className="flex items-start gap-2 text-sm leading-relaxed">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+            <span>
+              <span className="font-semibold text-warning">{copy.backup.restoreBlocked}</span>
+              <span className="mt-0.5 block text-muted-foreground">
+                {copy.backup.restoreBlockedWhy}
+              </span>
+            </span>
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button disabled>{copy.backup.restoreSelected}</Button>
+            <p className="text-xs text-muted-foreground">{copy.backup.restoreDisabled}</p>
+          </div>
         </div>
       </SettingsCard>
 

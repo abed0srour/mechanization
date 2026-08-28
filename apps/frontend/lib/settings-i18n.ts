@@ -242,6 +242,15 @@ export interface SettingsCopy {
     dropZoneHint: string;
     browse: string;
     wrongFormat: string;
+    reading: string;
+    archiveContents: string;
+    archiveEmpty: string;
+    unreadableArchive: string;
+    noManifest: string;
+    archiveIncomplete: string;
+    foreignArchive: string;
+    restoreBlocked: string;
+    restoreBlockedWhy: string;
     restoreSelected: string;
     restoreDisabled: string;
     clearFile: string;
@@ -580,6 +589,16 @@ const AR: SettingsCopy = {
     dropZoneHint: 'أو اخترْه من جهازك',
     browse: 'اختيار ملف',
     wrongFormat: 'الملف ليس أرشيف ZIP.',
+    reading: 'جارٍ القراءة…',
+    archiveContents: 'محتويات الأرشيف',
+    archiveEmpty: 'الأرشيف لا يحتوي على أي ملف CSV.',
+    unreadableArchive: 'تعذّرت قراءة الملف كأرشيف ZIP سليم.',
+    noManifest: 'لا يحتوي الأرشيف على ملف manifest.json — لا يمكن التحقق من مصدره أو تاريخه.',
+    archiveIncomplete: 'الأرشيف ناقص؛ فشل تصدير:',
+    foreignArchive: 'هذا الأرشيف يخصّ بلدية «{archive}» وأنت في «{current}».',
+    restoreBlocked: 'الاستعادة غير ممكنة من هذا الأرشيف',
+    restoreBlockedWhy:
+      'الأرشيف تصدير لما تعرضه واجهة البرمجة لا لصفوف الجداول — يحتوي مثلاً الاسم الكامل والمجاميع المحسوبة، بينما جدول المستخدمين يحتاج الاسم الأول والأوسط والأخير والجنس وحجم الأسرة وغيرها. تحتاج الاستعادة إلى نقطة خدمة على الخادم وإلى تصدير بصيغة الجداول نفسها.',
     restoreSelected: 'بدء الاستعادة',
     restoreDisabled: 'الاستعادة تحتاج نقطة خدمة على الخادم — غير متاحة بعد.',
     clearFile: 'إزالة الملف',
@@ -893,6 +912,16 @@ const EN: SettingsCopy = {
     dropZoneHint: 'or choose one from your computer',
     browse: 'Choose file',
     wrongFormat: 'That file is not a ZIP archive.',
+    reading: 'Reading…',
+    archiveContents: 'Archive contents',
+    archiveEmpty: 'The archive contains no CSV files.',
+    unreadableArchive: 'The file could not be read as a valid ZIP archive.',
+    noManifest: 'This archive has no manifest.json — its origin and date cannot be verified.',
+    archiveIncomplete: 'The archive is incomplete; these tables failed to export:',
+    foreignArchive: 'This archive belongs to «{archive}» and you are in «{current}».',
+    restoreBlocked: 'This archive cannot be restored from',
+    restoreBlockedWhy:
+      'The archive is an export of what the API returns, not of table rows — it holds a joined full name and computed totals, while the users table needs first, middle and last name, gender, household size and more. Restore needs both a server endpoint and an export in the shape of the tables.',
     restoreSelected: 'Start restore',
     restoreDisabled: 'Restore needs a server endpoint — not available yet.',
     clearFile: 'Remove file',
