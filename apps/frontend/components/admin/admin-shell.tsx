@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
-import { Landmark, ShieldCheck, X } from 'lucide-react';
+import { ShieldCheck, X } from 'lucide-react';
 import { AdminHeader } from '@/components/admin/admin-header';
 import { AdminSidebar, SidebarNav } from '@/components/admin/admin-sidebar';
 import { CommandPalette } from '@/components/admin/command-palette';
@@ -118,27 +118,28 @@ export function AdminShell({
               // Pinned to the inline-start edge, so it slides from the right
               // in this RTL portal and the left in an LTR one — the side the
               // rail occupies at desktop width, in both.
-              'absolute inset-y-0 start-0 flex w-[18rem] max-w-[85vw] flex-col bg-card/95 backdrop-blur-2xl shadow-2xl border-e border-border/70',
-              'animate-in duration-300 rtl:slide-in-from-right ltr:slide-in-from-left',
+              'absolute inset-y-0 start-0 flex w-[17rem] max-w-[85vw] flex-col bg-card shadow-2xl',
+              'animate-in duration-200 rtl:slide-in-from-right ltr:slide-in-from-left',
             )}
           >
-            <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border/60 px-4">
-              <div
+            <div className="flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
+              <span
                 aria-hidden
-                className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/20"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
               >
-                <Landmark className="size-4.5" />
-                <span className="absolute -bottom-0.5 -end-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-card" />
-              </div>
+                <ShieldCheck className="size-[18px]" />
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold tracking-tight text-foreground">بوابة الإدارة</p>
-                <p className="truncate text-[11px] font-medium text-muted-foreground">{tenantName ?? 'نظام المكننة البلدي'}</p>
+                <p className="truncate text-sm font-semibold">لوحة البلدية</p>
+                {tenantName ? (
+                  <p className="truncate text-xs text-muted-foreground">{tenantName}</p>
+                ) : null}
               </div>
               <button
                 type="button"
                 onClick={() => setDrawerOpen(false)}
                 aria-label="إغلاق القائمة"
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 <X className="size-5" />
               </button>
