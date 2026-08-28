@@ -265,15 +265,6 @@ export default function ZonesPage({
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-lg font-bold">
-            <Layers className="size-5 text-primary" aria-hidden />
-            إدارة القطاعات
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            قسّم عقارات البلدية إلى قطاعات إدارية على الخريطة
-          </p>
-        </div>
         {canEdit && !editorOpen ? (
           <Button onClick={startNew}>
             <Plus className="size-4" aria-hidden />

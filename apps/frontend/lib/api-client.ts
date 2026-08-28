@@ -1,4 +1,5 @@
 import { IMPORT_BATCH_SIZE } from '@mechanization/shared-schemas';
+import { cachedRequest, invalidateRequests } from './request-cache';
 import type {
   BackupSchedule,
   CitizenImportResult,
@@ -946,9 +947,38 @@ export interface MunicipalitySettings {
   updatedAt: string | null;
 }
 
-/** Readable by any signed-in user — the portal prints these on the pay modal. */
-export function getMunicipalitySettings(tenant: string, token: string) {
-  return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', { token });
+/** How long a settings read is reused. It changes a few times a year. */
+const SETTINGS_TTL_MS = 60_000;
+
+/**
+ * Readable by any signed-in user — the portal prints these on the pay modal.
+ *
+ * De-duplicated and briefly cached, because six unrelated screens read it: the
+ * fees ledger, the payments log, every citizen profile, the citizen pay dialog
+ * and each settings tab as it opens. Concurrent callers share one request.
+ *
+ * `includeLogo` is opt-in and off by default. The crest is a data URI in the
+ * hundreds of kilobytes, and every one of those screens except the settings
+ * form wants a phone number and some opening hours — they were all downloading
+ * it and using none of it.
+ */
+export function getMunicipalitySettings(
+  tenant: string,
+  token: string,
+  options: { includeLogo?: boolean } = {},
+) {
+  const includeLogo = options.includeLogo === true;
+  // The token is deliberately not part of the key — see `cachedRequest`.
+  return cachedRequest(
+    `settings:${tenant}:${includeLogo ? 'full' : 'lite'}`,
+    SETTINGS_TTL_MS,
+    () =>
+      apiFetch<MunicipalitySettings>(
+        tenant,
+        `/fees/settings${includeLogo ? '?includeLogo=true' : ''}`,
+        { token },
+      ),
+  );
 }
 
 /**
@@ -960,7 +990,7 @@ export function getMunicipalitySettings(tenant: string, token: string) {
  * missing key leaves it alone. The two are not the same and the server does
  * not treat them as such.
  */
-export function updateMunicipalitySettings(
+export async function updateMunicipalitySettings(
   tenant: string,
   token: string,
   input: Partial<{
@@ -992,11 +1022,16 @@ export function updateMunicipalitySettings(
     backupSchedule: BackupSchedule;
   }>,
 ) {
-  return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', {
+  const result = await apiFetch<MunicipalitySettings>(tenant, '/fees/settings', {
     token,
     method: 'PATCH',
     body: JSON.stringify(input),
   });
+  // Both variants, before the caller sees the response. A clerk who saves and
+  // is then shown the value they replaced — because another tab reads the
+  // cached copy a moment later — reasonably concludes the save failed.
+  invalidateRequests(`settings:${tenant}:`);
+  return result;
 }
 
 export interface FeeNoticeSummary {

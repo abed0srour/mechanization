@@ -147,15 +147,7 @@ export default function FullscreenMapPage({
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-lg font-bold">
-            <MapIcon className="size-5 text-primary" aria-hidden />
-            الخريطة العقارية
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            نقاط تفاعلية فقط على العقارات التي لديها تسجيلات
-          </p>
-        </div>
+
         {session?.user.role === 'SUPER_ADMIN' ? (
           <div className="flex items-center gap-2">
             <input

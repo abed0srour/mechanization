@@ -14,9 +14,17 @@ import type {
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
 import { ConflictError, NotFoundError, ValidationError } from '../../common/exceptions';
+import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
 
 /** Property categories that live on `PropertyEntry.propertyType`. */
 const PROPERTY_TYPE_CATEGORIES = new Set(['BUILDING', 'HOUSE', 'LAND', 'TENT']);
+
+/**
+ * Five minutes. Contact details and office hours change a few times a year,
+ * and a write drops the entry outright, so the TTL only bounds how long a
+ * change made *outside* this service could go unseen.
+ */
+const SETTINGS_CACHE_TTL_SECONDS = 300;
 
 /** Guards the period walk below against an unreachable target date. */
 const MAX_PERIOD_STEPS = 600;
@@ -120,6 +128,7 @@ export class FeesService {
     private readonly tenantContext: TenantContextService,
     private readonly events: EventEmitter2,
     @Inject(WHISH_GATEWAY) private readonly whish: WhishGateway,
+    private readonly cache: RedisCacheService,
   ) {}
 
   private get db() {
@@ -128,20 +137,35 @@ export class FeesService {
 
   // ───────────────────────────  Settings  ───────────────────────────
 
-  /**
-   * The municipality's payment configuration.
-   *
-   * Returns nulls rather than creating a row when unset: the portal hides the
-   * Whish option entirely without a number, and inventing a blank row here
-   * would make "never configured" indistinguishable from "deliberately empty".
-   */
-  /**
-   * @param includeLogo staff only. The crest is a data URI in the hundreds of
-   *   kilobytes and this endpoint is read by every citizen opening the pay
-   *   dialog; sending it to them would put half a megabyte of base64 on a
-   *   request whose useful payload is a phone number and some opening hours.
-   */
+  /** Namespaced per tenant so one municipality's entry cannot serve another. */
+  private settingsCacheKey(includeLogo: boolean): string {
+    return `settings:${this.tenantContext.tenantSlug}:${includeLogo ? 'full' : 'lite'}`;
+  }
+
   async getSettings(includeLogo = false) {
+    /*
+     * Cached, because this is the most-read row in the schema.
+     *
+     * The fees screen, the payments screen, every citizen profile and the
+     * citizen-facing pay dialog all read it on load, for a phone number and
+     * some opening hours that change a few times a year. Five minutes rather
+     * than the dashboard's sixty seconds for the same reason: nothing here is
+     * time-sensitive, and `updateSettings` drops the entry anyway, so an edit
+     * is visible immediately regardless of the TTL.
+     *
+     * Keyed on `includeLogo` so the cheap payload and the one carrying the
+     * crest cannot be served for one another.
+     */
+    const key = this.settingsCacheKey(includeLogo);
+    const cached = await this.cache.get<Awaited<ReturnType<FeesService['readSettings']>>>(key);
+    if (cached) return cached;
+
+    const settings = await this.readSettings(includeLogo);
+    await this.cache.set(key, settings, SETTINGS_CACHE_TTL_SECONDS);
+    return settings;
+  }
+
+  private async readSettings(includeLogo: boolean) {
     const row = await withConnectionRetry(() =>
       this.db.systemSettings.findFirst({ where: { singleton: true } }),
     );
@@ -256,6 +280,16 @@ export class FeesService {
       create: { singleton: true, ...data },
       update: data,
     });
+
+    /*
+     * Dropped before the read below, not left to expire.
+     *
+     * Both variants go: a clerk who saves and is then shown the value they
+     * replaced would reasonably conclude the save failed and do it again. Five
+     * minutes of that is worse than no cache at all, which is why the write
+     * path owns the invalidation rather than the TTL.
+     */
+    await this.cache.invalidatePrefix(`settings:${this.tenantContext.tenantSlug}:`);
 
     this.events.emit('settings.changed', {
       tenantSlug: this.tenantContext.tenantSlug,

@@ -118,7 +118,7 @@ export function ProfileSection({
     let cancelled = false;
     (async () => {
       try {
-        const result = await getMunicipalitySettings(tenant, token);
+        const result = await getMunicipalitySettings(tenant, token, { includeLogo: true });
         if (cancelled) return;
         const next = toProfile(result);
         setSaved(next);
