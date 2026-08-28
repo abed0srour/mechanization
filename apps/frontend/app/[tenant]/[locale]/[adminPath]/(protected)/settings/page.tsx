@@ -2,15 +2,22 @@
 
 import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Coins, Settings as SettingsIcon, type LucideIcon } from 'lucide-react';
+import {
+  Building2,
+  Coins,
+  Hash,
+  Settings as SettingsIcon,
+  type LucideIcon,
+} from 'lucide-react';
 import { loadSession } from '@/lib/session';
 import { settingsCopy, type SettingsCopy } from '@/lib/settings-i18n';
 import { PageHeader } from '@/components/ui/page-header';
 import { ProfileSection } from '@/components/admin/settings/profile-section';
 import { FinanceSection } from '@/components/admin/settings/finance-section';
+import { NumberingSection } from '@/components/admin/settings/numbering-section';
 import { cn } from '@/lib/utils';
 
-type SectionId = 'profile' | 'finance';
+type SectionId = 'profile' | 'finance' | 'numbering';
 
 interface SectionDef {
   id: SectionId;
@@ -28,6 +35,7 @@ interface SectionDef {
 const SECTIONS: SectionDef[] = [
   { id: 'profile', icon: Building2, label: (copy) => copy.nav.profile },
   { id: 'finance', icon: Coins, label: (copy) => copy.nav.finance },
+  { id: 'numbering', icon: Hash, label: (copy) => copy.nav.numbering },
 ];
 
 /**
@@ -129,6 +137,7 @@ export default function SettingsPage({
           {active === 'finance' ? (
             <FinanceSection tenant={tenant} token={token} locale={locale} copy={copy} />
           ) : null}
+          {active === 'numbering' ? <NumberingSection tenant={tenant} copy={copy} /> : null}
         </div>
       </div>
     </div>

@@ -134,7 +134,38 @@ export interface SettingsCopy {
     invalidRate: string;
     invalidExchange: string;
   };
+  numbering: {
+    title: string;
+    description: string;
+    heading: string;
+    hint: string;
+    prefix: string;
+    prefixHint: string;
+    nextNumber: string;
+    nextNumberHint: string;
+    padding: string;
+    paddingHint: string;
+    preview: string;
+    previewHint: string;
+    previewNext: string;
+    previewAfter: string;
+    documents: Record<SequenceKey, string>;
+    documentHints: Record<SequenceKey, string>;
+    invalidNext: string;
+    invalidPadding: string;
+    collision: string;
+  };
 }
+
+/** The documents this portal issues a reference number for. */
+export const SEQUENCE_KEYS = [
+  'invoice',
+  'serviceOrder',
+  'permit',
+  'taxReceipt',
+  'refund',
+] as const;
+export type SequenceKey = (typeof SEQUENCE_KEYS)[number];
 
 /** The currencies a Lebanese municipality actually quotes in. */
 export const CURRENCIES = ['LBP', 'USD', 'EUR'] as const;
@@ -256,6 +287,39 @@ const AR: SettingsCopy = {
     invalidRate: 'النسبة يجب أن تكون بين 0 و100.',
     invalidExchange: 'سعر الصرف يجب أن يكون أكبر من صفر.',
   },
+  numbering: {
+    title: 'تسلسل الترقيم',
+    description: 'صيغة الأرقام المرجعية للمستندات التي تصدرها البلدية.',
+    heading: 'تسلسلات المستندات',
+    hint: 'لكل نوع مستند بادئته وعدّاده الخاص، فلا يتداخل ترقيم نوع مع آخر.',
+    prefix: 'البادئة',
+    prefixHint: 'حروف لاتينية وأرقام وشرطات، مثل MUN-',
+    nextNumber: 'الرقم التالي',
+    nextNumberHint: 'رقم أول مستند يصدر بعد الحفظ.',
+    padding: 'خانات التصفير',
+    paddingHint: 'طول الرقم مع الأصفار على اليسار — 4 تعطي 0042.',
+    preview: 'المعاينة',
+    previewHint: 'هكذا يظهر الرقم على المستند.',
+    previewNext: 'التالي',
+    previewAfter: 'ثم',
+    documents: {
+      invoice: 'فاتورة بلدية',
+      serviceOrder: 'أمر خدمة',
+      permit: 'رخصة رسمية',
+      taxReceipt: 'إيصال رسم',
+      refund: 'مذكرة استرداد',
+    },
+    documentHints: {
+      invoice: 'المطالبات المرسلة إلى المواطنين.',
+      serviceOrder: 'أوامر العمل الصادرة إلى الأقسام والمتعهدين.',
+      permit: 'رخص البناء والإشغال والأنشطة.',
+      taxReceipt: 'الإيصالات المسلّمة عند القبض.',
+      refund: 'المبالغ المعادة إلى المواطن.',
+    },
+    invalidNext: 'الرقم التالي يجب أن يكون عدداً صحيحاً أكبر من صفر.',
+    invalidPadding: 'خانات التصفير يجب أن تكون بين 1 و12.',
+    collision: 'هذه البادئة مستخدمة في تسلسل آخر — الأرقام ستتشابه.',
+  },
 };
 
 const EN: SettingsCopy = {
@@ -368,6 +432,39 @@ const EN: SettingsCopy = {
     whishNumber: 'Whish Money number',
     invalidRate: 'The rate must be between 0 and 100.',
     invalidExchange: 'The exchange rate must be greater than zero.',
+  },
+  numbering: {
+    title: 'Numbering sequences',
+    description: 'The reference-number format for each document the municipality issues.',
+    heading: 'Document sequences',
+    hint: 'Each document type has its own prefix and counter, so no two share a number.',
+    prefix: 'Prefix',
+    prefixHint: 'Latin letters, digits, and dashes — for example MUN-',
+    nextNumber: 'Next number',
+    nextNumberHint: 'The number the first document issued after saving will take.',
+    padding: 'Zero-padding',
+    paddingHint: 'Total digit length, zero-filled on the left — 4 gives 0042.',
+    preview: 'Preview',
+    previewHint: 'How the reference will read on the document.',
+    previewNext: 'Next',
+    previewAfter: 'Then',
+    documents: {
+      invoice: 'Municipal invoice',
+      serviceOrder: 'Service order',
+      permit: 'Official permit',
+      taxReceipt: 'Tax receipt',
+      refund: 'Refund note',
+    },
+    documentHints: {
+      invoice: 'Charges sent to citizens.',
+      serviceOrder: 'Work orders issued to departments and contractors.',
+      permit: 'Construction, occupancy, and activity permits.',
+      taxReceipt: 'Receipts handed over when payment is taken.',
+      refund: 'Amounts returned to a citizen.',
+    },
+    invalidNext: 'The next number must be a whole number greater than zero.',
+    invalidPadding: 'Zero-padding must be between 1 and 12.',
+    collision: 'Another sequence already uses this prefix — their numbers will look alike.',
   },
 };
 
