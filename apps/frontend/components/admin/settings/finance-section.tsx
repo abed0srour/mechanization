@@ -11,8 +11,9 @@ import {
 } from '@/lib/api-client';
 import { useSettingsSlice } from '@/lib/settings-store';
 import { CURRENCIES, CURRENCY_NAMES, type CurrencyCode, type SettingsCopy } from '@/lib/settings-i18n';
-import { Field } from '@/components/ui/field';
+
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -22,7 +23,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { LocalOnlyNotice, SaveBar, SettingsCard } from './settings-ui';
+import { LocalOnlyNotice, SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
 
 const FREQUENCIES = ['ONCE', 'MONTHLY', 'HALF_YEARLY', 'ANNUALLY'] as const;
 
@@ -248,8 +249,8 @@ export function FinanceSection({
         title={copy.finance.defaultsHeading}
         hint={copy.finance.defaultsHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          <Field
+        <SettingsGrid columns={3}>
+          <SettingsField
             label={copy.finance.defaultFrequency}
             htmlFor="default-frequency"
             hint={copy.finance.defaultFrequencyHint}
@@ -271,9 +272,9 @@ export function FinanceSection({
                 ))}
               </SelectContent>
             </Select>
-          </Field>
+          </SettingsField>
 
-          <Field label={copy.finance.dueDays} htmlFor="due-days" hint={copy.finance.dueDaysHint}>
+          <SettingsField label={copy.finance.dueDays} htmlFor="due-days" hint={copy.finance.dueDaysHint}>
             <Input
               id="due-days"
               inputMode="numeric"
@@ -284,9 +285,9 @@ export function FinanceSection({
                 setLocal({ ...local, dueDays: e.target.value.replace(/\D/g, '') })
               }
             />
-          </Field>
+          </SettingsField>
 
-          <Field
+          <SettingsField
             label={copy.finance.priceDisplay}
             htmlFor="price-display"
             hint={copy.finance.priceDisplayHint}
@@ -305,8 +306,8 @@ export function FinanceSection({
                 <SelectItem value="exact">{copy.finance.priceDisplayExact}</SelectItem>
               </SelectContent>
             </Select>
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
       </SettingsCard>
 
       <SettingsCard
@@ -314,9 +315,9 @@ export function FinanceSection({
         title={copy.finance.rateHeading}
         hint={copy.finance.rateHint}
       >
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid items-start gap-5 md:grid-cols-2 md:gap-6">
           <div className="space-y-4">
-            <Field
+            <SettingsField
               label={copy.finance.defaultRate}
               htmlFor="default-rate"
               hint={copy.finance.defaultRateHint}
@@ -339,7 +340,7 @@ export function FinanceSection({
                   %
                 </span>
               </div>
-            </Field>
+            </SettingsField>
             <p className="text-xs leading-relaxed text-muted-foreground">
               {copy.finance.rateAppliesTo}
             </p>
@@ -349,25 +350,28 @@ export function FinanceSection({
             A worked example rather than a bare percentage. "10%" of what, added
             to what, is the question an administrator is actually answering, and
             a number they can check against a fee they know is how they answer it.
+
+            Label above the panel, matching the field beside it, so the panel's
+            top edge lands on the input's rather than on its label's.
           */}
-          <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {copy.finance.ratePreview}
-            </p>
-            <dl className="mt-3 space-y-2 text-sm">
+          <div className="flex min-w-0 flex-col gap-2">
+            <Label className="text-muted-foreground">{copy.finance.ratePreview}</Label>
+            <dl className="space-y-2 rounded-xl border border-border/70 bg-muted/30 p-4 text-sm">
               <div className="flex items-baseline justify-between gap-4">
-                <dt className="text-muted-foreground">{copy.finance.ratePreviewBase}</dt>
-                <dd className="tabular-nums">
+                <dt className="min-w-0 text-muted-foreground">{copy.finance.ratePreviewBase}</dt>
+                <dd className="shrink-0 tabular-nums" dir="ltr">
                   {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
                 </dd>
               </div>
               <div className="flex items-baseline justify-between gap-4">
-                <dt className="text-muted-foreground">{copy.finance.ratePreviewCharge}</dt>
-                <dd className="tabular-nums">{formatAmount(rateCharge, local.baseCurrency)}</dd>
+                <dt className="min-w-0 text-muted-foreground">{copy.finance.ratePreviewCharge}</dt>
+                <dd className="shrink-0 tabular-nums" dir="ltr">
+                  {formatAmount(rateCharge, local.baseCurrency)}
+                </dd>
               </div>
               <div className="flex items-baseline justify-between gap-4 border-t border-border/60 pt-2 font-semibold">
-                <dt>{copy.finance.ratePreviewTotal}</dt>
-                <dd className="tabular-nums">
+                <dt className="min-w-0">{copy.finance.ratePreviewTotal}</dt>
+                <dd className="shrink-0 tabular-nums" dir="ltr">
                   {formatAmount(RATE_PREVIEW_BASE + rateCharge, local.baseCurrency)}
                 </dd>
               </div>
@@ -381,8 +385,8 @@ export function FinanceSection({
         title={copy.finance.currencyHeading}
         hint={copy.finance.currencyHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field
+        <SettingsGrid>
+          <SettingsField
             label={copy.finance.baseCurrency}
             htmlFor="base-currency"
             hint={copy.finance.baseCurrencyHint}
@@ -404,9 +408,9 @@ export function FinanceSection({
                 ))}
               </SelectContent>
             </Select>
-          </Field>
+          </SettingsField>
 
-          <Field
+          <SettingsField
             label={copy.finance.secondaryCurrency}
             htmlFor="secondary-currency"
             hint={copy.finance.secondaryCurrencyHint}
@@ -434,12 +438,12 @@ export function FinanceSection({
                 ))}
               </SelectContent>
             </Select>
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
 
         {local.secondaryCurrency ? (
-          <div className="mt-5 grid gap-5 border-t border-border/60 pt-5 sm:grid-cols-2">
-            <Field
+          <div className="mt-5 grid items-start gap-5 border-t border-border/60 pt-5 md:grid-cols-2">
+            <SettingsField
               label={copy.finance.exchangeRate}
               htmlFor="exchange-rate"
               hint={copy.finance.exchangeRateHint}
@@ -462,28 +466,32 @@ export function FinanceSection({
                   {local.baseCurrency}
                 </span>
               </div>
-            </Field>
+            </SettingsField>
 
-            <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {copy.finance.conversionPreview}
-              </p>
-              <p className="mt-2 text-sm tabular-nums" dir="ltr">
-                {exchangeValid && exchange
-                  ? `${formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)} ≈ ${formatAmount(
-                      RATE_PREVIEW_BASE / exchange,
-                      local.secondaryCurrency,
-                    )}`
-                  : '—'}
-              </p>
-              <p className="mt-3 text-xs text-muted-foreground">
-                {copy.finance.exchangeRateUpdated}:{' '}
-                {local.exchangeRateUpdatedAt
-                  ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
-                      locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
-                    )
-                  : copy.finance.exchangeRateNever}
-              </p>
+            <div className="flex min-w-0 flex-col gap-2">
+              <Label className="text-muted-foreground">{copy.finance.conversionPreview}</Label>
+              <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
+                {/* `break-words`: at a rate near 1 this line runs to two full
+                    amounts plus a currency code each, which overflows the panel
+                    on a phone rather than wrapping, because it has no spaces
+                    the browser likes to break at. */}
+                <p className="break-words text-sm tabular-nums" dir="ltr">
+                  {exchangeValid && exchange
+                    ? `${formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)} ≈ ${formatAmount(
+                        RATE_PREVIEW_BASE / exchange,
+                        local.secondaryCurrency,
+                      )}`
+                    : '—'}
+                </p>
+                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                  {copy.finance.exchangeRateUpdated}:{' '}
+                  {local.exchangeRateUpdatedAt
+                    ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
+                        locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
+                      )
+                    : copy.finance.exchangeRateNever}
+                </p>
+              </div>
             </div>
           </div>
         ) : null}
@@ -495,7 +503,7 @@ export function FinanceSection({
         hint={copy.finance.whishHint}
       >
         <div className="sm:max-w-sm">
-          <Field label={copy.finance.whishNumber} htmlFor="whish-number">
+          <SettingsField label={copy.finance.whishNumber} htmlFor="whish-number">
             <Input
               id="whish-number"
               type="tel"
@@ -505,7 +513,7 @@ export function FinanceSection({
               value={server.whishMoneyNumber}
               onChange={(e) => setServer({ ...server, whishMoneyNumber: e.target.value })}
             />
-          </Field>
+          </SettingsField>
         </div>
       </SettingsCard>
 

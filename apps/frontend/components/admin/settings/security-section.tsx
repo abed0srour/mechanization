@@ -10,13 +10,12 @@ import {
   PencilLine,
   ScrollText,
   ShieldCheck,
-  TriangleAlert,
 } from 'lucide-react';
 import { getStaff, logApiError } from '@/lib/api-client';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Field } from '@/components/ui/field';
+
 import { Input } from '@/components/ui/input';
 import {
   Table,
@@ -26,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { SettingsCard } from './settings-ui';
+import { Notice, ScrollableTable, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
 import { cn } from '@/lib/utils';
 
 /**
@@ -141,22 +140,14 @@ export function SecuritySection({
         administrator who types a new password into a form that cannot change it
         has been wasted; worse, they may believe afterwards that they did.
       */}
-      <p className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm leading-relaxed">
-        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
-        <span>
-          <span className="font-semibold text-warning">{copy.security.designOnly}</span>
-          <span className="mt-0.5 block text-muted-foreground">
-            {copy.security.designOnlyHint}
-          </span>
-        </span>
-      </p>
+      <Notice title={copy.security.designOnly}>{copy.security.designOnlyHint}</Notice>
 
       <SettingsCard
         icon={ShieldCheck}
         title={copy.security.verifyHeading}
         hint={copy.security.verifyHint}
       >
-        <ol className="grid gap-4 sm:grid-cols-3">
+        <ol className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[
             { icon: PencilLine, title: copy.security.stepEdit, hint: copy.security.stepEditHint, active: true },
             { icon: Mail, title: copy.security.stepConfirm, hint: copy.security.stepConfirmHint, active: false },
@@ -214,11 +205,11 @@ export function SecuritySection({
         title={copy.security.credentialsHeading}
         hint={copy.security.credentialsHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label={copy.security.currentEmail} htmlFor="current-email">
+        <SettingsGrid>
+          <SettingsField label={copy.security.currentEmail} htmlFor="current-email">
             <Input id="current-email" dir="ltr" className="text-start" value={email} readOnly disabled />
-          </Field>
-          <Field label={copy.security.newEmail} htmlFor="new-email">
+          </SettingsField>
+          <SettingsField label={copy.security.newEmail} htmlFor="new-email">
             <Input
               id="new-email"
               type="email"
@@ -227,8 +218,8 @@ export function SecuritySection({
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
             />
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
         <div className="mt-5 flex items-center gap-3">
           {/* Disabled, with the reason on the button's own row rather than in a
               tooltip: a disabled control with no stated reason is the single
@@ -243,8 +234,8 @@ export function SecuritySection({
         title={copy.security.passwordHeading}
         hint={copy.security.passwordHint}
       >
-        <div className="grid gap-5 sm:grid-cols-3">
-          <Field label={copy.security.currentPassword} htmlFor="current-password">
+        <SettingsGrid columns={3}>
+          <SettingsField label={copy.security.currentPassword} htmlFor="current-password">
             <Input
               id="current-password"
               type="password"
@@ -252,8 +243,8 @@ export function SecuritySection({
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
             />
-          </Field>
-          <Field label={copy.security.newPassword} htmlFor="new-password">
+          </SettingsField>
+          <SettingsField label={copy.security.newPassword} htmlFor="new-password">
             <Input
               id="new-password"
               type="password"
@@ -261,8 +252,8 @@ export function SecuritySection({
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
-          </Field>
-          <Field
+          </SettingsField>
+          <SettingsField
             label={copy.security.confirmPassword}
             htmlFor="confirm-password"
             error={mismatch ? copy.security.passwordMismatch : undefined}
@@ -275,8 +266,8 @@ export function SecuritySection({
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
 
         {newPassword ? (
           <div className="mt-4 max-w-sm space-y-1.5">
@@ -331,7 +322,7 @@ export function SecuritySection({
               <p className="text-xs text-muted-foreground">{copy.security.twoFactorAppHint}</p>
             </div>
             <div className="max-w-[220px]">
-              <Field label={copy.security.twoFactorCode} htmlFor="totp">
+              <SettingsField label={copy.security.twoFactorCode} htmlFor="totp">
                 <Input
                   id="totp"
                   inputMode="numeric"
@@ -340,7 +331,7 @@ export function SecuritySection({
                   disabled
                   className="text-center font-mono tracking-[0.4em]"
                 />
-              </Field>
+              </SettingsField>
             </div>
             <div className="flex items-center gap-3">
               <Button disabled>{copy.security.twoFactorEnable}</Button>
@@ -360,7 +351,7 @@ export function SecuritySection({
           {copy.security.historySampleHint}
         </p>
 
-        <div className="overflow-x-auto">
+        <ScrollableTable minWidth="46rem">
           <Table>
             <TableHeader>
               <TableRow>
@@ -397,7 +388,7 @@ export function SecuritySection({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </ScrollableTable>
       </SettingsCard>
     </div>
   );

@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Hash, TriangleAlert } from 'lucide-react';
 import { useSettingsSlice } from '@/lib/settings-store';
 import { SEQUENCE_KEYS, type SequenceKey, type SettingsCopy } from '@/lib/settings-i18n';
-import { Field } from '@/components/ui/field';
+
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
-import { LocalOnlyNotice, SaveBar, SettingsCard } from './settings-ui';
+import { LocalOnlyNotice, SaveBar, SettingsCard, SettingsField } from './settings-ui';
 
 /** One document type's reference format. Strings, because these are inputs. */
 interface Sequence {
@@ -171,8 +172,8 @@ export function NumberingSection({
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr_1fr_1.6fr]">
-                  <Field label={copy.numbering.prefix} htmlFor={`${key}-prefix`}>
+                <div className="mt-4 grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-[1.5fr_0.9fr_0.9fr_1.7fr]">
+                  <SettingsField label={copy.numbering.prefix} htmlFor={`${key}-prefix`}>
                     <Input
                       id={`${key}-prefix`}
                       dir="ltr"
@@ -188,9 +189,9 @@ export function NumberingSection({
                         })
                       }
                     />
-                  </Field>
+                  </SettingsField>
 
-                  <Field
+                  <SettingsField
                     label={copy.numbering.nextNumber}
                     htmlFor={`${key}-next`}
                     error={problems?.next}
@@ -206,9 +207,9 @@ export function NumberingSection({
                         update(key, { nextNumber: e.target.value.replace(/\D/g, '') })
                       }
                     />
-                  </Field>
+                  </SettingsField>
 
-                  <Field
+                  <SettingsField
                     label={copy.numbering.padding}
                     htmlFor={`${key}-padding`}
                     error={problems?.padding}
@@ -224,30 +225,35 @@ export function NumberingSection({
                         update(key, { padding: e.target.value.replace(/\D/g, '').slice(0, 2) })
                       }
                     />
-                  </Field>
+                  </SettingsField>
 
                   {/*
                     Two consecutive references, not one. A single sample looks
                     correct in every configuration; it takes the second to show
                     that a counter about to cross its padding width will widen
                     the reference mid-series.
+
+                    Wrapped in the same label-then-body structure the fields
+                    beside it use, so the card's top edge lands on the inputs'
+                    top edge rather than on their labels' — which is what made
+                    this column sit a line high in every row.
                   */}
-                  <div className="rounded-lg border border-border/70 bg-card p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {copy.numbering.preview}
-                    </p>
-                    {previewable ? (
-                      <div className="mt-1.5 space-y-1 font-mono text-sm" dir="ltr">
-                        <p className="truncate">
-                          {formatReference(sequence.prefix, next, padding)}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {formatReference(sequence.prefix, next + 1, padding)}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="mt-1.5 text-sm text-muted-foreground">—</p>
-                    )}
+                  <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 xl:col-span-1">
+                    <Label className="text-muted-foreground">{copy.numbering.preview}</Label>
+                    <div className="min-h-12 rounded-md border border-border/70 bg-card px-3 py-2">
+                      {previewable ? (
+                        <div className="space-y-0.5 font-mono text-sm" dir="ltr">
+                          <p className="truncate">
+                            {formatReference(sequence.prefix, next, padding)}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {formatReference(sequence.prefix, next + 1, padding)}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">—</p>
+                      )}
+                    </div>
                   </div>
                 </div>
 

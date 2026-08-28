@@ -28,7 +28,7 @@ import type { SettingsCopy } from '@/lib/settings-i18n';
 import { createZip, downloadBlob, toCsv, type ZipEntry } from '@/lib/zip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Field } from '@/components/ui/field';
+
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -46,7 +46,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { SettingsCard } from './settings-ui';
+import { ScrollableTable, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
 import { cn } from '@/lib/utils';
 
 /** The largest page each list endpoint will serve in one call. */
@@ -366,8 +366,8 @@ export function BackupSection({
         title={copy.backup.scheduleHeading}
         hint={copy.backup.scheduleHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label={copy.backup.frequency} htmlFor="backup-frequency">
+        <SettingsGrid columns={4}>
+          <SettingsField label={copy.backup.frequency} htmlFor="backup-frequency">
             <Select
               value={schedule.frequency}
               onValueChange={(next) =>
@@ -384,10 +384,10 @@ export function BackupSection({
                 <SelectItem value="monthly">{copy.backup.frequencyMonthly}</SelectItem>
               </SelectContent>
             </Select>
-          </Field>
+          </SettingsField>
 
           {schedule.frequency !== 'off' ? (
-            <Field label={copy.backup.timeOfDay} htmlFor="backup-time">
+            <SettingsField label={copy.backup.timeOfDay} htmlFor="backup-time">
               <Input
                 id="backup-time"
                 type="time"
@@ -396,11 +396,11 @@ export function BackupSection({
                 value={schedule.timeOfDay}
                 onChange={(e) => persistSchedule({ ...schedule, timeOfDay: e.target.value })}
               />
-            </Field>
+            </SettingsField>
           ) : null}
 
           {schedule.frequency === 'weekly' ? (
-            <Field label={copy.backup.dayOfWeek} htmlFor="backup-dow">
+            <SettingsField label={copy.backup.dayOfWeek} htmlFor="backup-dow">
               <Select
                 value={schedule.dayOfWeek}
                 onValueChange={(next) => persistSchedule({ ...schedule, dayOfWeek: next })}
@@ -419,11 +419,11 @@ export function BackupSection({
                   ))}
                 </SelectContent>
               </Select>
-            </Field>
+            </SettingsField>
           ) : null}
 
           {schedule.frequency === 'monthly' ? (
-            <Field label={copy.backup.dayOfMonth} htmlFor="backup-dom">
+            <SettingsField label={copy.backup.dayOfMonth} htmlFor="backup-dom">
               <Input
                 id="backup-dom"
                 inputMode="numeric"
@@ -439,11 +439,11 @@ export function BackupSection({
                   })
                 }
               />
-            </Field>
+            </SettingsField>
           ) : null}
 
           {schedule.frequency !== 'off' ? (
-            <Field
+            <SettingsField
               label={copy.backup.keepCopies}
               htmlFor="backup-keep"
               hint={copy.backup.keepCopiesHint}
@@ -461,9 +461,9 @@ export function BackupSection({
                   })
                 }
               />
-            </Field>
+            </SettingsField>
           ) : null}
-        </div>
+        </SettingsGrid>
 
         <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border/60 pt-4 text-sm">
           <p className="text-muted-foreground">
@@ -563,7 +563,7 @@ export function BackupSection({
             {copy.backup.historyEmpty}
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollableTable minWidth="40rem">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -600,7 +600,7 @@ export function BackupSection({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </ScrollableTable>
         )}
       </SettingsCard>
     </div>

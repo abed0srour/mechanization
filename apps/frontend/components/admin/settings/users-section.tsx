@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Field } from '@/components/ui/field';
+
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -46,7 +46,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { SettingsCard } from './settings-ui';
+import { ScrollableTable, SettingsCard, SettingsField } from './settings-ui';
 import { cn } from '@/lib/utils';
 
 const MIN_PASSWORD = 8;
@@ -206,7 +206,7 @@ export function UsersSection({
         title={copy.users.rolesHeading}
         hint={copy.users.rolesHint}
       >
-        <ul className="grid gap-3 sm:grid-cols-2">
+        <ul className="grid items-start gap-3 sm:grid-cols-2">
           {ROLE_KEYS.map((key) => {
             const available = ROLE_BACKEND_VALUE[key] !== null;
             return (
@@ -285,7 +285,7 @@ export function UsersSection({
             {search ? copy.users.emptySearch : copy.users.empty}
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollableTable minWidth="44rem">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -339,33 +339,44 @@ export function UsersSection({
                 })}
               </TableBody>
             </Table>
-          </div>
+          </ScrollableTable>
         )}
       </SettingsCard>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
+        {/*
+          `p-0` and each region pays for its own padding — the pattern
+          `StaffForm` already uses. Left on the default, `DialogContent`'s own
+          `p-4 sm:p-6` sits *outside* the padded body and footer below, so a
+          360px phone spent 48px a side on nesting and left 264px for two
+          columns of inputs. `flex-col` with a scrolling body is what keeps the
+          footer's Create button reachable on a short screen.
+        */}
+        <DialogContent
+          closeLabel={copy.common.cancel}
+          className="flex max-h-[85dvh] flex-col gap-0 p-0"
+        >
+          <DialogHeader className="shrink-0 space-y-1 border-b p-5 text-start sm:p-6">
             <DialogTitle>{copy.users.newAccount}</DialogTitle>
             <DialogDescription>{copy.users.newAccountHint}</DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-5 p-6 sm:grid-cols-2">
-            <Field label={copy.users.firstName} htmlFor="new-first" required>
+          <div className="grid min-h-0 flex-1 items-start gap-5 overflow-y-auto p-5 sm:grid-cols-2 sm:p-6">
+            <SettingsField label={copy.users.firstName} htmlFor="new-first" required>
               <Input
                 id="new-first"
                 value={draft.firstName}
                 onChange={(e) => setDraft({ ...draft, firstName: e.target.value })}
               />
-            </Field>
-            <Field label={copy.users.lastName} htmlFor="new-last" required>
+            </SettingsField>
+            <SettingsField label={copy.users.lastName} htmlFor="new-last" required>
               <Input
                 id="new-last"
                 value={draft.lastName}
                 onChange={(e) => setDraft({ ...draft, lastName: e.target.value })}
               />
-            </Field>
-            <Field label={copy.users.email} htmlFor="new-email" required>
+            </SettingsField>
+            <SettingsField label={copy.users.email} htmlFor="new-email" required>
               <Input
                 id="new-email"
                 type="email"
@@ -374,8 +385,8 @@ export function UsersSection({
                 value={draft.email}
                 onChange={(e) => setDraft({ ...draft, email: e.target.value })}
               />
-            </Field>
-            <Field
+            </SettingsField>
+            <SettingsField
               label={copy.users.password}
               htmlFor="new-password"
               required
@@ -388,9 +399,9 @@ export function UsersSection({
                 value={draft.password}
                 onChange={(e) => setDraft({ ...draft, password: e.target.value })}
               />
-            </Field>
+            </SettingsField>
             <div className="sm:col-span-2">
-              <Field
+              <SettingsField
                 label={copy.users.role}
                 htmlFor="new-role"
                 required
@@ -416,11 +427,11 @@ export function UsersSection({
                     ))}
                   </SelectContent>
                 </Select>
-              </Field>
+              </SettingsField>
             </div>
           </div>
 
-          <DialogFooter className="gap-2 border-t p-6">
+          <DialogFooter className="shrink-0 gap-2 border-t p-5 sm:p-6">
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={creating}>
               {copy.common.cancel}
             </Button>

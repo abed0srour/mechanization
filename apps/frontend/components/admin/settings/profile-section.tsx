@@ -12,11 +12,11 @@ import type { MunicipalitySettings } from '@/lib/api-client';
 import { useSettingsSlice } from '@/lib/settings-store';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import { Button } from '@/components/ui/button';
-import { Field } from '@/components/ui/field';
+
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { LocalOnlyNotice, SaveBar, SettingsCard } from './settings-ui';
+import { LocalOnlyNotice, SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
 
 /** Fields `PATCH /fees/settings` accepts — the half of this form that persists. */
 interface ServerProfile {
@@ -239,16 +239,16 @@ export function ProfileSection({
         title={copy.profile.identityHeading}
         hint={copy.profile.identityHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label={copy.profile.nameAr} htmlFor="name-ar" hint={copy.profile.nameArHint}>
+        <SettingsGrid>
+          <SettingsField label={copy.profile.nameAr} htmlFor="name-ar" hint={copy.profile.nameArHint}>
             <Input
               id="name-ar"
               dir="rtl"
               value={local.nameAr}
               onChange={(e) => setLocal({ ...local, nameAr: e.target.value })}
             />
-          </Field>
-          <Field label={copy.profile.nameEn} htmlFor="name-en" hint={copy.profile.nameEnHint}>
+          </SettingsField>
+          <SettingsField label={copy.profile.nameEn} htmlFor="name-en" hint={copy.profile.nameEnHint}>
             <Input
               id="name-en"
               dir="ltr"
@@ -256,8 +256,8 @@ export function ProfileSection({
               value={local.nameEn}
               onChange={(e) => setLocal({ ...local, nameEn: e.target.value })}
             />
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
       </SettingsCard>
 
       <SettingsCard
@@ -265,7 +265,13 @@ export function ProfileSection({
         title={copy.profile.logoHeading}
         hint={copy.profile.logoHint}
       >
-        <div className="flex flex-wrap items-center gap-5">
+        {/*
+          `items-center` only once the row survives wrapping. Stacked on a
+          phone, a centred column puts the buttons under the middle of a 96px
+          tile with the text ragged around them; `items-start` keeps everything
+          on the reading edge until there is room for a real row.
+        */}
+        <div className="flex flex-wrap items-start gap-5 sm:items-center">
           <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-muted/40">
             {local.logoDataUri ? (
               /*
@@ -326,8 +332,8 @@ export function ProfileSection({
         title={copy.profile.contactHeading}
         hint={copy.profile.contactHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label={copy.profile.phone} htmlFor="phone" hint={copy.profile.phoneHint}>
+        <SettingsGrid>
+          <SettingsField label={copy.profile.phone} htmlFor="phone" hint={copy.profile.phoneHint}>
             <Input
               id="phone"
               type="tel"
@@ -337,8 +343,8 @@ export function ProfileSection({
               value={server.contactPhone}
               onChange={(e) => setServer({ ...server, contactPhone: e.target.value })}
             />
-          </Field>
-          <Field
+          </SettingsField>
+          <SettingsField
             label={copy.profile.whatsapp}
             htmlFor="whatsapp"
             hint={copy.profile.whatsappHint}
@@ -352,8 +358,8 @@ export function ProfileSection({
               value={server.whatsappNumber}
               onChange={(e) => setServer({ ...server, whatsappNumber: e.target.value })}
             />
-          </Field>
-          <Field label={copy.profile.email} htmlFor="email">
+          </SettingsField>
+          <SettingsField label={copy.profile.email} htmlFor="email">
             <Input
               id="email"
               type="email"
@@ -362,8 +368,8 @@ export function ProfileSection({
               value={local.email}
               onChange={(e) => setLocal({ ...local, email: e.target.value })}
             />
-          </Field>
-          <Field label={copy.profile.website} htmlFor="website">
+          </SettingsField>
+          <SettingsField label={copy.profile.website} htmlFor="website">
             <Input
               id="website"
               type="url"
@@ -373,8 +379,8 @@ export function ProfileSection({
               value={local.website}
               onChange={(e) => setLocal({ ...local, website: e.target.value })}
             />
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
       </SettingsCard>
 
       <SettingsCard
@@ -382,29 +388,29 @@ export function ProfileSection({
         title={copy.profile.regionHeading}
         hint={copy.profile.regionHint}
       >
-        <div className="grid gap-5 sm:grid-cols-3">
-          <Field label={copy.profile.governorate} htmlFor="governorate">
+        <SettingsGrid columns={3}>
+          <SettingsField label={copy.profile.governorate} htmlFor="governorate">
             <Input
               id="governorate"
               value={local.governorate}
               onChange={(e) => setLocal({ ...local, governorate: e.target.value })}
             />
-          </Field>
-          <Field label={copy.profile.district} htmlFor="district">
+          </SettingsField>
+          <SettingsField label={copy.profile.district} htmlFor="district">
             <Input
               id="district"
               value={local.district}
               onChange={(e) => setLocal({ ...local, district: e.target.value })}
             />
-          </Field>
-          <Field label={copy.profile.town} htmlFor="town">
+          </SettingsField>
+          <SettingsField label={copy.profile.town} htmlFor="town">
             <Input
               id="town"
               value={local.town}
               onChange={(e) => setLocal({ ...local, town: e.target.value })}
             />
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
       </SettingsCard>
 
       <SettingsCard
@@ -412,24 +418,24 @@ export function ProfileSection({
         title={copy.profile.officeHeading}
         hint={copy.profile.officeHint}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label={copy.profile.officeHours} htmlFor="office-hours">
+        <SettingsGrid>
+          <SettingsField label={copy.profile.officeHours} htmlFor="office-hours">
             <Input
               id="office-hours"
               placeholder={copy.profile.officeHoursPlaceholder}
               value={server.cashOfficeHours}
               onChange={(e) => setServer({ ...server, cashOfficeHours: e.target.value })}
             />
-          </Field>
-          <Field label={copy.profile.officeAddress} htmlFor="office-address">
+          </SettingsField>
+          <SettingsField label={copy.profile.officeAddress} htmlFor="office-address">
             <Input
               id="office-address"
               placeholder={copy.profile.officeAddressPlaceholder}
               value={server.cashOfficeAddress}
               onChange={(e) => setServer({ ...server, cashOfficeAddress: e.target.value })}
             />
-          </Field>
-        </div>
+          </SettingsField>
+        </SettingsGrid>
       </SettingsCard>
 
       <SaveBar
