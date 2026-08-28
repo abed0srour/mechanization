@@ -21,7 +21,8 @@ import { NumberingSection } from '@/components/admin/settings/numbering-section'
 import { SecuritySection } from '@/components/admin/settings/security-section';
 import { BackupSection } from '@/components/admin/settings/backup-section';
 import { UsersSection } from '@/components/admin/settings/users-section';
-import { cn } from '@/lib/utils';
+import { SettingsTabs } from '@/components/admin/settings/settings-ui';
+
 
 type SectionId = 'profile' | 'finance' | 'numbering' | 'security' | 'backup' | 'users';
 
@@ -96,68 +97,26 @@ export default function SettingsPage({
   if (!token) return null;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
       <PageHeader
         icon={SettingsIcon}
         title={copy.page.title}
         subtitle={copy.page.subtitle}
       />
 
-      {/*
-        `items-start` on the row, and the rail sticks. Without the first, the
-        rail stretches to the height of whichever section is open and its
-        buttons float in a 2000px column; without the second, choosing a section
-        from the bottom of a long page means scrolling back up to change it.
-      */}
-      <div className="mt-6 flex flex-col items-start gap-6 lg:mt-8 lg:flex-row lg:gap-8">
-        {/*
-          A rail on a wide screen, a scrolling strip on a narrow one. Six
-          sections is past what fits as tabs on a phone, and a `<select>` there
-          hides the list an administrator is still learning the shape of.
-        */}
-        <nav
-          aria-label={copy.nav.label}
-          className="w-full lg:sticky lg:top-6 lg:w-60 lg:shrink-0"
-        >
-          {/*
-            Bled to the viewport edge below `lg` so the strip scrolls out of the
-            page's own padding rather than clipping mid-word at the gutter —
-            which reads as a cut-off label instead of as more content sideways.
-          */}
-          <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:-mx-6 sm:px-6 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
-            {SECTIONS.map((section) => {
-              const Icon = section.icon;
-              const isActive = active === section.id;
-              return (
-                <li key={section.id} className="shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setActive(section.id)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={cn(
-                      'flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-start text-sm font-medium transition-colors',
-                      isActive
-                        ? 'border-primary/30 bg-primary/10 text-primary'
-                        : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                    )}
-                  >
-                    <Icon className="size-4 shrink-0" aria-hidden />
-                    {/*
-                      Never wraps, at any width. In the rail a two-word label
-                      like «النسخ الاحتياطي والاستعادة» would wrap to three
-                      lines and make one row three times the height of its
-                      neighbours; the rail is wide enough to hold the longest
-                      of them on one line.
-                    */}
-                    <span className="truncate whitespace-nowrap">{section.label(copy)}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+      <div className="space-y-4">
+        <SettingsTabs
+          items={SECTIONS.map((section) => ({
+            id: section.id,
+            icon: section.icon,
+            label: section.label(copy),
+          }))}
+          active={active}
+          onSelect={setActive}
+          label={copy.nav.label}
+        />
 
-        <div className="w-full min-w-0 flex-1">
+        <div className="min-w-0">
           {active === 'profile' ? (
             <ProfileSection tenant={tenant} token={token} copy={copy} />
           ) : null}

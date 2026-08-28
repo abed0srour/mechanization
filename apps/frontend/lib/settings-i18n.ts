@@ -92,6 +92,7 @@ export interface SettingsCopy {
     logoTooLarge: string;
     logoWrongType: string;
     logoConstraints: string;
+    logoDropHint: string;
   };
   finance: {
     title: string;
@@ -146,6 +147,7 @@ export interface SettingsCopy {
     nextNumberHint: string;
     padding: string;
     paddingHint: string;
+    document: string;
     preview: string;
     previewHint: string;
     previewNext: string;
@@ -214,6 +216,8 @@ export interface SettingsCopy {
     backupNow: string;
     backingUp: string;
     includes: string;
+    lastBackup: string;
+    neverBackedUp: string;
     backupDone: string;
     backupFailed: string;
     partial: string;
@@ -412,6 +416,7 @@ const AR: SettingsCopy = {
     logoTooLarge: 'حجم الصورة يتجاوز الحد المسموح.',
     logoWrongType: 'الملف ليس صورة.',
     logoConstraints: 'PNG أو SVG أو JPG — حتى ٥٠٠ كيلوبايت.',
+    logoDropHint: 'أو اسحب الملف إلى هنا',
   },
   finance: {
     title: 'المالية',
@@ -466,6 +471,7 @@ const AR: SettingsCopy = {
     nextNumberHint: 'رقم أول مستند يصدر بعد الحفظ.',
     padding: 'خانات التصفير',
     paddingHint: 'طول الرقم مع الأصفار على اليسار — 4 تعطي 0042.',
+    document: 'المستند',
     preview: 'المعاينة',
     previewHint: 'هكذا يظهر الرقم على المستند.',
     previewNext: 'التالي',
@@ -548,6 +554,8 @@ const AR: SettingsCopy = {
     backupNow: 'أنشئ نسخة الآن',
     backingUp: 'جارٍ التصدير…',
     includes: 'الجداول المشمولة',
+    lastBackup: 'آخر نسخة',
+    neverBackedUp: 'لم تُنشأ نسخة بعد',
     backupDone: 'تم إنشاء النسخة وتنزيلها.',
     backupFailed: 'تعذّر إنشاء النسخة.',
     partial: 'تعذّر تصدير بعض الجداول — الأرشيف ناقص.',
@@ -721,6 +729,7 @@ const EN: SettingsCopy = {
     logoTooLarge: 'The image is larger than the allowed size.',
     logoWrongType: 'That file is not an image.',
     logoConstraints: 'PNG, SVG, or JPG — up to 500 KB.',
+    logoDropHint: 'or drag and drop',
   },
   finance: {
     title: 'Finance',
@@ -775,6 +784,7 @@ const EN: SettingsCopy = {
     nextNumberHint: 'The number the first document issued after saving will take.',
     padding: 'Zero-padding',
     paddingHint: 'Total digit length, zero-filled on the left — 4 gives 0042.',
+    document: 'Document',
     preview: 'Preview',
     previewHint: 'How the reference will read on the document.',
     previewNext: 'Next',
@@ -857,6 +867,8 @@ const EN: SettingsCopy = {
     backupNow: 'Back up now',
     backingUp: 'Exporting…',
     includes: 'Tables included',
+    lastBackup: 'Last backup',
+    neverBackedUp: 'No backup taken yet',
     backupDone: 'Backup created and downloaded.',
     backupFailed: 'Could not create the backup.',
     partial: 'Some tables could not be exported — the archive is incomplete.',

@@ -24,7 +24,13 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
+import {
+  AlignedFieldGrid,
+  SectionSaveRow,
+  SettingsCard,
+  FieldGroup,
+  SettingsField,
+} from './settings-ui';
 
 const FREQUENCIES = ['ONCE', 'MONTHLY', 'HALF_YEARLY', 'ANNUALLY'] as const;
 
@@ -239,307 +245,301 @@ export function FinanceSection({
   const rateCharge = rateValid ? (RATE_PREVIEW_BASE * (rate ?? 0)) / 100 : 0;
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        {[0, 1, 2].map((index) => (
-          <Skeleton key={index} className="h-56 rounded-2xl" />
-        ))}
-      </div>
-    );
+    return <Skeleton className="h-[34rem] rounded-lg" />;
   }
 
   return (
-    <div className="space-y-6">
-
+    <div className="space-y-4">
       {error ? (
         <p
           role="alert"
-          className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
         >
           {error}
         </p>
       ) : null}
 
-      <SettingsCard
-        icon={Coins}
-        title={copy.finance.defaultsHeading}
-        hint={copy.finance.defaultsHint}
-      >
-        <SettingsGrid columns={3}>
-          <SettingsField
-            label={copy.finance.defaultFrequency}
-            htmlFor="default-frequency"
-            hint={copy.finance.defaultFrequencyHint}
-          >
-            <Select
-              value={local.defaultFrequency}
-              onValueChange={(next) =>
-                setLocal({ ...local, defaultFrequency: next as FinanceDraft['defaultFrequency'] })
-              }
-            >
-              <SelectTrigger id="default-frequency">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FREQUENCIES.map((frequency) => (
-                  <SelectItem key={frequency} value={frequency}>
-                    {ar.feeFrequency?.[frequency as never] ?? frequency}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </SettingsField>
-
-          <SettingsField label={copy.finance.dueDays} htmlFor="due-days" hint={copy.finance.dueDaysHint}>
-            <Input
-              id="due-days"
-              inputMode="numeric"
-              dir="ltr"
-              className="text-start"
-              value={local.dueDays}
-              onChange={(e) =>
-                setLocal({ ...local, dueDays: e.target.value.replace(/\D/g, '') })
-              }
-            />
-          </SettingsField>
-
-          <SettingsField
-            label={copy.finance.priceDisplay}
-            htmlFor="price-display"
-            hint={copy.finance.priceDisplayHint}
-          >
-            <Select
-              value={local.priceDisplay}
-              onValueChange={(next) =>
-                setLocal({ ...local, priceDisplay: next as FinanceDraft['priceDisplay'] })
-              }
-            >
-              <SelectTrigger id="price-display">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="compact">{copy.finance.priceDisplayCompact}</SelectItem>
-                <SelectItem value="exact">{copy.finance.priceDisplayExact}</SelectItem>
-              </SelectContent>
-            </Select>
-          </SettingsField>
-        </SettingsGrid>
-      </SettingsCard>
-
-      <SettingsCard
-        icon={Percent}
-        title={copy.finance.rateHeading}
-        hint={copy.finance.rateHint}
-      >
-        <div className="grid items-start gap-5 md:grid-cols-2 md:gap-6">
-          <div className="space-y-4">
-            <SettingsField
-              label={copy.finance.defaultRate}
-              htmlFor="default-rate"
-              hint={copy.finance.defaultRateHint}
-              error={rateValid ? undefined : copy.finance.invalidRate}
-            >
-              <div className="relative">
-                <Input
-                  id="default-rate"
-                  inputMode="decimal"
-                  dir="ltr"
-                  invalid={!rateValid}
-                  className="pe-10 text-start"
-                  value={local.defaultRatePercent}
-                  onChange={(e) => setLocal({ ...local, defaultRatePercent: e.target.value })}
-                />
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-muted-foreground"
+      <SettingsCard icon={Coins} title={copy.finance.title} hint={copy.finance.description}>
+        <div className="space-y-5">
+          <FieldGroup icon={Coins} title={copy.finance.defaultsHeading}>
+            <AlignedFieldGrid columns={3}>
+              <SettingsField
+                label={copy.finance.defaultFrequency}
+                htmlFor="default-frequency"
+                hint={copy.finance.defaultFrequencyHint}
+              >
+                <Select
+                  value={local.defaultFrequency}
+                  onValueChange={(next) =>
+                    setLocal({ ...local, defaultFrequency: next as FinanceDraft['defaultFrequency'] })
+                  }
                 >
-                  %
-                </span>
-              </div>
-            </SettingsField>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {copy.finance.rateAppliesTo}
-            </p>
-          </div>
+                  <SelectTrigger id="default-frequency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FREQUENCIES.map((frequency) => (
+                      <SelectItem key={frequency} value={frequency}>
+                        {ar.feeFrequency?.[frequency as never] ?? frequency}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </SettingsField>
 
-          {/*
-            A worked example rather than a bare percentage. "10%" of what, added
-            to what, is the question an administrator is actually answering, and
-            a number they can check against a fee they know is how they answer it.
-
-            Label above the panel, matching the field beside it, so the panel's
-            top edge lands on the input's rather than on its label's.
-          */}
-          <div className="flex min-w-0 flex-col gap-2">
-            <Label className="text-muted-foreground">{copy.finance.ratePreview}</Label>
-            <dl className="space-y-2 rounded-xl border border-border/70 bg-muted/30 p-4 text-sm">
-              <div className="flex items-baseline justify-between gap-4">
-                <dt className="min-w-0 text-muted-foreground">{copy.finance.ratePreviewBase}</dt>
-                <dd className="shrink-0 tabular-nums" dir="ltr">
-                  {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-4">
-                <dt className="min-w-0 text-muted-foreground">{copy.finance.ratePreviewCharge}</dt>
-                <dd className="shrink-0 tabular-nums" dir="ltr">
-                  {formatAmount(rateCharge, local.baseCurrency)}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-4 border-t border-border/60 pt-2 font-semibold">
-                <dt className="min-w-0">{copy.finance.ratePreviewTotal}</dt>
-                <dd className="shrink-0 tabular-nums" dir="ltr">
-                  {formatAmount(RATE_PREVIEW_BASE + rateCharge, local.baseCurrency)}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
-        icon={ArrowLeftRight}
-        title={copy.finance.currencyHeading}
-        hint={copy.finance.currencyHint}
-      >
-        <SettingsGrid>
-          <SettingsField
-            label={copy.finance.baseCurrency}
-            htmlFor="base-currency"
-            hint={copy.finance.baseCurrencyHint}
-          >
-            <Select
-              value={local.baseCurrency}
-              onValueChange={(next) =>
-                setLocal({ ...local, baseCurrency: next as CurrencyCode })
-              }
-            >
-              <SelectTrigger id="base-currency">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CURRENCIES.map((code) => (
-                  <SelectItem key={code} value={code}>
-                    {currencyNames[code]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </SettingsField>
-
-          <SettingsField
-            label={copy.finance.secondaryCurrency}
-            htmlFor="secondary-currency"
-            hint={copy.finance.secondaryCurrencyHint}
-          >
-            <Select
-              // Radix rejects `''` as an item value, so "none" travels as a
-              // sentinel and is mapped back at the boundary.
-              value={local.secondaryCurrency || 'NONE'}
-              onValueChange={(next) =>
-                setLocal({
-                  ...local,
-                  secondaryCurrency: next === 'NONE' ? '' : (next as CurrencyCode),
-                })
-              }
-            >
-              <SelectTrigger id="secondary-currency">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="NONE">{copy.finance.secondaryNone}</SelectItem>
-                {CURRENCIES.filter((code) => code !== local.baseCurrency).map((code) => (
-                  <SelectItem key={code} value={code}>
-                    {currencyNames[code]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </SettingsField>
-        </SettingsGrid>
-
-        {local.secondaryCurrency ? (
-          <div className="mt-5 grid items-start gap-5 border-t border-border/60 pt-5 md:grid-cols-2">
-            <SettingsField
-              label={copy.finance.exchangeRate}
-              htmlFor="exchange-rate"
-              hint={copy.finance.exchangeRateHint}
-              error={exchangeValid ? undefined : copy.finance.invalidExchange}
-            >
-              <div className="flex items-center gap-2">
-                <span className="shrink-0 text-sm text-muted-foreground" dir="ltr">
-                  1 {local.secondaryCurrency} =
-                </span>
+              <SettingsField
+                label={copy.finance.dueDays}
+                htmlFor="due-days"
+                hint={copy.finance.dueDaysHint}
+                error={dueDaysValid ? undefined : copy.finance.invalidDueDays}
+              >
                 <Input
-                  id="exchange-rate"
-                  inputMode="decimal"
+                  id="due-days"
+                  inputMode="numeric"
                   dir="ltr"
-                  invalid={!exchangeValid}
+                  invalid={!dueDaysValid}
                   className="text-start"
-                  value={local.exchangeRate}
-                  onChange={(e) => setLocal({ ...local, exchangeRate: e.target.value })}
+                  value={local.dueDays}
+                  onChange={(e) =>
+                    setLocal({ ...local, dueDays: e.target.value.replace(/\D/g, '') })
+                  }
                 />
-                <span className="shrink-0 text-sm text-muted-foreground">
-                  {local.baseCurrency}
-                </span>
-              </div>
-            </SettingsField>
+              </SettingsField>
 
-            <div className="flex min-w-0 flex-col gap-2">
-              <Label className="text-muted-foreground">{copy.finance.conversionPreview}</Label>
-              <div className="rounded-xl border border-border/70 bg-muted/30 p-4">
-                {/* `break-words`: at a rate near 1 this line runs to two full
-                    amounts plus a currency code each, which overflows the panel
-                    on a phone rather than wrapping, because it has no spaces
-                    the browser likes to break at. */}
-                <p className="break-words text-sm tabular-nums" dir="ltr">
-                  {exchangeValid && exchange
-                    ? `${formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)} ≈ ${formatAmount(
-                        RATE_PREVIEW_BASE / exchange,
-                        local.secondaryCurrency,
-                      )}`
-                    : '—'}
-                </p>
-                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                  {copy.finance.exchangeRateUpdated}:{' '}
-                  {local.exchangeRateUpdatedAt
-                    ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
-                        locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
-                      )
-                    : copy.finance.exchangeRateNever}
-                </p>
+              <SettingsField
+                label={copy.finance.priceDisplay}
+                htmlFor="price-display"
+                hint={copy.finance.priceDisplayHint}
+              >
+                <Select
+                  value={local.priceDisplay}
+                  onValueChange={(next) =>
+                    setLocal({ ...local, priceDisplay: next as FinanceDraft['priceDisplay'] })
+                  }
+                >
+                  <SelectTrigger id="price-display">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="compact">{copy.finance.priceDisplayCompact}</SelectItem>
+                    <SelectItem value="exact">{copy.finance.priceDisplayExact}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </SettingsField>
+            </AlignedFieldGrid>
+          </FieldGroup>
+
+          <FieldGroup icon={Percent} title={copy.finance.rateHeading}>
+            <div className="grid items-start gap-4 md:grid-cols-2">
+              <AlignedFieldGrid columns={1}>
+                <SettingsField
+                  label={copy.finance.defaultRate}
+                  htmlFor="default-rate"
+                  hint={rateValid ? copy.finance.rateAppliesTo : undefined}
+                  error={rateValid ? undefined : copy.finance.invalidRate}
+                >
+                  <div className="relative">
+                    <Input
+                      id="default-rate"
+                      inputMode="decimal"
+                      dir="ltr"
+                      invalid={!rateValid}
+                      className="pe-10 text-start"
+                      value={local.defaultRatePercent}
+                      onChange={(e) => setLocal({ ...local, defaultRatePercent: e.target.value })}
+                    />
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-muted-foreground"
+                    >
+                      %
+                    </span>
+                  </div>
+                </SettingsField>
+              </AlignedFieldGrid>
+
+              {/*
+                A worked example rather than a bare percentage. "10%" of what,
+                added to what, is the question an administrator is actually
+                answering, and a figure they can check against a fee they know
+                is how they answer it.
+              */}
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <Label className="leading-snug text-muted-foreground">
+                  {copy.finance.ratePreview}
+                </Label>
+                <dl className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="min-w-0 text-muted-foreground">
+                      {copy.finance.ratePreviewBase}
+                    </dt>
+                    <dd className="shrink-0 tabular-nums" dir="ltr">
+                      {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="min-w-0 text-muted-foreground">
+                      {copy.finance.ratePreviewCharge}
+                    </dt>
+                    <dd className="shrink-0 tabular-nums" dir="ltr">
+                      {formatAmount(rateCharge, local.baseCurrency)}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 border-t pt-2 font-semibold">
+                    <dt className="min-w-0">{copy.finance.ratePreviewTotal}</dt>
+                    <dd className="shrink-0 tabular-nums" dir="ltr">
+                      {formatAmount(RATE_PREVIEW_BASE + rateCharge, local.baseCurrency)}
+                    </dd>
+                  </div>
+                </dl>
               </div>
             </div>
-          </div>
-        ) : null}
-      </SettingsCard>
+          </FieldGroup>
 
-      <SettingsCard
-        icon={Smartphone}
-        title={copy.finance.whishHeading}
-        hint={copy.finance.whishHint}
-      >
-        <div className="sm:max-w-sm">
-          <SettingsField label={copy.finance.whishNumber} htmlFor="whish-number">
-            <Input
-              id="whish-number"
-              type="tel"
-              inputMode="tel"
-              dir="ltr"
-              className="text-start"
-              value={local.whishMoneyNumber}
-              onChange={(e) => setLocal({ ...local, whishMoneyNumber: e.target.value })}
-            />
-          </SettingsField>
+          <FieldGroup icon={ArrowLeftRight} title={copy.finance.currencyHeading}>
+            <AlignedFieldGrid>
+              <SettingsField
+                label={copy.finance.baseCurrency}
+                htmlFor="base-currency"
+                hint={copy.finance.baseCurrencyHint}
+              >
+                <Select
+                  value={local.baseCurrency}
+                  onValueChange={(next) => setLocal({ ...local, baseCurrency: next as CurrencyCode })}
+                >
+                  <SelectTrigger id="base-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCIES.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {currencyNames[code]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </SettingsField>
+
+              <SettingsField
+                label={copy.finance.secondaryCurrency}
+                htmlFor="secondary-currency"
+                hint={copy.finance.secondaryCurrencyHint}
+              >
+                <Select
+                  // Radix rejects `''` as an item value, so "none" travels as a
+                  // sentinel and is mapped back at the boundary.
+                  value={local.secondaryCurrency || 'NONE'}
+                  onValueChange={(next) =>
+                    setLocal({
+                      ...local,
+                      secondaryCurrency: next === 'NONE' ? '' : (next as CurrencyCode),
+                    })
+                  }
+                >
+                  <SelectTrigger id="secondary-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">{copy.finance.secondaryNone}</SelectItem>
+                    {CURRENCIES.filter((code) => code !== local.baseCurrency).map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {currencyNames[code]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </SettingsField>
+            </AlignedFieldGrid>
+
+            {local.secondaryCurrency ? (
+              <div className="grid items-start gap-4 md:grid-cols-2">
+                <AlignedFieldGrid columns={1}>
+                  <SettingsField
+                    label={copy.finance.exchangeRate}
+                    htmlFor="exchange-rate"
+                    hint={copy.finance.exchangeRateHint}
+                    error={exchangeValid ? undefined : copy.finance.invalidExchange}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 text-sm text-muted-foreground" dir="ltr">
+                        1 {local.secondaryCurrency} =
+                      </span>
+                      <Input
+                        id="exchange-rate"
+                        inputMode="decimal"
+                        dir="ltr"
+                        invalid={!exchangeValid}
+                        className="text-start"
+                        value={local.exchangeRate}
+                        onChange={(e) => setLocal({ ...local, exchangeRate: e.target.value })}
+                      />
+                      <span className="shrink-0 text-sm text-muted-foreground">
+                        {local.baseCurrency}
+                      </span>
+                    </div>
+                  </SettingsField>
+                </AlignedFieldGrid>
+
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <Label className="leading-snug text-muted-foreground">
+                    {copy.finance.conversionPreview}
+                  </Label>
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    {/* `break-words`: near parity this line runs to two full
+                        amounts plus a currency code each, which overflows the
+                        panel on a phone rather than wrapping — it has no spaces
+                        the browser likes to break at. */}
+                    <p className="break-words text-sm tabular-nums" dir="ltr">
+                      {exchangeValid && exchange
+                        ? `${formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)} ≈ ${formatAmount(
+                            RATE_PREVIEW_BASE / exchange,
+                            local.secondaryCurrency,
+                          )}`
+                        : '—'}
+                    </p>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      {copy.finance.exchangeRateUpdated}:{' '}
+                      {local.exchangeRateUpdatedAt
+                        ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
+                            locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
+                          )
+                        : copy.finance.exchangeRateNever}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </FieldGroup>
+
+          <FieldGroup icon={Smartphone} title={copy.finance.whishHeading}>
+            <AlignedFieldGrid>
+              <SettingsField
+                label={copy.finance.whishNumber}
+                htmlFor="whish-number"
+                hint={copy.finance.whishHint}
+              >
+                <Input
+                  id="whish-number"
+                  type="tel"
+                  inputMode="tel"
+                  dir="ltr"
+                  className="text-start"
+                  value={local.whishMoneyNumber}
+                  onChange={(e) => setLocal({ ...local, whishMoneyNumber: e.target.value })}
+                />
+              </SettingsField>
+            </AlignedFieldGrid>
+          </FieldGroup>
         </div>
-      </SettingsCard>
 
-      <SaveBar
-        copy={copy}
-        dirty={dirty}
-        saving={saving}
-        onSave={() => void save()}
-        onDiscard={discard}
-      />
+        <SectionSaveRow
+          copy={copy}
+          dirty={dirty}
+          saving={saving}
+          onSave={() => void save()}
+          onDiscard={discard}
+        />
+      </SettingsCard>
     </div>
   );
 }

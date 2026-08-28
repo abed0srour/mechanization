@@ -25,7 +25,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Notice, ScrollableTable, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
+import {
+  AlignedFieldGrid,
+  Notice,
+  ScrollableTable,
+  SettingsCard,
+  SettingsField,
+} from './settings-ui';
 import { cn } from '@/lib/utils';
 
 /**
@@ -205,7 +211,7 @@ export function SecuritySection({
         title={copy.security.credentialsHeading}
         hint={copy.security.credentialsHint}
       >
-        <SettingsGrid>
+        <AlignedFieldGrid>
           <SettingsField label={copy.security.currentEmail} htmlFor="current-email">
             <Input id="current-email" dir="ltr" className="text-start" value={email} readOnly disabled />
           </SettingsField>
@@ -219,7 +225,7 @@ export function SecuritySection({
               onChange={(e) => setNewEmail(e.target.value)}
             />
           </SettingsField>
-        </SettingsGrid>
+        </AlignedFieldGrid>
         <div className="mt-5 flex items-center gap-3">
           {/* Disabled, with the reason on the button's own row rather than in a
               tooltip: a disabled control with no stated reason is the single
@@ -234,7 +240,7 @@ export function SecuritySection({
         title={copy.security.passwordHeading}
         hint={copy.security.passwordHint}
       >
-        <SettingsGrid columns={3}>
+        <AlignedFieldGrid columns={3}>
           <SettingsField label={copy.security.currentPassword} htmlFor="current-password">
             <Input
               id="current-password"
@@ -267,7 +273,7 @@ export function SecuritySection({
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
           </SettingsField>
-        </SettingsGrid>
+        </AlignedFieldGrid>
 
         {newPassword ? (
           <div className="mt-4 max-w-sm space-y-1.5">

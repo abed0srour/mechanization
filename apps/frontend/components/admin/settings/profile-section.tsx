@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Building2, Clock, ImageIcon, MapPin, Phone, Trash2, Upload } from 'lucide-react';
+import { Building2, Clock, MapPin, Phone, Trash2, Upload, UploadCloud } from 'lucide-react';
 import {
   ApiRequestError,
   getMunicipalitySettings,
@@ -15,7 +15,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
+import { cn } from '@/lib/utils';
+import {
+  AlignedFieldGrid,
+  SectionSaveRow,
+  SettingsCard,
+  FieldGroup,
+  SettingsField,
+} from './settings-ui';
 
 /**
  * The profile fields, all of which `PATCH /fees/settings` now accepts.
@@ -105,6 +112,7 @@ export function ProfileSection({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,238 +203,301 @@ export function ProfileSection({
   );
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        {[0, 1, 2].map((index) => (
-          <Skeleton key={index} className="h-56 rounded-2xl" />
-        ))}
-      </div>
-    );
+    return <Skeleton className="h-[40rem] rounded-lg" />;
   }
 
   return (
-    <div className="space-y-6">
-
+    <div className="space-y-4">
       {error ? (
         <p
           role="alert"
-          className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
         >
           {error}
         </p>
       ) : null}
 
+      {/*
+        One card, one save — Solar's shape. The five cards this replaces all
+        wrote the same payload through the same button, which meant a save row
+        under «دوام المكتب» was also committing the municipality's name four
+        cards above it. The grouping survives as labelled sub-blocks, which cost
+        a rule and a caption rather than a card, header and shadow each.
+      */}
       <SettingsCard
         icon={Building2}
-        title={copy.profile.identityHeading}
-        hint={copy.profile.identityHint}
+        title={copy.profile.title}
+        hint={copy.profile.description}
       >
-        <SettingsGrid>
-          <SettingsField label={copy.profile.nameAr} htmlFor="name-ar" hint={copy.profile.nameArHint}>
-            <Input
-              id="name-ar"
-              dir="rtl"
-              value={draft.nameAr}
-              onChange={(e) => setDraft({ ...draft, nameAr: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField label={copy.profile.nameEn} htmlFor="name-en" hint={copy.profile.nameEnHint}>
-            <Input
-              id="name-en"
-              dir="ltr"
-              className="text-start"
-              value={draft.nameEn}
-              onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })}
-            />
-          </SettingsField>
-        </SettingsGrid>
-      </SettingsCard>
+        <div className="space-y-5">
+          <FieldGroup icon={Building2} title={copy.profile.identityHeading}>
+            <AlignedFieldGrid>
+              <SettingsField
+                label={copy.profile.nameAr}
+                htmlFor="name-ar"
+                hint={copy.profile.nameArHint}
+              >
+                <Input
+                  id="name-ar"
+                  dir="rtl"
+                  value={draft.nameAr}
+                  onChange={(e) => setDraft({ ...draft, nameAr: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField
+                label={copy.profile.nameEn}
+                htmlFor="name-en"
+                hint={copy.profile.nameEnHint}
+              >
+                <Input
+                  id="name-en"
+                  dir="ltr"
+                  className="text-start"
+                  value={draft.nameEn}
+                  onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })}
+                />
+              </SettingsField>
+            </AlignedFieldGrid>
+          </FieldGroup>
 
-      <SettingsCard
-        icon={ImageIcon}
-        title={copy.profile.logoHeading}
-        hint={copy.profile.logoHint}
-      >
-        {/*
-          `items-center` only once the row survives wrapping. Stacked on a
-          phone, a centred column puts the buttons under the middle of a 96px
-          tile with the text ragged around them; `items-start` keeps everything
-          on the reading edge until there is room for a real row.
-        */}
-        <div className="flex flex-wrap items-start gap-5 sm:items-center">
-          <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-muted/40">
-            {draft.logoDataUri ? (
-              /*
-                A plain <img>, not next/image: the source is a data: URI the
-                administrator just chose, so there is nothing for the optimiser
-                to fetch, resize or cache, and `next/image` would need the host
-                allow-listed for a URL that has no host.
-              */
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={draft.logoDataUri}
-                alt={copy.profile.logoAlt}
-                className="size-full object-contain"
-              />
-            ) : (
-              <span className="px-2 text-center text-xs text-muted-foreground">
-                {copy.profile.logoEmpty}
+          <FieldGroup icon={Phone} title={copy.profile.contactHeading}>
+            <AlignedFieldGrid>
+              <SettingsField
+                label={copy.profile.phone}
+                htmlFor="phone"
+                hint={copy.profile.phoneHint}
+              >
+                <Input
+                  id="phone"
+                  type="tel"
+                  inputMode="tel"
+                  dir="ltr"
+                  className="text-start"
+                  value={draft.contactPhone}
+                  onChange={(e) => setDraft({ ...draft, contactPhone: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField
+                label={copy.profile.whatsapp}
+                htmlFor="whatsapp"
+                hint={copy.profile.whatsappHint}
+              >
+                <Input
+                  id="whatsapp"
+                  type="tel"
+                  inputMode="tel"
+                  dir="ltr"
+                  className="text-start"
+                  value={draft.whatsappNumber}
+                  onChange={(e) => setDraft({ ...draft, whatsappNumber: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField label={copy.profile.email} htmlFor="email">
+                <Input
+                  id="email"
+                  type="email"
+                  dir="ltr"
+                  className="text-start"
+                  placeholder="info@municipality.gov.lb"
+                  value={draft.contactEmail}
+                  onChange={(e) => setDraft({ ...draft, contactEmail: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField label={copy.profile.website} htmlFor="website">
+                <Input
+                  id="website"
+                  type="url"
+                  dir="ltr"
+                  className="text-start"
+                  placeholder="https://"
+                  value={draft.website}
+                  onChange={(e) => setDraft({ ...draft, website: e.target.value })}
+                />
+              </SettingsField>
+            </AlignedFieldGrid>
+          </FieldGroup>
+
+          <FieldGroup icon={MapPin} title={copy.profile.regionHeading}>
+            <AlignedFieldGrid columns={3}>
+              <SettingsField label={copy.profile.governorate} htmlFor="governorate">
+                <Input
+                  id="governorate"
+                  value={draft.governorate}
+                  onChange={(e) => setDraft({ ...draft, governorate: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField label={copy.profile.district} htmlFor="district">
+                <Input
+                  id="district"
+                  value={draft.district}
+                  onChange={(e) => setDraft({ ...draft, district: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField label={copy.profile.town} htmlFor="town">
+                <Input
+                  id="town"
+                  value={draft.town}
+                  onChange={(e) => setDraft({ ...draft, town: e.target.value })}
+                />
+              </SettingsField>
+            </AlignedFieldGrid>
+          </FieldGroup>
+
+          <FieldGroup icon={Clock} title={copy.profile.officeHeading}>
+            <AlignedFieldGrid>
+              <SettingsField label={copy.profile.officeHours} htmlFor="office-hours">
+                <Input
+                  id="office-hours"
+                  placeholder={copy.profile.officeHoursPlaceholder}
+                  value={draft.cashOfficeHours}
+                  onChange={(e) => setDraft({ ...draft, cashOfficeHours: e.target.value })}
+                />
+              </SettingsField>
+              <SettingsField label={copy.profile.officeAddress} htmlFor="office-address">
+                <Input
+                  id="office-address"
+                  placeholder={copy.profile.officeAddressPlaceholder}
+                  value={draft.cashOfficeAddress}
+                  onChange={(e) => setDraft({ ...draft, cashOfficeAddress: e.target.value })}
+                />
+              </SettingsField>
+            </AlignedFieldGrid>
+          </FieldGroup>
+
+          {/*
+            Solar's logo block: a bordered sub-panel with its own caption and
+            constraint note, a drop target while empty and a preview row once
+            set. The drop target is the part worth copying — an administrator
+            with the file already in a folder should not have to go through a
+            file dialog to get it here.
+          */}
+          <div className="space-y-3 rounded-xl border bg-muted/10 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <UploadCloud className="size-4 text-primary" aria-hidden />
+                {copy.profile.logoHeading}
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {copy.profile.logoConstraints}
               </span>
+            </div>
+
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) readLogo(file);
+                // Cleared so choosing the same file twice still fires a change.
+                e.target.value = '';
+              }}
+            />
+
+            {draft.logoDataUri ? (
+              <div className="flex flex-col items-start gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-4">
+                  {/*
+                    A white plate behind the crest regardless of theme: a
+                    municipal seal is drawn for paper, and a dark-mode card
+                    turns a black-on-transparent PNG into an invisible square.
+                  */}
+                  <div className="flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-white p-2">
+                    {/*
+                      A plain <img>: the source is a data: URI the administrator
+                      just chose, so there is nothing for next/image to fetch,
+                      resize or cache, and it would need a host allow-listed for
+                      a URL that has no host.
+                    */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={draft.logoDataUri}
+                      alt={copy.profile.logoAlt}
+                      className="size-full object-contain"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">
+                      {draft.nameAr || copy.profile.logoAlt}
+                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                      {copy.profile.logoHint}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+                  <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}>
+                    <Upload className="size-4" aria-hidden />
+                    {copy.profile.logoReplace}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => setDraft({ ...draft, logoDataUri: '' })}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
+                    {copy.profile.logoRemove}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => fileInput.current?.click()}
+                onKeyDown={(e) => {
+                  // A div carrying a click handler is invisible to the keyboard
+                  // without this, and the file dialog would be unreachable
+                  // without a mouse.
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    fileInput.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) readLogo(file);
+                }}
+                className={cn(
+                  'group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all',
+                  dragging
+                    ? 'border-primary/60 bg-muted/30'
+                    : 'border-muted-foreground/25 bg-muted/10 hover:border-primary/60 hover:bg-muted/30',
+                )}
+              >
+                <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary transition-transform group-hover:scale-110">
+                  <UploadCloud className="size-6" aria-hidden />
+                </div>
+                <p className="text-sm">
+                  <span className="font-semibold group-hover:text-primary">
+                    {copy.profile.logoUpload}
+                  </span>{' '}
+                  <span className="text-muted-foreground">{copy.profile.logoDropHint}</span>
+                </p>
+                <p className="text-xs text-muted-foreground">{copy.profile.logoConstraints}</p>
+              </div>
             )}
           </div>
-
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => fileInput.current?.click()}>
-                <Upload className="size-4" aria-hidden />
-                {draft.logoDataUri ? copy.profile.logoReplace : copy.profile.logoUpload}
-              </Button>
-              {draft.logoDataUri ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => setDraft({ ...draft, logoDataUri: '' })}
-                >
-                  <Trash2 className="size-4" aria-hidden />
-                  {copy.profile.logoRemove}
-                </Button>
-              ) : null}
-            </div>
-            <p className="text-xs text-muted-foreground">{copy.profile.logoConstraints}</p>
-          </div>
-
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/svg+xml"
-            className="sr-only"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) readLogo(file);
-              // Cleared so choosing the same file twice still fires a change.
-              e.target.value = '';
-            }}
-          />
         </div>
-      </SettingsCard>
 
-      <SettingsCard
-        icon={Phone}
-        title={copy.profile.contactHeading}
-        hint={copy.profile.contactHint}
-      >
-        <SettingsGrid>
-          <SettingsField label={copy.profile.phone} htmlFor="phone" hint={copy.profile.phoneHint}>
-            <Input
-              id="phone"
-              type="tel"
-              inputMode="tel"
-              dir="ltr"
-              className="text-start"
-              value={draft.contactPhone}
-              onChange={(e) => setDraft({ ...draft, contactPhone: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField
-            label={copy.profile.whatsapp}
-            htmlFor="whatsapp"
-            hint={copy.profile.whatsappHint}
-          >
-            <Input
-              id="whatsapp"
-              type="tel"
-              inputMode="tel"
-              dir="ltr"
-              className="text-start"
-              value={draft.whatsappNumber}
-              onChange={(e) => setDraft({ ...draft, whatsappNumber: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField label={copy.profile.email} htmlFor="email">
-            <Input
-              id="email"
-              type="email"
-              dir="ltr"
-              className="text-start"
-              value={draft.contactEmail}
-              onChange={(e) => setDraft({ ...draft, contactEmail: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField label={copy.profile.website} htmlFor="website">
-            <Input
-              id="website"
-              type="url"
-              dir="ltr"
-              className="text-start"
-              placeholder="https://"
-              value={draft.website}
-              onChange={(e) => setDraft({ ...draft, website: e.target.value })}
-            />
-          </SettingsField>
-        </SettingsGrid>
+        <SectionSaveRow
+          copy={copy}
+          dirty={dirty}
+          saving={saving}
+          onSave={() => void save()}
+          onDiscard={discard}
+        />
       </SettingsCard>
-
-      <SettingsCard
-        icon={MapPin}
-        title={copy.profile.regionHeading}
-        hint={copy.profile.regionHint}
-      >
-        <SettingsGrid columns={3}>
-          <SettingsField label={copy.profile.governorate} htmlFor="governorate">
-            <Input
-              id="governorate"
-              value={draft.governorate}
-              onChange={(e) => setDraft({ ...draft, governorate: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField label={copy.profile.district} htmlFor="district">
-            <Input
-              id="district"
-              value={draft.district}
-              onChange={(e) => setDraft({ ...draft, district: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField label={copy.profile.town} htmlFor="town">
-            <Input
-              id="town"
-              value={draft.town}
-              onChange={(e) => setDraft({ ...draft, town: e.target.value })}
-            />
-          </SettingsField>
-        </SettingsGrid>
-      </SettingsCard>
-
-      <SettingsCard
-        icon={Clock}
-        title={copy.profile.officeHeading}
-        hint={copy.profile.officeHint}
-      >
-        <SettingsGrid>
-          <SettingsField label={copy.profile.officeHours} htmlFor="office-hours">
-            <Input
-              id="office-hours"
-              placeholder={copy.profile.officeHoursPlaceholder}
-              value={draft.cashOfficeHours}
-              onChange={(e) => setDraft({ ...draft, cashOfficeHours: e.target.value })}
-            />
-          </SettingsField>
-          <SettingsField label={copy.profile.officeAddress} htmlFor="office-address">
-            <Input
-              id="office-address"
-              placeholder={copy.profile.officeAddressPlaceholder}
-              value={draft.cashOfficeAddress}
-              onChange={(e) => setDraft({ ...draft, cashOfficeAddress: e.target.value })}
-            />
-          </SettingsField>
-        </SettingsGrid>
-      </SettingsCard>
-
-      <SaveBar
-        copy={copy}
-        dirty={dirty}
-        saving={saving}
-        onSave={() => void save()}
-        onDiscard={discard}
-      />
     </div>
   );
 }
+

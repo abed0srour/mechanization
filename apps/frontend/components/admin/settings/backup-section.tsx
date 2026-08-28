@@ -7,6 +7,7 @@ import {
   DatabaseBackup,
   FileArchive,
   History,
+  XCircle,
   Loader2,
   RotateCcw,
   Trash2,
@@ -47,7 +48,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { ScrollableTable, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
+import {
+  AlignedFieldGrid,
+  ScrollableTable,
+  SettingsCard,
+  SettingsField,
+  StatusTile,
+} from './settings-ui';
 import { cn } from '@/lib/utils';
 
 /** The largest page each list endpoint will serve in one call. */
@@ -293,6 +300,9 @@ export function BackupSection({
 
   const nextRun = scheduleLoaded ? nextRunAt(schedule, now) : null;
 
+  /** The most recent successful-or-not backup this browser recorded. */
+  const lastBackup = history.entries.find((entry) => entry.action === 'backup') ?? null;
+
   const record = useCallback(
     (entry: HistoryEntry) => {
       // Newest first, capped: this is a convenience log in localStorage, and an
@@ -397,19 +407,46 @@ export function BackupSection({
         hint={copy.backup.manualHint}
       >
         <div className="space-y-5">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {copy.backup.includes}
-            </p>
-            <ul className="mt-2.5 flex flex-wrap gap-2">
-              {TABLES.map((table) => (
-                <li key={table.key}>
-                  <Badge variant="soft-muted">
-                    {copy.backup.tables[table.key] ?? table.key}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
+          {/*
+            Solar's status tiles: the two facts an administrator opens this card
+            to check, before the button that would change them.
+          */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <StatusTile
+              label={copy.backup.lastBackup}
+              icon={
+                lastBackup?.ok ? (
+                  <CheckCircle2 className="size-3.5 text-success" aria-hidden />
+                ) : lastBackup ? (
+                  <XCircle className="size-3.5 text-destructive" aria-hidden />
+                ) : (
+                  <History className="size-3.5" aria-hidden />
+                )
+              }
+            >
+              {lastBackup ? (
+                <>
+                  <p className="font-medium">{dateFormat.format(new Date(lastBackup.at))}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {lastBackup.scope} · {formatBytes(lastBackup.bytes)}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground">{copy.backup.neverBackedUp}</p>
+              )}
+            </StatusTile>
+
+            <StatusTile label={copy.backup.includes}>
+              <ul className="mt-0.5 flex flex-wrap gap-1.5">
+                {TABLES.map((table) => (
+                  <li key={table.key}>
+                    <Badge variant="soft-muted">
+                      {copy.backup.tables[table.key] ?? table.key}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </StatusTile>
           </div>
 
           <Button onClick={() => void runBackup()} disabled={busy}>
@@ -433,7 +470,7 @@ export function BackupSection({
         title={copy.backup.scheduleHeading}
         hint={copy.backup.scheduleHint}
       >
-        <SettingsGrid columns={4}>
+        <AlignedFieldGrid columns={4}>
           <SettingsField label={copy.backup.frequency} htmlFor="backup-frequency">
             <Select
               value={schedule.frequency}
@@ -530,7 +567,7 @@ export function BackupSection({
               />
             </SettingsField>
           ) : null}
-        </SettingsGrid>
+        </AlignedFieldGrid>
 
         <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border/60 pt-4 text-sm">
           <p className="text-muted-foreground">

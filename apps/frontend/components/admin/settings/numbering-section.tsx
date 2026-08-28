@@ -11,10 +11,17 @@ import {
 import { SEQUENCE_KEYS, type SequenceKey, type SettingsCopy } from '@/lib/settings-i18n';
 
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { SaveBar, SettingsCard, SettingsField } from './settings-ui';
+import { ScrollableTable, SectionSaveRow, SettingsCard } from './settings-ui';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 /** One document type's reference format. Strings, because these are inputs. */
 interface Sequence {
@@ -207,157 +214,167 @@ export function NumberingSection({
   }, [tenant, token, invalid, sequences, toast, copy]);
 
   if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-[32rem] rounded-2xl" />
-      </div>
-    );
+    return <Skeleton className="h-[28rem] rounded-lg" />;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {error ? (
         <p
           role="alert"
-          className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
         >
           {error}
         </p>
       ) : null}
 
+      {/*
+        A table, as in Solar, rather than the five stacked cards this replaces.
+        Five rows differing only in their prefix and counter are a table by
+        nature — the reason to look at this screen is to compare the sequences
+        against each other, and a column of cards makes the reader hold each
+        prefix in their head to do it.
+      */}
       <SettingsCard
         icon={Hash}
         title={copy.numbering.heading}
         hint={copy.numbering.hint}
+        bodyClassName="p-0 sm:p-0"
       >
-        <div className="space-y-5">
-          {SEQUENCE_KEYS.map((key) => {
-            const sequence = sequences[key];
-            const problems = invalid.get(key);
-            const next = parseInteger(sequence.nextNumber);
-            const padding = parseInteger(sequence.padding);
-            const previewable = next !== null && padding !== null && padding >= 1;
-            const duplicate = duplicatePrefixes.has(sequence.prefix.trim().toUpperCase());
+        <ScrollableTable minWidth="52rem">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="ps-4 sm:ps-5">{copy.numbering.document}</TableHead>
+                <TableHead>{copy.numbering.prefix}</TableHead>
+                <TableHead>{copy.numbering.nextNumber}</TableHead>
+                <TableHead>{copy.numbering.padding}</TableHead>
+                <TableHead className="pe-4 sm:pe-5">{copy.numbering.preview}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {SEQUENCE_KEYS.map((key) => {
+                const sequence = sequences[key];
+                const problems = invalid.get(key);
+                const next = parseInteger(sequence.nextNumber);
+                const padding = parseInteger(sequence.padding);
+                const previewable = next !== null && padding !== null && padding >= 1;
+                const duplicate = duplicatePrefixes.has(sequence.prefix.trim().toUpperCase());
 
-            return (
-              <div
-                key={key}
-                className="rounded-xl border border-border/70 bg-muted/20 p-5"
-              >
-                <div className="flex items-start gap-2.5">
-                  <FileText className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                  <div className="min-w-0">
-                    <p className="font-medium">{copy.numbering.documents[key]}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {copy.numbering.documentHints[key]}
-                    </p>
-                  </div>
-                </div>
+                return (
+                  <TableRow key={key}>
+                    <TableCell className="ps-4 align-top sm:ps-5">
+                      <div className="flex items-start gap-2">
+                        <FileText className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                        <div className="min-w-0">
+                          <p className="font-medium">{copy.numbering.documents[key]}</p>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {copy.numbering.documentHints[key]}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
 
-                <div className="mt-4 grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-[1.5fr_0.9fr_0.9fr_1.7fr]">
-                  <SettingsField label={copy.numbering.prefix} htmlFor={`${key}-prefix`}>
-                    <Input
-                      id={`${key}-prefix`}
-                      dir="ltr"
-                      className="text-start font-mono"
-                      value={sequence.prefix}
-                      /* Uppercased and stripped as it is typed: a reference is
-                         read back against a printed document, and `mun-inv-`
-                         beside `MUN-INV-` is a difference a clerk should never
-                         have to notice. */
-                      onChange={(e) =>
-                        update(key, {
-                          prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''),
-                        })
-                      }
-                    />
-                  </SettingsField>
+                    <TableCell className="align-top">
+                      <Input
+                        aria-label={`${copy.numbering.documents[key]} — ${copy.numbering.prefix}`}
+                        dir="ltr"
+                        className="w-32 text-start font-mono"
+                        value={sequence.prefix}
+                        /* Uppercased and stripped as it is typed: a reference is
+                           read back against a printed document, and `mun-inv-`
+                           beside `MUN-INV-` is a difference a clerk should never
+                           have to notice. */
+                        onChange={(e) =>
+                          update(key, {
+                            prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''),
+                          })
+                        }
+                      />
+                      {duplicate ? (
+                        <p className="mt-1.5 flex w-32 items-start gap-1 text-xs leading-relaxed text-warning">
+                          <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
+                          {copy.numbering.collision}
+                        </p>
+                      ) : null}
+                    </TableCell>
 
-                  <SettingsField
-                    label={copy.numbering.nextNumber}
-                    htmlFor={`${key}-next`}
-                    error={problems?.next}
-                  >
-                    <Input
-                      id={`${key}-next`}
-                      inputMode="numeric"
-                      dir="ltr"
-                      invalid={Boolean(problems?.next)}
-                      className="text-start font-mono"
-                      value={sequence.nextNumber}
-                      onChange={(e) =>
-                        update(key, { nextNumber: e.target.value.replace(/\D/g, '') })
-                      }
-                    />
-                  </SettingsField>
+                    <TableCell className="align-top">
+                      <Input
+                        aria-label={`${copy.numbering.documents[key]} — ${copy.numbering.nextNumber}`}
+                        inputMode="numeric"
+                        dir="ltr"
+                        invalid={Boolean(problems?.next)}
+                        className="w-24 text-start font-mono"
+                        value={sequence.nextNumber}
+                        onChange={(e) =>
+                          update(key, { nextNumber: e.target.value.replace(/\D/g, '') })
+                        }
+                      />
+                      {problems?.next ? (
+                        <p role="alert" className="mt-1.5 w-24 text-xs leading-relaxed text-destructive">
+                          {problems.next}
+                        </p>
+                      ) : null}
+                    </TableCell>
 
-                  <SettingsField
-                    label={copy.numbering.padding}
-                    htmlFor={`${key}-padding`}
-                    error={problems?.padding}
-                  >
-                    <Input
-                      id={`${key}-padding`}
-                      inputMode="numeric"
-                      dir="ltr"
-                      invalid={Boolean(problems?.padding)}
-                      className="text-start font-mono"
-                      value={sequence.padding}
-                      onChange={(e) =>
-                        update(key, { padding: e.target.value.replace(/\D/g, '').slice(0, 2) })
-                      }
-                    />
-                  </SettingsField>
+                    <TableCell className="align-top">
+                      <Input
+                        aria-label={`${copy.numbering.documents[key]} — ${copy.numbering.padding}`}
+                        inputMode="numeric"
+                        dir="ltr"
+                        invalid={Boolean(problems?.padding)}
+                        className="w-20 text-start font-mono"
+                        value={sequence.padding}
+                        onChange={(e) =>
+                          update(key, { padding: e.target.value.replace(/\D/g, '').slice(0, 2) })
+                        }
+                      />
+                      {problems?.padding ? (
+                        <p role="alert" className="mt-1.5 w-24 text-xs leading-relaxed text-destructive">
+                          {problems.padding}
+                        </p>
+                      ) : null}
+                    </TableCell>
 
-                  {/*
-                    Two consecutive references, not one. A single sample looks
-                    correct in every configuration; it takes the second to show
-                    that a counter about to cross its padding width will widen
-                    the reference mid-series.
-
-                    Wrapped in the same label-then-body structure the fields
-                    beside it use, so the card's top edge lands on the inputs'
-                    top edge rather than on their labels' — which is what made
-                    this column sit a line high in every row.
-                  */}
-                  <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 xl:col-span-1">
-                    <Label className="text-muted-foreground">{copy.numbering.preview}</Label>
-                    <div className="min-h-12 rounded-md border border-border/70 bg-card px-3 py-2">
+                    {/*
+                      Two consecutive references, not one. A single sample looks
+                      correct in every configuration; it takes the second to show
+                      that a counter about to cross its padding width widens the
+                      reference mid-series — the failure that gets discovered
+                      after it is printed on a permit.
+                    */}
+                    <TableCell className="pe-4 align-top sm:pe-5">
                       {previewable ? (
                         <div className="space-y-0.5 font-mono text-sm" dir="ltr">
-                          <p className="truncate">
+                          <p className="whitespace-nowrap">
                             {formatReference(sequence.prefix, next, padding)}
                           </p>
-                          <p className="truncate text-xs text-muted-foreground">
+                          <p className="whitespace-nowrap text-xs text-muted-foreground">
                             {formatReference(sequence.prefix, next + 1, padding)}
                           </p>
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">—</p>
                       )}
-                    </div>
-                  </div>
-                </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </ScrollableTable>
 
-                {duplicate ? (
-                  <p className="mt-3 flex items-start gap-1.5 text-xs leading-relaxed text-warning">
-                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                    {copy.numbering.collision}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
+        <div className="px-4 pb-4 sm:px-5 sm:pb-5">
+          <SectionSaveRow
+            copy={copy}
+            dirty={dirty}
+            saving={saving}
+            onSave={() => void save()}
+            onDiscard={() => saved && setSequences(saved)}
+          />
         </div>
       </SettingsCard>
-
-      <SaveBar
-        copy={copy}
-        dirty={dirty}
-        saving={saving}
-        onSave={() => void save()}
-        onDiscard={() => saved && setSequences(saved)}
-      />
     </div>
   );
 }
