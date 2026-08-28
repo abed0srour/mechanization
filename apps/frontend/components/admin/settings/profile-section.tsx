@@ -9,35 +9,30 @@ import {
   updateMunicipalitySettings,
 } from '@/lib/api-client';
 import type { MunicipalitySettings } from '@/lib/api-client';
-import { useSettingsSlice } from '@/lib/settings-store';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import { Button } from '@/components/ui/button';
 
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { LocalOnlyNotice, SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
+import { SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
 
-/** Fields `PATCH /fees/settings` accepts — the half of this form that persists. */
-interface ServerProfile {
+/**
+ * The profile fields, all of which `PATCH /fees/settings` now accepts.
+ *
+ * Strings throughout, including where the stored value is nullable: `''` is
+ * what an emptied input holds, and the server reads it as "clear this". A
+ * `null` in state would mean a controlled input turning uncontrolled the
+ * moment a clerk deletes the last character of a phone number.
+ */
+interface Profile {
   contactPhone: string;
   whatsappNumber: string;
   cashOfficeHours: string;
   cashOfficeAddress: string;
-}
-
-/**
- * Fields with no column behind them yet.
- *
- * `nameAr`/`nameEn` do exist on the *registry* as tenant configuration, but
- * read-only to this app — `GET /tenant/config` serves them and nothing accepts
- * a write, so editing them here would be a form that lies. They are held with
- * the rest until a `PATCH /tenant/config` exists.
- */
-interface LocalProfile {
   nameAr: string;
   nameEn: string;
-  email: string;
+  contactEmail: string;
   website: string;
   governorate: string;
   district: string;
@@ -46,17 +41,14 @@ interface LocalProfile {
   logoDataUri: string;
 }
 
-const EMPTY_SERVER: ServerProfile = {
+const EMPTY: Profile = {
   contactPhone: '',
   whatsappNumber: '',
   cashOfficeHours: '',
   cashOfficeAddress: '',
-};
-
-const EMPTY_LOCAL: LocalProfile = {
   nameAr: '',
   nameEn: '',
-  email: '',
+  contactEmail: '',
   website: '',
   governorate: '',
   district: '',
@@ -67,25 +59,34 @@ const EMPTY_LOCAL: LocalProfile = {
 /** 500 KB. A municipal crest is a few tens of KB; past this it is a photograph. */
 const MAX_LOGO_BYTES = 500 * 1024;
 
-function toServerProfile(settings: MunicipalitySettings): ServerProfile {
+function toProfile(settings: MunicipalitySettings): Profile {
   return {
     contactPhone: settings.contactPhone ?? '',
     whatsappNumber: settings.whatsappNumber ?? '',
     cashOfficeHours: settings.cashOfficeHours ?? '',
     cashOfficeAddress: settings.cashOfficeAddress ?? '',
+    nameAr: settings.nameAr ?? '',
+    nameEn: settings.nameEn ?? '',
+    contactEmail: settings.contactEmail ?? '',
+    website: settings.website ?? '',
+    governorate: settings.governorate ?? '',
+    district: settings.district ?? '',
+    town: settings.town ?? '',
+    logoDataUri: settings.logoDataUri ?? '',
   };
 }
 
 /**
  * الملف الشخصي للبلدية — who this municipality is, as the portal states it.
  *
- * Split down the middle by what can actually be stored. The contact block and
- * the office block go to `PATCH /fees/settings`, which has held them since
- * migration 0012; identity, region and logo are kept in the browser and say so.
- * Both halves are edited in one form and saved by one button, because the split
- * is an accident of the backend's age and not something an administrator should
- * have to think about — but the notice above the local half means nobody
- * mistakes one for the other.
+ * All of it now saves to `PATCH /fees/settings`. Identity, region and the crest
+ * were kept in the browser until migration 0015 gave them columns; they were
+ * the wrong thing to hold locally, since the whole point of a municipality's
+ * name and logo is that every clerk and every printed document agrees on them.
+ *
+ * The section sends only the twelve keys it owns. The endpoint writes only what
+ * it is sent, so saving here cannot clear the exchange rate or the numbering
+ * prefixes belonging to sections this form never rendered.
  */
 export function ProfileSection({
   tenant,
@@ -99,26 +100,11 @@ export function ProfileSection({
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const [savedServer, setSavedServer] = useState<ServerProfile | null>(null);
-  const [server, setServer] = useState<ServerProfile>(EMPTY_SERVER);
+  const [saved, setSaved] = useState<Profile | null>(null);
+  const [draft, setDraft] = useState<Profile>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const {
-    value: local,
-    setValue: setLocal,
-    persist: persistLocal,
-    hydrated,
-  } = useSettingsSlice<LocalProfile>(tenant, 'profile', EMPTY_LOCAL);
-  const [savedLocal, setSavedLocal] = useState<LocalProfile>(EMPTY_LOCAL);
-
-  useEffect(() => {
-    if (hydrated) setSavedLocal(local);
-    // Only when hydration flips — afterwards `local` is the live draft, and
-    // tracking it here would make the form permanently look already-saved.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,9 +112,9 @@ export function ProfileSection({
       try {
         const result = await getMunicipalitySettings(tenant, token);
         if (cancelled) return;
-        const next = toServerProfile(result);
-        setSavedServer(next);
-        setServer(next);
+        const next = toProfile(result);
+        setSaved(next);
+        setDraft(next);
         setError(null);
       } catch (caught) {
         logApiError(caught);
@@ -146,23 +132,21 @@ export function ProfileSection({
     };
   }, [tenant, token, copy.common.loadError]);
 
-  const dirty = useMemo(() => {
-    if (!savedServer || !hydrated) return false;
-    return (
-      JSON.stringify(server) !== JSON.stringify(savedServer) ||
-      JSON.stringify(local) !== JSON.stringify(savedLocal)
-    );
-  }, [server, savedServer, local, savedLocal, hydrated]);
+  const dirty = useMemo(
+    () => saved !== null && JSON.stringify(draft) !== JSON.stringify(saved),
+    [draft, saved],
+  );
 
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      const result = await updateMunicipalitySettings(tenant, token, server);
-      const next = toServerProfile(result);
-      setSavedServer(next);
-      setServer(next);
-      persistLocal(local);
-      setSavedLocal(local);
+      const result = await updateMunicipalitySettings(tenant, token, draft);
+      const next = toProfile(result);
+      // Re-seeded from the response, not from the draft: the server trims and
+      // normalises, so echoing the draft back would leave the form looking
+      // clean while holding a value the database does not have.
+      setSaved(next);
+      setDraft(next);
       toast.success(copy.common.saved);
       setError(null);
     } catch (caught) {
@@ -174,12 +158,11 @@ export function ProfileSection({
     } finally {
       setSaving(false);
     }
-  }, [tenant, token, server, local, persistLocal, toast, copy.common]);
+  }, [tenant, token, draft, toast, copy.common]);
 
   const discard = useCallback(() => {
-    if (savedServer) setServer(savedServer);
-    setLocal(savedLocal);
-  }, [savedServer, savedLocal, setLocal]);
+    if (saved) setDraft(saved);
+  }, [saved]);
 
   /**
    * Reads the chosen file into a data: URI.
@@ -203,12 +186,12 @@ export function ProfileSection({
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          setLocal({ ...local, logoDataUri: reader.result });
+          setDraft({ ...draft, logoDataUri: reader.result });
         }
       };
       reader.readAsDataURL(file);
     },
-    [local, setLocal, toast, copy.profile],
+    [draft, toast, copy.profile],
   );
 
   if (loading) {
@@ -223,7 +206,6 @@ export function ProfileSection({
 
   return (
     <div className="space-y-6">
-      <LocalOnlyNotice copy={copy} />
 
       {error ? (
         <p
@@ -244,8 +226,8 @@ export function ProfileSection({
             <Input
               id="name-ar"
               dir="rtl"
-              value={local.nameAr}
-              onChange={(e) => setLocal({ ...local, nameAr: e.target.value })}
+              value={draft.nameAr}
+              onChange={(e) => setDraft({ ...draft, nameAr: e.target.value })}
             />
           </SettingsField>
           <SettingsField label={copy.profile.nameEn} htmlFor="name-en" hint={copy.profile.nameEnHint}>
@@ -253,8 +235,8 @@ export function ProfileSection({
               id="name-en"
               dir="ltr"
               className="text-start"
-              value={local.nameEn}
-              onChange={(e) => setLocal({ ...local, nameEn: e.target.value })}
+              value={draft.nameEn}
+              onChange={(e) => setDraft({ ...draft, nameEn: e.target.value })}
             />
           </SettingsField>
         </SettingsGrid>
@@ -273,7 +255,7 @@ export function ProfileSection({
         */}
         <div className="flex flex-wrap items-start gap-5 sm:items-center">
           <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-muted/40">
-            {local.logoDataUri ? (
+            {draft.logoDataUri ? (
               /*
                 A plain <img>, not next/image: the source is a data: URI the
                 administrator just chose, so there is nothing for the optimiser
@@ -282,7 +264,7 @@ export function ProfileSection({
               */
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={local.logoDataUri}
+                src={draft.logoDataUri}
                 alt={copy.profile.logoAlt}
                 className="size-full object-contain"
               />
@@ -297,12 +279,12 @@ export function ProfileSection({
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => fileInput.current?.click()}>
                 <Upload className="size-4" aria-hidden />
-                {local.logoDataUri ? copy.profile.logoReplace : copy.profile.logoUpload}
+                {draft.logoDataUri ? copy.profile.logoReplace : copy.profile.logoUpload}
               </Button>
-              {local.logoDataUri ? (
+              {draft.logoDataUri ? (
                 <Button
                   variant="ghost"
-                  onClick={() => setLocal({ ...local, logoDataUri: '' })}
+                  onClick={() => setDraft({ ...draft, logoDataUri: '' })}
                 >
                   <Trash2 className="size-4" aria-hidden />
                   {copy.profile.logoRemove}
@@ -340,8 +322,8 @@ export function ProfileSection({
               inputMode="tel"
               dir="ltr"
               className="text-start"
-              value={server.contactPhone}
-              onChange={(e) => setServer({ ...server, contactPhone: e.target.value })}
+              value={draft.contactPhone}
+              onChange={(e) => setDraft({ ...draft, contactPhone: e.target.value })}
             />
           </SettingsField>
           <SettingsField
@@ -355,8 +337,8 @@ export function ProfileSection({
               inputMode="tel"
               dir="ltr"
               className="text-start"
-              value={server.whatsappNumber}
-              onChange={(e) => setServer({ ...server, whatsappNumber: e.target.value })}
+              value={draft.whatsappNumber}
+              onChange={(e) => setDraft({ ...draft, whatsappNumber: e.target.value })}
             />
           </SettingsField>
           <SettingsField label={copy.profile.email} htmlFor="email">
@@ -365,8 +347,8 @@ export function ProfileSection({
               type="email"
               dir="ltr"
               className="text-start"
-              value={local.email}
-              onChange={(e) => setLocal({ ...local, email: e.target.value })}
+              value={draft.contactEmail}
+              onChange={(e) => setDraft({ ...draft, contactEmail: e.target.value })}
             />
           </SettingsField>
           <SettingsField label={copy.profile.website} htmlFor="website">
@@ -376,8 +358,8 @@ export function ProfileSection({
               dir="ltr"
               className="text-start"
               placeholder="https://"
-              value={local.website}
-              onChange={(e) => setLocal({ ...local, website: e.target.value })}
+              value={draft.website}
+              onChange={(e) => setDraft({ ...draft, website: e.target.value })}
             />
           </SettingsField>
         </SettingsGrid>
@@ -392,22 +374,22 @@ export function ProfileSection({
           <SettingsField label={copy.profile.governorate} htmlFor="governorate">
             <Input
               id="governorate"
-              value={local.governorate}
-              onChange={(e) => setLocal({ ...local, governorate: e.target.value })}
+              value={draft.governorate}
+              onChange={(e) => setDraft({ ...draft, governorate: e.target.value })}
             />
           </SettingsField>
           <SettingsField label={copy.profile.district} htmlFor="district">
             <Input
               id="district"
-              value={local.district}
-              onChange={(e) => setLocal({ ...local, district: e.target.value })}
+              value={draft.district}
+              onChange={(e) => setDraft({ ...draft, district: e.target.value })}
             />
           </SettingsField>
           <SettingsField label={copy.profile.town} htmlFor="town">
             <Input
               id="town"
-              value={local.town}
-              onChange={(e) => setLocal({ ...local, town: e.target.value })}
+              value={draft.town}
+              onChange={(e) => setDraft({ ...draft, town: e.target.value })}
             />
           </SettingsField>
         </SettingsGrid>
@@ -423,16 +405,16 @@ export function ProfileSection({
             <Input
               id="office-hours"
               placeholder={copy.profile.officeHoursPlaceholder}
-              value={server.cashOfficeHours}
-              onChange={(e) => setServer({ ...server, cashOfficeHours: e.target.value })}
+              value={draft.cashOfficeHours}
+              onChange={(e) => setDraft({ ...draft, cashOfficeHours: e.target.value })}
             />
           </SettingsField>
           <SettingsField label={copy.profile.officeAddress} htmlFor="office-address">
             <Input
               id="office-address"
               placeholder={copy.profile.officeAddressPlaceholder}
-              value={server.cashOfficeAddress}
-              onChange={(e) => setServer({ ...server, cashOfficeAddress: e.target.value })}
+              value={draft.cashOfficeAddress}
+              onChange={(e) => setDraft({ ...draft, cashOfficeAddress: e.target.value })}
             />
           </SettingsField>
         </SettingsGrid>

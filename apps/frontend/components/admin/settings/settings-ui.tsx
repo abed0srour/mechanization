@@ -224,10 +224,18 @@ export function Notice({
   );
 }
 
-/** Says a section is held in this browser rather than on the server. */
+/**
+ * Marks the one thing on this screen still held in the browser: the backup
+ * history, which records what *this* machine downloaded. The archive is on this
+ * disk and nowhere else, so a shared server-side log would list files another
+ * administrator cannot open.
+ *
+ * Every other section saved locally until migration 0015 gave it columns, and
+ * every one of them now goes to `PATCH /fees/settings`.
+ */
 export function LocalOnlyNotice({ copy }: { copy: SettingsCopy }) {
   return (
-    <Notice title={copy.common.notConnected}>
+    <Notice tone="info" title={copy.common.notConnected}>
       <p className="flex items-start gap-2">
         <HardDrive className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {copy.common.notConnectedHint}

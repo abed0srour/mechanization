@@ -60,8 +60,10 @@ export class FeesController {
    * Nothing else lives on this record.
    */
   @Get('settings')
-  async getSettings() {
-    return this.fees.getSettings();
+  async getSettings(@CurrentUser() user: SessionClaims) {
+    // A citizen's claims carry no role. Only staff get the crest, which is a
+    // data URI in the hundreds of kilobytes — see `FeesService.getSettings`.
+    return this.fees.getSettings(Boolean(user.role));
   }
 
   @Roles('SUPER_ADMIN')

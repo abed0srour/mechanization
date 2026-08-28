@@ -22,6 +22,7 @@ import {
   getZones,
   listCitizens,
   logApiError,
+  updateMunicipalitySettings,
 } from '@/lib/api-client';
 import { useSettingsSlice } from '@/lib/settings-store';
 import type { SettingsCopy } from '@/lib/settings-i18n';
@@ -197,11 +198,77 @@ export function BackupSection({
   const [dragging, setDragging] = useState(false);
   const [archive, setArchive] = useState<File | null>(null);
 
-  const {
-    value: schedule,
-    persist: persistSchedule,
-    hydrated,
-  } = useSettingsSlice<ScheduleSettings>(tenant, 'backup-schedule', DEFAULT_SCHEDULE);
+  const [schedule, setSchedule] = useState<ScheduleSettings>(DEFAULT_SCHEDULE);
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getMunicipalitySettings(tenant, token);
+        if (cancelled || !result.backupSchedule) return;
+        const stored = result.backupSchedule;
+        setSchedule({
+          frequency: stored.frequency,
+          timeOfDay: stored.timeOfDay,
+          dayOfWeek: String(stored.dayOfWeek),
+          dayOfMonth: String(stored.dayOfMonth),
+          keepCopies: String(stored.keepCopies),
+        });
+      } catch (caught) {
+        logApiError(caught);
+        /* the defaults stand; the section's other half still works */
+      } finally {
+        if (!cancelled) setScheduleLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenant, token]);
+
+  /**
+   * Saves on change rather than behind a button.
+   *
+   * The schedule is five controls with no interdependent state to review before
+   * committing — unlike the finance section, where a rate and a currency have
+   * to agree. A save button here would be one more thing to forget, and the
+   * failure mode of forgetting it is a backup that never runs.
+   */
+  const persistSchedule = useCallback(
+    (next: ScheduleSettings) => {
+      setSchedule(next);
+      void (async () => {
+        try {
+          await updateMunicipalitySettings(tenant, token, {
+            backupSchedule: {
+              frequency: next.frequency,
+              timeOfDay: next.timeOfDay,
+              dayOfWeek: Number(next.dayOfWeek) || 0,
+              // Clamped, not merely capped by the input: an empty box parses to
+              // NaN and the schema rejects the whole save, silently losing the
+              // other four fields with it.
+              dayOfMonth: Math.min(Math.max(Number(next.dayOfMonth) || 1, 1), 28),
+              keepCopies: Math.min(Math.max(Number(next.keepCopies) || 1, 1), 365),
+            },
+          });
+        } catch (caught) {
+          logApiError(caught);
+          toast.error(copy.common.saveError);
+        }
+      })();
+    },
+    [tenant, token, toast, copy.common.saveError],
+  );
+
+  /*
+   * History stays in the browser, deliberately.
+   *
+   * It records what *this* machine downloaded — the archive is on this disk and
+   * nowhere else, so a shared server-side log would list files a given
+   * administrator has no way to open. When a server-run backup exists, its runs
+   * belong in a table; these do not.
+   */
   const { value: history, persist: persistHistory } = useSettingsSlice<{
     entries: HistoryEntry[];
   }>(tenant, 'backup-history', EMPTY_HISTORY);
@@ -224,7 +291,7 @@ export function BackupSection({
     [locale],
   );
 
-  const nextRun = hydrated ? nextRunAt(schedule, now) : null;
+  const nextRun = scheduleLoaded ? nextRunAt(schedule, now) : null;
 
   const record = useCallback(
     (entry: HistoryEntry) => {

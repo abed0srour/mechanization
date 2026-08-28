@@ -135,7 +135,13 @@ export class FeesService {
    * Whish option entirely without a number, and inventing a blank row here
    * would make "never configured" indistinguishable from "deliberately empty".
    */
-  async getSettings() {
+  /**
+   * @param includeLogo staff only. The crest is a data URI in the hundreds of
+   *   kilobytes and this endpoint is read by every citizen opening the pay
+   *   dialog; sending it to them would put half a megabyte of base64 on a
+   *   request whose useful payload is a phone number and some opening hours.
+   */
+  async getSettings(includeLogo = false) {
     const row = await withConnectionRetry(() =>
       this.db.systemSettings.findFirst({ where: { singleton: true } }),
     );
@@ -146,6 +152,35 @@ export class FeesService {
       cashOfficeAddress: row?.cashOfficeAddress ?? null,
       contactPhone: row?.contactPhone ?? null,
       whatsappNumber: row?.whatsappNumber ?? null,
+
+      nameAr: row?.nameAr ?? null,
+      nameEn: row?.nameEn ?? null,
+      contactEmail: row?.contactEmail ?? null,
+      website: row?.website ?? null,
+      governorate: row?.governorate ?? null,
+      district: row?.district ?? null,
+      town: row?.town ?? null,
+      // `undefined` rather than null for a citizen: the key is absent, so a
+      // client cannot mistake "not sent to you" for "no logo configured".
+      logoDataUri: includeLogo ? (row?.logoDataUri ?? null) : undefined,
+
+      // The defaults here match the column defaults, so a municipality whose
+      // settings row predates this migration reads the same as one that has
+      // simply never opened the finance section.
+      defaultFeeFrequency: row?.defaultFeeFrequency ?? 'ANNUALLY',
+      defaultDueDays: row?.defaultDueDays ?? 30,
+      priceDisplay: row?.priceDisplay ?? 'compact',
+      // Decimal → number at the boundary, for JSON. Anything computing a charge
+      // must read the column, not this.
+      defaultRatePercent: row ? Number(row.defaultRatePercent) : 0,
+      baseCurrency: row?.baseCurrency ?? 'LBP',
+      secondaryCurrency: row?.secondaryCurrency ?? null,
+      exchangeRate: row?.exchangeRate == null ? null : Number(row.exchangeRate),
+      exchangeRateUpdatedAt: row?.exchangeRateUpdatedAt?.toISOString() ?? null,
+
+      numberingSequences: (row?.numberingSequences as SystemSettingsInput['numberingSequences']) ?? null,
+      backupSchedule: (row?.backupSchedule as SystemSettingsInput['backupSchedule']) ?? null,
+
       updatedAt: row?.updatedAt?.toISOString() ?? null,
     };
   }
@@ -153,8 +188,35 @@ export class FeesService {
   async updateSettings(input: SystemSettingsInput, actor: { id: string; role: string }) {
     // Empty string means "clear it", which has to reach the database as NULL —
     // otherwise the portal would print an empty Whish number as if it were one.
+    // `undefined` means "not sent", which Prisma leaves alone; that difference
+    // is what lets one section of the settings screen save without wiping the
+    // fields owned by the five it did not render.
     const blankToNull = (value: string | undefined) =>
       value === undefined ? undefined : value.trim() === '' ? null : value.trim();
+
+    /*
+     * Stamped here, not by the client.
+     *
+     * The timestamp answers "how stale is this rate", and a browser's clock is
+     * not evidence of when the server accepted a value — nor should a client be
+     * able to claim a rate was refreshed today by sending a date. Only a rate
+     * that actually changes moves it: re-saving the finance section with the
+     * same number must not make a month-old rate look current.
+     */
+    const previous =
+      input.exchangeRate === undefined
+        ? null
+        : await withConnectionRetry(() =>
+            this.db.systemSettings.findFirst({
+              where: { singleton: true },
+              select: { exchangeRate: true },
+            }),
+          );
+    const rateChanged =
+      input.exchangeRate !== undefined &&
+      (previous?.exchangeRate == null
+        ? input.exchangeRate !== null
+        : Number(previous.exchangeRate) !== input.exchangeRate);
 
     const data = {
       whishMoneyNumber: blankToNull(input.whishMoneyNumber),
@@ -162,6 +224,30 @@ export class FeesService {
       cashOfficeAddress: blankToNull(input.cashOfficeAddress),
       contactPhone: blankToNull(input.contactPhone),
       whatsappNumber: blankToNull(input.whatsappNumber),
+
+      nameAr: blankToNull(input.nameAr),
+      nameEn: blankToNull(input.nameEn),
+      contactEmail: blankToNull(input.contactEmail),
+      website: blankToNull(input.website),
+      governorate: blankToNull(input.governorate),
+      district: blankToNull(input.district),
+      town: blankToNull(input.town),
+      logoDataUri: blankToNull(input.logoDataUri),
+
+      defaultFeeFrequency: input.defaultFeeFrequency,
+      defaultDueDays: input.defaultDueDays,
+      priceDisplay: input.priceDisplay,
+      defaultRatePercent: input.defaultRatePercent,
+      baseCurrency: input.baseCurrency,
+      secondaryCurrency: input.secondaryCurrency,
+      exchangeRate: input.exchangeRate,
+      ...(rateChanged
+        ? { exchangeRateUpdatedAt: input.exchangeRate === null ? null : new Date() }
+        : {}),
+
+      numberingSequences: input.numberingSequences,
+      backupSchedule: input.backupSchedule,
+
       updatedById: actor.id,
     };
 
@@ -175,10 +261,15 @@ export class FeesService {
       tenantSlug: this.tenantContext.tenantSlug,
       actorId: actor.id,
       actorRole: actor.role,
-      changed: Object.keys(data).filter((key) => key !== 'updatedById'),
+      // Only what was actually sent. Listing every column on every save would
+      // make the audit trail claim a clerk edited the exchange rate whenever
+      // they corrected a phone number.
+      changed: Object.entries(data)
+        .filter(([key, value]) => key !== 'updatedById' && value !== undefined)
+        .map(([key]) => key),
     });
 
-    return this.getSettings();
+    return this.getSettings(true);
   }
 
   // ──────────────────────────  Fee notices  ──────────────────────────

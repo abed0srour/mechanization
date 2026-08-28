@@ -17,6 +17,43 @@ export const feeFrequencySchema = z.enum(FEE_FREQUENCY, {
 });
 export type FeeFrequency = (typeof FEE_FREQUENCY)[number];
 
+/**
+ * The currencies a Lebanese municipality quotes in.
+ *
+ * Here rather than in the frontend so the settings form and the endpoint that
+ * validates it cannot drift — a currency the form offers and the schema rejects
+ * is a save that fails with a validation error naming a field the user chose
+ * from a list we gave them.
+ */
+export const CURRENCY_CODES = ['LBP', 'USD', 'EUR'] as const;
+export type CurrencyCode = (typeof CURRENCY_CODES)[number];
+
+/** The documents this portal issues a reference number for. */
+export const SEQUENCE_KEYS = [
+  'invoice',
+  'serviceOrder',
+  'permit',
+  'taxReceipt',
+  'refund',
+] as const;
+export type SequenceKey = (typeof SEQUENCE_KEYS)[number];
+
+/** One document type's reference format, as stored and as sent. */
+export interface NumberingSequence {
+  prefix: string;
+  nextNumber: number;
+  padding: number;
+}
+
+/** When automatic backups should run. Read by no scheduler yet. */
+export interface BackupSchedule {
+  frequency: 'off' | 'daily' | 'weekly' | 'monthly';
+  timeOfDay: string;
+  dayOfWeek: number;
+  dayOfMonth: number;
+  keepCopies: number;
+}
+
 export const FEE_TARGET_TYPE = [
   'ALL_CITIZENS',
   'BUILDING_CATEGORY',
@@ -134,6 +171,104 @@ export const systemSettingsSchema = z.object({
    * copy at the point of use.
    */
   whatsappNumber: z.string().trim().max(30, 'الرقم طويل جداً').optional().or(z.literal('')),
+
+  // ── Municipality profile ──────────────────────────────────────────────
+  nameAr: z.string().trim().max(120, 'الاسم طويل جداً').optional().or(z.literal('')),
+  nameEn: z.string().trim().max(120, 'الاسم طويل جداً').optional().or(z.literal('')),
+  /**
+   * Not `z.string().email()`. Clearing the field posts `''`, which a strict
+   * email check rejects — so an administrator could set an address but never
+   * remove one. The empty case is allowed through and normalised to NULL
+   * server-side; a non-empty value still has to look like an address.
+   */
+  contactEmail: z
+    .string()
+    .trim()
+    .max(200)
+    .email('البريد الإلكتروني غير صالح')
+    .optional()
+    .or(z.literal('')),
+  website: z.string().trim().max(200).url('الرابط غير صالح').optional().or(z.literal('')),
+  governorate: z.string().trim().max(120).optional().or(z.literal('')),
+  district: z.string().trim().max(120).optional().or(z.literal('')),
+  town: z.string().trim().max(120).optional().or(z.literal('')),
+
+  /**
+   * The crest as a data URI.
+   *
+   * The prefix is checked rather than assumed: this string is written into an
+   * `<img src>`, and `javascript:` and `data:text/html` are both things a
+   * browser will happily execute from there. Restricting the scheme to the
+   * three raster/vector image types the upload control offers is what keeps a
+   * settings field from becoming a stored-XSS vector for every staff member
+   * who opens the page afterwards.
+   *
+   * 700 KB of base64 ≈ 512 KB of file, matching the client-side cap.
+   */
+  logoDataUri: z
+    .string()
+    .trim()
+    .max(700_000, 'حجم الصورة كبير جداً')
+    .regex(/^data:image\/(png|jpeg|svg\+xml);base64,[A-Za-z0-9+/]+=*$/, 'الصورة غير صالحة')
+    .optional()
+    .or(z.literal('')),
+
+  // ── Finance defaults ──────────────────────────────────────────────────
+  defaultFeeFrequency: feeFrequencySchema.optional(),
+  defaultDueDays: z.number().int().min(0).max(365, 'المهلة يجب أن تكون بين 0 و365 يوماً').optional(),
+  priceDisplay: z.enum(['compact', 'exact']).optional(),
+  defaultRatePercent: z
+    .number()
+    .min(0, 'النسبة يجب أن تكون بين 0 و100')
+    .max(100, 'النسبة يجب أن تكون بين 0 و100')
+    .optional(),
+  baseCurrency: z.enum(CURRENCY_CODES).optional(),
+  /** `null` clears it — which is different from omitting it, i.e. leave as is. */
+  secondaryCurrency: z.enum(CURRENCY_CODES).nullable().optional(),
+  exchangeRate: z
+    .number()
+    .positive('سعر الصرف يجب أن يكون أكبر من صفر')
+    .max(1_000_000_000)
+    .nullable()
+    .optional(),
+
+  // ── Configuration held as documents ───────────────────────────────────
+  /**
+   * Validated per document type rather than accepted as free-form JSON: this
+   * lands in a `jsonb` column, and a column that accepts any shape is one every
+   * later reader has to defend itself against.
+   */
+  numberingSequences: z
+    .record(
+      z.enum(SEQUENCE_KEYS),
+      z.object({
+        prefix: z
+          .string()
+          .trim()
+          .max(16)
+          .regex(/^[A-Z0-9-]*$/, 'البادئة تقبل الحروف اللاتينية والأرقام والشرطات فقط'),
+        nextNumber: z.number().int().min(1, 'الرقم التالي يجب أن يكون أكبر من صفر').max(1e12),
+        padding: z.number().int().min(1).max(12, 'خانات التصفير يجب أن تكون بين 1 و12'),
+      }),
+    )
+    .optional(),
+
+  backupSchedule: z
+    .object({
+      frequency: z.enum(['off', 'daily', 'weekly', 'monthly']),
+      /** `HH:mm`, 24-hour. */
+      timeOfDay: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'الوقت غير صالح'),
+      /** 0 = Sunday, matching `Date.getDay()`. */
+      dayOfWeek: z.number().int().min(0).max(6),
+      /**
+       * Capped at 28, not 31: a rule that fires on the 31st silently skips five
+       * months of the year, and a backup that does not run in February is the
+       * kind of gap discovered only when it is needed.
+       */
+      dayOfMonth: z.number().int().min(1).max(28),
+      keepCopies: z.number().int().min(1).max(365),
+    })
+    .optional(),
 });
 
 export type SystemSettingsInput = z.infer<typeof systemSettingsSchema>;

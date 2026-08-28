@@ -132,6 +132,7 @@ export interface SettingsCopy {
     whishHint: string;
     whishNumber: string;
     invalidRate: string;
+    invalidDueDays: string;
     invalidExchange: string;
   };
   numbering: {
@@ -367,9 +368,9 @@ const AR: SettingsCopy = {
     loadError: 'تعذّر تحميل الإعدادات.',
     saveError: 'تعذّر حفظ الإعدادات.',
     unsavedChanges: 'لديك تغييرات غير محفوظة.',
-    notConnected: 'غير موصول بالخادم بعد',
+    notConnected: 'محفوظ على هذا المتصفح',
     notConnectedHint:
-      'تُحفظ هذه الإعدادات على هذا المتصفح فقط إلى أن تُضاف نقاط الحفظ على الخادم.',
+      'سجل النسخ يخصّ هذا الجهاز — الأرشيف نُزّل إليه، فلا يظهر لموظف آخر. باقي الإعدادات محفوظة على الخادم ويراها الجميع.',
     storedLocally: 'محفوظ محلياً',
   },
   profile: {
@@ -451,6 +452,7 @@ const AR: SettingsCopy = {
     whishHint: 'الرقم الذي يحوّل إليه المواطن. يبقى الخيار مخفياً إن تُرك فارغاً.',
     whishNumber: 'رقم Whish Money',
     invalidRate: 'النسبة يجب أن تكون بين 0 و100.',
+    invalidDueDays: 'مهلة السداد يجب أن تكون عدداً صحيحاً بين 0 و365 يوماً.',
     invalidExchange: 'سعر الصرف يجب أن يكون أكبر من صفر.',
   },
   numbering: {
@@ -563,7 +565,7 @@ const AR: SettingsCopy = {
     keepCopiesHint: 'تُحذف الأقدم تلقائياً عند تجاوز العدد.',
     nextRun: 'التشغيل التالي',
     nextRunNever: 'لا تشغيل مجدول',
-    scheduleNotRun: 'الجدولة تُحفظ هنا، ولا يشغّلها الخادم بعد.',
+    scheduleNotRun: 'الجدولة محفوظة على الخادم، لكن لا توجد مهمة مجدولة تشغّلها بعد.',
     restoreHeading: 'الاستعادة',
     restoreHint: 'ارفع أرشيف ZIP من نسخة سابقة.',
     dropZone: 'اسحب ملف ZIP إلى هنا',
@@ -675,9 +677,9 @@ const EN: SettingsCopy = {
     loadError: 'Could not load settings.',
     saveError: 'Could not save settings.',
     unsavedChanges: 'You have unsaved changes.',
-    notConnected: 'Not yet connected to the server',
+    notConnected: 'Kept in this browser',
     notConnectedHint:
-      'These settings are kept in this browser until the matching server endpoints exist.',
+      'This history is specific to this machine — the archive was downloaded here, so another member of staff will not see it. Every other setting is saved on the server.',
     storedLocally: 'Stored locally',
   },
   profile: {
@@ -759,6 +761,7 @@ const EN: SettingsCopy = {
     whishHint: 'The number citizens transfer to. Left empty, the option stays hidden.',
     whishNumber: 'Whish Money number',
     invalidRate: 'The rate must be between 0 and 100.',
+    invalidDueDays: 'The payment term must be a whole number between 0 and 365 days.',
     invalidExchange: 'The exchange rate must be greater than zero.',
   },
   numbering: {
@@ -871,7 +874,7 @@ const EN: SettingsCopy = {
     keepCopiesHint: 'The oldest is deleted once the count is exceeded.',
     nextRun: 'Next run',
     nextRunNever: 'Nothing scheduled',
-    scheduleNotRun: 'The schedule is saved here; no server job runs it yet.',
+    scheduleNotRun: 'The schedule is saved on the server, but no scheduled job runs it yet.',
     restoreHeading: 'Restore',
     restoreHint: 'Upload a ZIP archive from an earlier backup.',
     dropZone: 'Drop a ZIP file here',

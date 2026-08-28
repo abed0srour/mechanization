@@ -470,6 +470,79 @@ model SystemSettings {
   /// no link can; the sender is whichever account the browser is signed into.
   whatsappNumber String?
 
+  // ── Municipality profile ────────────────────────────────────────────────
+  //
+  // The name is duplicated from the *registry* rather than read from it. The
+  // registry row is what routes a request to this schema and is owned by
+  // whoever provisions municipalities; this is what the municipality prints on
+  // its own documents, and an administrator must be able to fix a misspelling
+  // on their receipts without an operator editing the routing table.
+  nameAr String?
+  nameEn String?
+
+  contactEmail String?
+  website      String?
+
+  /// Administrative location as it appears on official records. Free text, not
+  /// a foreign key: Lebanon's caza boundaries are a political fact this system
+  /// has no business asserting a canonical list of.
+  governorate String?
+  district    String?
+  town        String?
+
+  /// The crest, inlined.
+  ///
+  /// A data URI rather than a URL because this deployment has no object store
+  /// to hold the file and nothing to serve it from. Capped at 512 KB by the
+  /// schema on the way in, and deliberately excluded from the settings payload
+  /// citizens receive — see `FeesService.getSettings`, which only includes it
+  /// for staff. Returning half a megabyte of base64 on the pay dialog of every
+  /// citizen on a 3G connection is the failure this avoids.
+  logoDataUri String?
+
+  // ── Finance defaults ────────────────────────────────────────────────────
+  //
+  // Every field here is a *default* applied when a fee is issued. Nothing
+  // re-prices an existing debt: a CitizenPayment denormalises its own amount
+  // precisely so that changing a rate cannot rewrite what a citizen already
+  // owes.
+  defaultFeeFrequency FeeFrequency @default(ANNUALLY)
+  defaultDueDays      Int          @default(30)
+
+  /// 'compact' | 'exact' — how large amounts render in tables and dashboards.
+  priceDisplay String @default("compact")
+
+  /// NUMERIC, not a float, even though the API hands it out as a JSON number:
+  /// this multiplies money the moment an issuer reads it, and the database is
+  /// the system of record for that. Anything computing a charge must read the
+  /// Decimal, never round-trip through the JSON.
+  defaultRatePercent Decimal @default(0) @db.Decimal(5, 2)
+
+  baseCurrency      String  @default("LBP")
+  secondaryCurrency String?
+
+  /// Units of `baseCurrency` per one unit of `secondaryCurrency`. Six decimal
+  /// places because the inverse of an LBP rate is a very small number.
+  exchangeRate          Decimal?  @db.Decimal(18, 6)
+  exchangeRateUpdatedAt DateTime?
+
+  // ── Configuration held as documents ─────────────────────────────────────
+
+  /// Per-document-type reference format: `{ invoice: { prefix, nextNumber,
+  /// padding }, … }`.
+  ///
+  /// JSON rather than a table because nothing allocates a number from it yet.
+  /// When an issuer does exist this must become its own table with a row per
+  /// document type and `SELECT … FOR UPDATE` around the increment — a JSON
+  /// blob cannot hand two concurrent requests two different invoice numbers,
+  /// and silently issuing the same reference twice is exactly the failure a
+  /// numbering scheme exists to prevent.
+  numberingSequences Json?
+
+  /// `{ frequency, timeOfDay, dayOfWeek, dayOfMonth, keepCopies }`. Read by
+  /// nothing yet; there is no scheduler process in this deployment.
+  backupSchedule Json?
+
   updatedAt   DateTime @updatedAt
   updatedById String?  @db.Uuid
 

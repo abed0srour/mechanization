@@ -9,8 +9,9 @@ import {
   logApiError,
   updateMunicipalitySettings,
 } from '@/lib/api-client';
-import { useSettingsSlice } from '@/lib/settings-store';
-import { CURRENCIES, CURRENCY_NAMES, type CurrencyCode, type SettingsCopy } from '@/lib/settings-i18n';
+import type { MunicipalitySettings } from '@/lib/api-client';
+import { CURRENCY_NAMES, type SettingsCopy } from '@/lib/settings-i18n';
+import { CURRENCY_CODES as CURRENCIES, type CurrencyCode } from '@mechanization/shared-schemas';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,19 +24,24 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { LocalOnlyNotice, SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
+import { SaveBar, SettingsCard, SettingsField, SettingsGrid } from './settings-ui';
 
 const FREQUENCIES = ['ONCE', 'MONTHLY', 'HALF_YEARLY', 'ANNUALLY'] as const;
 
-/** The one finance field the server already holds — see migration 0009. */
-interface ServerFinance {
+/**
+ * The finance form's working copy.
+ *
+ * The numeric fields are held as **strings** even though the endpoint takes
+ * numbers. A number in state cannot represent the states a text input passes
+ * through on the way to a value: `''` while it is being cleared, `'1.'` while a
+ * decimal is being typed. Parsing on each keystroke turns an emptied field into
+ * `0` under the cursor and makes the box impossible to type a new figure into.
+ * They are parsed once, at save, where a bad value is a validation error rather
+ * than a fight with the caret.
+ */
+interface FinanceDraft {
   whishMoneyNumber: string;
-}
-
-interface LocalFinance {
   defaultFrequency: (typeof FREQUENCIES)[number];
-  /** Days from issue to due date. Stored as a string: it is a text input, and
-   *  parsing on every keystroke makes an empty field impossible to type into. */
   dueDays: string;
   priceDisplay: 'compact' | 'exact';
   defaultRatePercent: string;
@@ -43,13 +49,12 @@ interface LocalFinance {
   /** `''` is "none" — a municipality quoting only in LBP is the common case. */
   secondaryCurrency: CurrencyCode | '';
   exchangeRate: string;
-  /** ISO timestamp of the last exchange-rate edit, or `''`. */
+  /** Read-only here: the server stamps it, and only when the rate changes. */
   exchangeRateUpdatedAt: string;
 }
 
-const EMPTY_SERVER: ServerFinance = { whishMoneyNumber: '' };
-
-const DEFAULT_LOCAL: LocalFinance = {
+const EMPTY: FinanceDraft = {
+  whishMoneyNumber: '',
   defaultFrequency: 'ANNUALLY',
   dueDays: '30',
   priceDisplay: 'compact',
@@ -59,6 +64,20 @@ const DEFAULT_LOCAL: LocalFinance = {
   exchangeRate: '',
   exchangeRateUpdatedAt: '',
 };
+
+function toDraft(settings: MunicipalitySettings): FinanceDraft {
+  return {
+    whishMoneyNumber: settings.whishMoneyNumber ?? '',
+    defaultFrequency: settings.defaultFeeFrequency,
+    dueDays: String(settings.defaultDueDays),
+    priceDisplay: settings.priceDisplay,
+    defaultRatePercent: String(settings.defaultRatePercent),
+    baseCurrency: settings.baseCurrency,
+    secondaryCurrency: settings.secondaryCurrency ?? '',
+    exchangeRate: settings.exchangeRate === null ? '' : String(settings.exchangeRate),
+    exchangeRateUpdatedAt: settings.exchangeRateUpdatedAt ?? '',
+  };
+}
 
 /** A round figure to demonstrate the rate against — never a stored value. */
 const RATE_PREVIEW_BASE = 1_000_000;
@@ -89,9 +108,14 @@ function formatAmount(amount: number, currency: CurrencyCode): string {
  * ledger has been misled into thinking they fixed something they did not, and
  * the fees already issued carry their own rate by design.
  *
- * The Whish number is the one field with a column behind it (it moved here from
- * the old flat settings form — it is a payment channel, not a contact detail).
- * The rest is browser-held; see `settings-store`.
+ * The Whish number moved here from the old flat settings form — it is a payment
+ * channel, not a contact detail. Everything else got its column in migration
+ * 0015 and saves through the same `PATCH /fees/settings`.
+ *
+ * `exchangeRateUpdatedAt` is never written by this form. The server stamps it,
+ * and only when the rate actually moves: a browser's clock is not evidence of
+ * when a value was accepted, and re-saving an unchanged rate must not make a
+ * month-old figure look refreshed.
  */
 export function FinanceSection({
   tenant,
@@ -106,24 +130,11 @@ export function FinanceSection({
 }) {
   const toast = useToast();
 
-  const [savedServer, setSavedServer] = useState<ServerFinance | null>(null);
-  const [server, setServer] = useState<ServerFinance>(EMPTY_SERVER);
+  const [saved, setSaved] = useState<FinanceDraft | null>(null);
+  const [local, setLocal] = useState<FinanceDraft>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const {
-    value: local,
-    setValue: setLocal,
-    persist: persistLocal,
-    hydrated,
-  } = useSettingsSlice<LocalFinance>(tenant, 'finance', DEFAULT_LOCAL);
-  const [savedLocal, setSavedLocal] = useState<LocalFinance>(DEFAULT_LOCAL);
-
-  useEffect(() => {
-    if (hydrated) setSavedLocal(local);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,9 +142,9 @@ export function FinanceSection({
       try {
         const result = await getMunicipalitySettings(tenant, token);
         if (cancelled) return;
-        const next: ServerFinance = { whishMoneyNumber: result.whishMoneyNumber ?? '' };
-        setSavedServer(next);
-        setServer(next);
+        const next = toDraft(result);
+        setSaved(next);
+        setLocal(next);
         setError(null);
       } catch (caught) {
         logApiError(caught);
@@ -153,14 +164,13 @@ export function FinanceSection({
   const rateValid = rate !== null && rate >= 0 && rate <= 100;
   const exchange = parseNumber(local.exchangeRate);
   const exchangeValid = !local.secondaryCurrency || (exchange !== null && exchange > 0);
+  const dueDays = parseNumber(local.dueDays);
+  const dueDaysValid = dueDays !== null && Number.isInteger(dueDays) && dueDays >= 0 && dueDays <= 365;
 
-  const dirty = useMemo(() => {
-    if (!savedServer || !hydrated) return false;
-    return (
-      JSON.stringify(server) !== JSON.stringify(savedServer) ||
-      JSON.stringify(local) !== JSON.stringify(savedLocal)
-    );
-  }, [server, savedServer, local, savedLocal, hydrated]);
+  const dirty = useMemo(
+    () => saved !== null && JSON.stringify(local) !== JSON.stringify(saved),
+    [local, saved],
+  );
 
   const save = useCallback(async () => {
     if (!rateValid) {
@@ -171,25 +181,32 @@ export function FinanceSection({
       toast.error(copy.finance.invalidExchange);
       return;
     }
+    if (!dueDaysValid) {
+      toast.error(copy.finance.invalidDueDays);
+      return;
+    }
 
     setSaving(true);
     try {
       const result = await updateMunicipalitySettings(tenant, token, {
-        whishMoneyNumber: server.whishMoneyNumber,
+        whishMoneyNumber: local.whishMoneyNumber,
+        defaultFeeFrequency: local.defaultFrequency,
+        defaultDueDays: dueDays,
+        priceDisplay: local.priceDisplay,
+        defaultRatePercent: rate,
+        baseCurrency: local.baseCurrency,
+        // `null`, not omitted: "no secondary currency" is a value to store, and
+        // leaving the key out would mean "keep whatever is there".
+        secondaryCurrency: local.secondaryCurrency === '' ? null : local.secondaryCurrency,
+        exchangeRate: local.secondaryCurrency === '' ? null : exchange,
       });
-      const nextServer: ServerFinance = { whishMoneyNumber: result.whishMoneyNumber ?? '' };
-      setSavedServer(nextServer);
-      setServer(nextServer);
-
-      // Stamped at save, not at keystroke: the timestamp answers "how stale is
-      // this rate", and a value typed but never saved has no staleness at all.
-      const rateChanged = local.exchangeRate !== savedLocal.exchangeRate;
-      const nextLocal: LocalFinance = rateChanged
-        ? { ...local, exchangeRateUpdatedAt: new Date().toISOString() }
-        : local;
-
-      persistLocal(nextLocal);
-      setSavedLocal(nextLocal);
+      // `exchangeRateUpdatedAt` comes back from the server, which stamps it and
+      // only when the rate actually moved — a browser clock is not evidence of
+      // when a value was accepted, and re-saving an unchanged rate must not
+      // make a month-old figure look fresh.
+      const next = toDraft(result);
+      setSaved(next);
+      setLocal(next);
       toast.success(copy.common.saved);
       setError(null);
     } catch (caught) {
@@ -203,20 +220,20 @@ export function FinanceSection({
   }, [
     tenant,
     token,
-    server,
     local,
-    savedLocal,
-    persistLocal,
+    rate,
+    exchange,
+    dueDays,
     rateValid,
     exchangeValid,
+    dueDaysValid,
     toast,
     copy,
   ]);
 
   const discard = useCallback(() => {
-    if (savedServer) setServer(savedServer);
-    setLocal(savedLocal);
-  }, [savedServer, savedLocal, setLocal]);
+    if (saved) setLocal(saved);
+  }, [saved]);
 
   const currencyNames = CURRENCY_NAMES[locale === 'en' ? 'en' : 'ar'];
   const rateCharge = rateValid ? (RATE_PREVIEW_BASE * (rate ?? 0)) / 100 : 0;
@@ -233,7 +250,6 @@ export function FinanceSection({
 
   return (
     <div className="space-y-6">
-      <LocalOnlyNotice copy={copy} />
 
       {error ? (
         <p
@@ -258,7 +274,7 @@ export function FinanceSection({
             <Select
               value={local.defaultFrequency}
               onValueChange={(next) =>
-                setLocal({ ...local, defaultFrequency: next as LocalFinance['defaultFrequency'] })
+                setLocal({ ...local, defaultFrequency: next as FinanceDraft['defaultFrequency'] })
               }
             >
               <SelectTrigger id="default-frequency">
@@ -295,7 +311,7 @@ export function FinanceSection({
             <Select
               value={local.priceDisplay}
               onValueChange={(next) =>
-                setLocal({ ...local, priceDisplay: next as LocalFinance['priceDisplay'] })
+                setLocal({ ...local, priceDisplay: next as FinanceDraft['priceDisplay'] })
               }
             >
               <SelectTrigger id="price-display">
@@ -510,8 +526,8 @@ export function FinanceSection({
               inputMode="tel"
               dir="ltr"
               className="text-start"
-              value={server.whishMoneyNumber}
-              onChange={(e) => setServer({ ...server, whishMoneyNumber: e.target.value })}
+              value={local.whishMoneyNumber}
+              onChange={(e) => setLocal({ ...local, whishMoneyNumber: e.target.value })}
             />
           </SettingsField>
         </div>

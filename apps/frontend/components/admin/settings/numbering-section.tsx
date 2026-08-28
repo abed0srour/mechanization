@@ -2,13 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FileText, Hash, TriangleAlert } from 'lucide-react';
-import { useSettingsSlice } from '@/lib/settings-store';
+import {
+  ApiRequestError,
+  getMunicipalitySettings,
+  logApiError,
+  updateMunicipalitySettings,
+} from '@/lib/api-client';
 import { SEQUENCE_KEYS, type SequenceKey, type SettingsCopy } from '@/lib/settings-i18n';
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { LocalOnlyNotice, SaveBar, SettingsCard, SettingsField } from './settings-ui';
+import { SaveBar, SettingsCard, SettingsField } from './settings-ui';
 
 /** One document type's reference format. Strings, because these are inputs. */
 interface Sequence {
@@ -55,36 +61,74 @@ function parseInteger(raw: string): number | null {
  * and the only way an administrator sees that before it is printed on a permit
  * is to be shown the result.
  *
- * Browser-held: there is no sequence table on the backend, and no issuer reads
- * these yet. What is configured here describes the intended format; wiring it
- * to document creation is a backend change, not a settings one.
+ * Saved to `system_settings.numberingSequences`, a `jsonb` column, and read
+ * back by this form and nothing else — no issuer allocates a number from it
+ * yet. That is also why it is JSON rather than a table: the moment something
+ * does allocate, this has to become a row per document type with
+ * `SELECT … FOR UPDATE` around the increment, because a JSON blob cannot hand
+ * two concurrent requests two different invoice numbers. Issuing one reference
+ * twice is exactly what a numbering scheme exists to prevent.
  */
 export function NumberingSection({
   tenant,
+  token,
   copy,
 }: {
   tenant: string;
+  token: string;
   copy: SettingsCopy;
 }) {
   const toast = useToast();
 
-  const {
-    value: sequences,
-    setValue: setSequences,
-    persist,
-    hydrated,
-  } = useSettingsSlice<NumberingSettings>(tenant, 'numbering', DEFAULTS);
-  const [saved, setSaved] = useState<NumberingSettings>(DEFAULTS);
+  const [sequences, setSequences] = useState<NumberingSettings>(DEFAULTS);
+  const [saved, setSaved] = useState<NumberingSettings | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (hydrated) setSaved(sequences);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await getMunicipalitySettings(tenant, token);
+        if (cancelled) return;
+        /*
+         * Merged over the defaults rather than used as-is. The column is
+         * nullable and its JSON was written by whatever version of this form
+         * last saved — a document type added since then would otherwise arrive
+         * `undefined` and turn its three controlled inputs uncontrolled.
+         */
+        const next = { ...DEFAULTS };
+        for (const key of SEQUENCE_KEYS) {
+          const stored = result.numberingSequences?.[key];
+          if (stored) {
+            next[key] = {
+              prefix: stored.prefix,
+              nextNumber: String(stored.nextNumber),
+              padding: String(stored.padding),
+            };
+          }
+        }
+        setSequences(next);
+        setSaved(next);
+        setError(null);
+      } catch (caught) {
+        logApiError(caught);
+        if (!cancelled) {
+          setError(caught instanceof ApiRequestError ? caught.message : copy.common.loadError);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenant, token, copy.common.loadError]);
 
   const dirty = useMemo(
-    () => hydrated && JSON.stringify(sequences) !== JSON.stringify(saved),
-    [sequences, saved, hydrated],
+    () => saved !== null && JSON.stringify(sequences) !== JSON.stringify(saved),
+    [sequences, saved],
   );
 
   /**
@@ -127,21 +171,59 @@ export function NumberingSection({
     [sequences, setSequences],
   );
 
-  const save = useCallback(() => {
+  const save = useCallback(async () => {
     if (invalid.size > 0) {
       toast.error(copy.common.saveError, { description: copy.numbering.invalidNext });
       return;
     }
+
     setSaving(true);
-    persist(sequences);
-    setSaved(sequences);
-    setSaving(false);
-    toast.success(copy.common.saved);
-  }, [invalid, sequences, persist, toast, copy]);
+    try {
+      // Parsed here, once, at the boundary — the inputs hold strings so that a
+      // half-typed number is representable while it is being typed.
+      const payload = Object.fromEntries(
+        SEQUENCE_KEYS.map((key) => [
+          key,
+          {
+            prefix: sequences[key].prefix,
+            nextNumber: Number(sequences[key].nextNumber),
+            padding: Number(sequences[key].padding),
+          },
+        ]),
+      ) as Record<SequenceKey, { prefix: string; nextNumber: number; padding: number }>;
+
+      await updateMunicipalitySettings(tenant, token, { numberingSequences: payload });
+      setSaved(sequences);
+      toast.success(copy.common.saved);
+      setError(null);
+    } catch (caught) {
+      logApiError(caught);
+      const message = caught instanceof ApiRequestError ? caught.message : copy.common.saveError;
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }, [tenant, token, invalid, sequences, toast, copy]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-[32rem] rounded-2xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <LocalOnlyNotice copy={copy} />
+      {error ? (
+        <p
+          role="alert"
+          className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+        >
+          {error}
+        </p>
+      ) : null}
 
       <SettingsCard
         icon={Hash}
@@ -273,8 +355,8 @@ export function NumberingSection({
         copy={copy}
         dirty={dirty}
         saving={saving}
-        onSave={save}
-        onDiscard={() => setSequences(saved)}
+        onSave={() => void save()}
+        onDiscard={() => saved && setSequences(saved)}
       />
     </div>
   );

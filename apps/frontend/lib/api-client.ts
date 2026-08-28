@@ -1,5 +1,13 @@
 import { IMPORT_BATCH_SIZE } from '@mechanization/shared-schemas';
-import type { CitizenImportResult, ImportRow } from '@mechanization/shared-schemas';
+import type {
+  BackupSchedule,
+  CitizenImportResult,
+  CurrencyCode,
+  FeeFrequency,
+  ImportRow,
+  NumberingSequence,
+  SequenceKey,
+} from '@mechanization/shared-schemas';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -900,6 +908,41 @@ export interface MunicipalitySettings {
   whishMoneyNumber: string | null;
   cashOfficeHours: string | null;
   cashOfficeAddress: string | null;
+
+  // ── Municipality profile ──────────────────────────────────────────────
+  nameAr: string | null;
+  nameEn: string | null;
+  contactEmail: string | null;
+  website: string | null;
+  governorate: string | null;
+  district: string | null;
+  town: string | null;
+  /**
+   * Absent — not null — for a citizen.
+   *
+   * The crest is a data URI in the hundreds of kilobytes, and this endpoint is
+   * read by everyone opening the pay dialog, so the server sends it to staff
+   * only. The key being missing rather than null is deliberate: a client can
+   * tell "not sent to you" from "no logo configured".
+   */
+  logoDataUri?: string | null;
+
+  // ── Finance defaults ──────────────────────────────────────────────────
+  defaultFeeFrequency: FeeFrequency;
+  defaultDueDays: number;
+  priceDisplay: 'compact' | 'exact';
+  /** Percent. Display only — anything charging money must read the server's
+   *  Decimal rather than this JSON number. */
+  defaultRatePercent: number;
+  baseCurrency: CurrencyCode;
+  secondaryCurrency: CurrencyCode | null;
+  exchangeRate: number | null;
+  /** Stamped server-side, and only when the rate actually changes. */
+  exchangeRateUpdatedAt: string | null;
+
+  numberingSequences: Record<SequenceKey, NumberingSequence> | null;
+  backupSchedule: BackupSchedule | null;
+
   updatedAt: string | null;
 }
 
@@ -908,17 +951,46 @@ export function getMunicipalitySettings(tenant: string, token: string) {
   return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', { token });
 }
 
-/** SUPER_ADMIN only, server-enforced. */
+/**
+ * SUPER_ADMIN only, server-enforced.
+ *
+ * Every field is optional and only what is sent is written — which is what
+ * lets one section of the settings screen save without clearing the fields
+ * owned by the five it did not render. An empty string clears a text field; a
+ * missing key leaves it alone. The two are not the same and the server does
+ * not treat them as such.
+ */
 export function updateMunicipalitySettings(
   tenant: string,
   token: string,
-  input: {
-    contactPhone?: string;
-    whatsappNumber?: string;
-    whishMoneyNumber?: string;
-    cashOfficeHours?: string;
-    cashOfficeAddress?: string;
-  },
+  input: Partial<{
+    contactPhone: string;
+    whatsappNumber: string;
+    whishMoneyNumber: string;
+    cashOfficeHours: string;
+    cashOfficeAddress: string;
+
+    nameAr: string;
+    nameEn: string;
+    contactEmail: string;
+    website: string;
+    governorate: string;
+    district: string;
+    town: string;
+    logoDataUri: string;
+
+    defaultFeeFrequency: FeeFrequency;
+    defaultDueDays: number;
+    priceDisplay: 'compact' | 'exact';
+    defaultRatePercent: number;
+    baseCurrency: CurrencyCode;
+    /** `null` clears it. Omitting leaves whatever is stored. */
+    secondaryCurrency: CurrencyCode | null;
+    exchangeRate: number | null;
+
+    numberingSequences: Record<SequenceKey, NumberingSequence>;
+    backupSchedule: BackupSchedule;
+  }>,
 ) {
   return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', {
     token,

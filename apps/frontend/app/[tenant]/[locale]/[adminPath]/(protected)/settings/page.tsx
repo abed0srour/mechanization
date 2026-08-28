@@ -164,7 +164,9 @@ export default function SettingsPage({
           {active === 'finance' ? (
             <FinanceSection tenant={tenant} token={token} locale={locale} copy={copy} />
           ) : null}
-          {active === 'numbering' ? <NumberingSection tenant={tenant} copy={copy} /> : null}
+          {active === 'numbering' ? (
+            <NumberingSection tenant={tenant} token={token} copy={copy} />
+          ) : null}
           {active === 'security' ? (
             <SecuritySection
               tenant={tenant}
