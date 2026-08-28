@@ -9,6 +9,7 @@ import {
   Hash,
   Settings as SettingsIcon,
   ShieldCheck,
+  UsersRound,
   type LucideIcon,
 } from 'lucide-react';
 import { loadSession } from '@/lib/session';
@@ -19,9 +20,10 @@ import { FinanceSection } from '@/components/admin/settings/finance-section';
 import { NumberingSection } from '@/components/admin/settings/numbering-section';
 import { SecuritySection } from '@/components/admin/settings/security-section';
 import { BackupSection } from '@/components/admin/settings/backup-section';
+import { UsersSection } from '@/components/admin/settings/users-section';
 import { cn } from '@/lib/utils';
 
-type SectionId = 'profile' | 'finance' | 'numbering' | 'security' | 'backup';
+type SectionId = 'profile' | 'finance' | 'numbering' | 'security' | 'backup' | 'users';
 
 interface SectionDef {
   id: SectionId;
@@ -42,6 +44,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'numbering', icon: Hash, label: (copy) => copy.nav.numbering },
   { id: 'security', icon: ShieldCheck, label: (copy) => copy.nav.security },
   { id: 'backup', icon: DatabaseBackup, label: (copy) => copy.nav.backup },
+  { id: 'users', icon: UsersRound, label: (copy) => copy.nav.users },
 ];
 
 /**
@@ -157,6 +160,9 @@ export default function SettingsPage({
           ) : null}
           {active === 'backup' ? (
             <BackupSection tenant={tenant} token={token} locale={locale} copy={copy} />
+          ) : null}
+          {active === 'users' ? (
+            <UsersSection tenant={tenant} token={token} copy={copy} />
           ) : null}
         </div>
       </div>

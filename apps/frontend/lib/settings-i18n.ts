@@ -254,6 +254,73 @@ export interface SettingsCopy {
     outcomeFailed: string;
     tables: Record<string, string>;
   };
+  users: {
+    title: string;
+    description: string;
+    heading: string;
+    hint: string;
+    addAccount: string;
+    search: string;
+    colName: string;
+    colEmail: string;
+    colRole: string;
+    colStatus: string;
+    colActions: string;
+    statusActive: string;
+    statusSuspended: string;
+    suspend: string;
+    reactivate: string;
+    empty: string;
+    emptySearch: string;
+    loadError: string;
+    rolesHeading: string;
+    rolesHint: string;
+    roleUnavailable: string;
+    roleUnavailableHint: string;
+    roleNames: Record<RoleKey, string>;
+    roleDuties: Record<RoleKey, string>;
+    newAccount: string;
+    newAccountHint: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    passwordHint: string;
+    role: string;
+    create: string;
+    creating: string;
+    created: string;
+    createFailed: string;
+    statusChanged: string;
+    incomplete: string;
+  };
+}
+
+/**
+ * The municipal roles this portal names, and how each maps onto the backend.
+ *
+ * `SUPER_ADMIN`, `AUDITOR` and `FIELD_INSPECTOR` are the only values the
+ * `StaffRole` enum accepts today (see the tenant Prisma schema), so accountant
+ * and clerk are named here but not assignable — adding them means a Postgres
+ * enum migration *and* a decision about what each may do at every `@Roles()`
+ * guard, which is a permissions question rather than a settings one. Listing
+ * them as unavailable is what makes that gap visible instead of leaving an
+ * administrator to guess which of three roles an accountant is supposed to get.
+ */
+export const ROLE_KEYS = ['admin', 'accountant', 'inspector', 'clerk', 'auditor'] as const;
+export type RoleKey = (typeof ROLE_KEYS)[number];
+
+export const ROLE_BACKEND_VALUE: Record<RoleKey, string | null> = {
+  admin: 'SUPER_ADMIN',
+  accountant: null,
+  inspector: 'FIELD_INSPECTOR',
+  clerk: null,
+  auditor: 'AUDITOR',
+};
+
+/** Backend enum value → the catalogue entry that names it. */
+export function roleKeyFor(backendRole: string): RoleKey | undefined {
+  return ROLE_KEYS.find((key) => ROLE_BACKEND_VALUE[key] === backendRole);
 }
 
 /** The documents this portal issues a reference number for. */
@@ -528,6 +595,59 @@ const AR: SettingsCopy = {
       settings: 'الإعدادات',
     },
   },
+  users: {
+    title: 'المستخدمون والأدوار',
+    description: 'حسابات الموظفين وصلاحية كل منهم.',
+    heading: 'الحسابات',
+    hint: 'كل من يملك حق الدخول إلى لوحة الإدارة.',
+    addAccount: 'حساب جديد',
+    search: 'ابحث بالاسم أو البريد…',
+    colName: 'الاسم',
+    colEmail: 'البريد الإلكتروني',
+    colRole: 'الدور',
+    colStatus: 'الحالة',
+    colActions: 'إجراءات',
+    statusActive: 'فعّال',
+    statusSuspended: 'موقوف',
+    suspend: 'إيقاف',
+    reactivate: 'إعادة تفعيل',
+    empty: 'لا حسابات بعد.',
+    emptySearch: 'لا نتائج مطابقة لبحثك.',
+    loadError: 'تعذّر تحميل الحسابات.',
+    rolesHeading: 'الأدوار المتاحة',
+    rolesHint: 'ما يستطيع صاحب كل دور فعله داخل النظام.',
+    roleUnavailable: 'غير متاح بعد',
+    roleUnavailableHint:
+      'هذا الدور غير موجود في قاعدة البيانات بعد — إضافته تحتاج ترحيلاً وتحديد صلاحياته على الخادم.',
+    roleNames: {
+      admin: 'مدير النظام',
+      accountant: 'محاسب',
+      inspector: 'مفتّش ميداني',
+      clerk: 'موظف إداري',
+      auditor: 'مدقّق',
+    },
+    roleDuties: {
+      admin: 'صلاحية كاملة: الموافقة النهائية، الإعدادات، وإدارة الحسابات.',
+      accountant: 'إصدار الرسوم وتأكيد الدفعات ومتابعة التحصيل.',
+      inspector: 'مراجعة الطلبات ميدانياً، دون الاطلاع على سجل النشاطات.',
+      clerk: 'إدخال بيانات المواطنين وتحديثها، دون البتّ في الطلبات.',
+      auditor: 'الاطلاع والمراجعة وتصدير البيانات، دون الموافقة النهائية.',
+    },
+    newAccount: 'إنشاء حساب جديد',
+    newAccountHint: 'يستطيع صاحب الحساب الدخول فور إنشائه.',
+    firstName: 'الاسم الأول',
+    lastName: 'الكنية',
+    email: 'البريد الإلكتروني',
+    password: 'كلمة المرور',
+    passwordHint: 'ثمانية أحرف على الأقل. سلّمها للموظف بوسيلة آمنة.',
+    role: 'الدور',
+    create: 'إنشاء الحساب',
+    creating: 'جارٍ الإنشاء…',
+    created: 'تم إنشاء الحساب.',
+    createFailed: 'تعذّر إنشاء الحساب.',
+    statusChanged: 'تم تحديث حالة الحساب.',
+    incomplete: 'أكمل الحقول الإلزامية.',
+  },
 };
 
 const EN: SettingsCopy = {
@@ -782,6 +902,59 @@ const EN: SettingsCopy = {
       audit: 'Activity log',
       settings: 'Settings',
     },
+  },
+  users: {
+    title: 'Users & roles',
+    description: 'Staff accounts and what each of them may do.',
+    heading: 'Accounts',
+    hint: 'Everyone who can sign in to the admin portal.',
+    addAccount: 'Add new account',
+    search: 'Search by name or email…',
+    colName: 'Name',
+    colEmail: 'Email',
+    colRole: 'Role',
+    colStatus: 'Status',
+    colActions: 'Actions',
+    statusActive: 'Active',
+    statusSuspended: 'Suspended',
+    suspend: 'Suspend',
+    reactivate: 'Reactivate',
+    empty: 'No accounts yet.',
+    emptySearch: 'No accounts match your search.',
+    loadError: 'Could not load accounts.',
+    rolesHeading: 'Available roles',
+    rolesHint: 'What the holder of each role can do in the system.',
+    roleUnavailable: 'Not available yet',
+    roleUnavailableHint:
+      'This role does not exist in the database yet — adding it needs a migration and a decision about its permissions on the server.',
+    roleNames: {
+      admin: 'Administrator',
+      accountant: 'Accountant',
+      inspector: 'Field inspector',
+      clerk: 'Clerk',
+      auditor: 'Auditor',
+    },
+    roleDuties: {
+      admin: 'Full access: final approval, settings, and account management.',
+      accountant: 'Issues fees, confirms payments, and follows up on collection.',
+      inspector: 'Reviews claims in the field, without access to the activity log.',
+      clerk: 'Enters and updates citizen records, without deciding claims.',
+      auditor: 'Reads, reviews, and exports data, without final approval.',
+    },
+    newAccount: 'Create a new account',
+    newAccountHint: 'The holder can sign in as soon as it is created.',
+    firstName: 'First name',
+    lastName: 'Last name',
+    email: 'Email',
+    password: 'Password',
+    passwordHint: 'At least eight characters. Hand it over by a secure route.',
+    role: 'Role',
+    create: 'Create account',
+    creating: 'Creating…',
+    created: 'Account created.',
+    createFailed: 'Could not create the account.',
+    statusChanged: 'Account status updated.',
+    incomplete: 'Fill in the required fields.',
   },
 };
 
