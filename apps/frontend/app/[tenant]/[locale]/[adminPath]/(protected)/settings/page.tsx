@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Building2,
   Coins,
+  DatabaseBackup,
   Hash,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -17,9 +18,10 @@ import { ProfileSection } from '@/components/admin/settings/profile-section';
 import { FinanceSection } from '@/components/admin/settings/finance-section';
 import { NumberingSection } from '@/components/admin/settings/numbering-section';
 import { SecuritySection } from '@/components/admin/settings/security-section';
+import { BackupSection } from '@/components/admin/settings/backup-section';
 import { cn } from '@/lib/utils';
 
-type SectionId = 'profile' | 'finance' | 'numbering' | 'security';
+type SectionId = 'profile' | 'finance' | 'numbering' | 'security' | 'backup';
 
 interface SectionDef {
   id: SectionId;
@@ -39,6 +41,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'finance', icon: Coins, label: (copy) => copy.nav.finance },
   { id: 'numbering', icon: Hash, label: (copy) => copy.nav.numbering },
   { id: 'security', icon: ShieldCheck, label: (copy) => copy.nav.security },
+  { id: 'backup', icon: DatabaseBackup, label: (copy) => copy.nav.backup },
 ];
 
 /**
@@ -151,6 +154,9 @@ export default function SettingsPage({
               locale={locale}
               copy={copy}
             />
+          ) : null}
+          {active === 'backup' ? (
+            <BackupSection tenant={tenant} token={token} locale={locale} copy={copy} />
           ) : null}
         </div>
       </div>

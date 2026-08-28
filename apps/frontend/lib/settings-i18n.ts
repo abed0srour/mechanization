@@ -205,6 +205,55 @@ export interface SettingsCopy {
     resultSuccess: string;
     resultFailed: string;
   };
+  backup: {
+    title: string;
+    description: string;
+    manualHeading: string;
+    manualHint: string;
+    backupNow: string;
+    backingUp: string;
+    includes: string;
+    backupDone: string;
+    backupFailed: string;
+    partial: string;
+    scheduleHeading: string;
+    scheduleHint: string;
+    frequency: string;
+    frequencyOff: string;
+    frequencyDaily: string;
+    frequencyWeekly: string;
+    frequencyMonthly: string;
+    timeOfDay: string;
+    dayOfWeek: string;
+    dayOfMonth: string;
+    keepCopies: string;
+    keepCopiesHint: string;
+    nextRun: string;
+    nextRunNever: string;
+    scheduleNotRun: string;
+    restoreHeading: string;
+    restoreHint: string;
+    dropZone: string;
+    dropZoneHint: string;
+    browse: string;
+    wrongFormat: string;
+    restoreSelected: string;
+    restoreDisabled: string;
+    clearFile: string;
+    historyHeading: string;
+    historyHint: string;
+    historyEmpty: string;
+    colWhen: string;
+    colAction: string;
+    colScope: string;
+    colSize: string;
+    colOutcome: string;
+    actionBackup: string;
+    actionRestore: string;
+    outcomeOk: string;
+    outcomeFailed: string;
+    tables: Record<string, string>;
+  };
 }
 
 /** The documents this portal issues a reference number for. */
@@ -422,6 +471,63 @@ const AR: SettingsCopy = {
     resultSuccess: 'ناجحة',
     resultFailed: 'فاشلة',
   },
+  backup: {
+    title: 'النسخ الاحتياطي والاستعادة',
+    description: 'تنزيل نسخة من بيانات البلدية، وجدولة النسخ، واستعادتها.',
+    manualHeading: 'نسخة احتياطية الآن',
+    manualHint: 'تُصدَّر الجداول ملفات CSV مجمّعة في أرشيف ZIP واحد يُنزَّل على جهازك.',
+    backupNow: 'أنشئ نسخة الآن',
+    backingUp: 'جارٍ التصدير…',
+    includes: 'الجداول المشمولة',
+    backupDone: 'تم إنشاء النسخة وتنزيلها.',
+    backupFailed: 'تعذّر إنشاء النسخة.',
+    partial: 'تعذّر تصدير بعض الجداول — الأرشيف ناقص.',
+    scheduleHeading: 'النسخ التلقائي',
+    scheduleHint: 'موعد تشغيل النسخ دون تدخّل.',
+    frequency: 'التكرار',
+    frequencyOff: 'معطّل',
+    frequencyDaily: 'يومياً',
+    frequencyWeekly: 'أسبوعياً',
+    frequencyMonthly: 'شهرياً',
+    timeOfDay: 'الساعة',
+    dayOfWeek: 'يوم الأسبوع',
+    dayOfMonth: 'يوم الشهر',
+    keepCopies: 'عدد النسخ المحفوظة',
+    keepCopiesHint: 'تُحذف الأقدم تلقائياً عند تجاوز العدد.',
+    nextRun: 'التشغيل التالي',
+    nextRunNever: 'لا تشغيل مجدول',
+    scheduleNotRun: 'الجدولة تُحفظ هنا، ولا يشغّلها الخادم بعد.',
+    restoreHeading: 'الاستعادة',
+    restoreHint: 'ارفع أرشيف ZIP من نسخة سابقة.',
+    dropZone: 'اسحب ملف ZIP إلى هنا',
+    dropZoneHint: 'أو اخترْه من جهازك',
+    browse: 'اختيار ملف',
+    wrongFormat: 'الملف ليس أرشيف ZIP.',
+    restoreSelected: 'بدء الاستعادة',
+    restoreDisabled: 'الاستعادة تحتاج نقطة خدمة على الخادم — غير متاحة بعد.',
+    clearFile: 'إزالة الملف',
+    historyHeading: 'سجل النسخ والاستعادة',
+    historyHint: 'العمليات التي جرت من هذا المتصفح.',
+    historyEmpty: 'لا عمليات بعد.',
+    colWhen: 'التاريخ والوقت',
+    colAction: 'العملية',
+    colScope: 'النطاق',
+    colSize: 'الحجم',
+    colOutcome: 'النتيجة',
+    actionBackup: 'نسخ احتياطي',
+    actionRestore: 'استعادة',
+    outcomeOk: 'ناجحة',
+    outcomeFailed: 'فاشلة',
+    tables: {
+      citizens: 'المواطنون',
+      staff: 'الموظفون',
+      fees: 'الرسوم',
+      payments: 'المدفوعات',
+      zones: 'القطاعات',
+      audit: 'سجل النشاطات',
+      settings: 'الإعدادات',
+    },
+  },
 };
 
 const EN: SettingsCopy = {
@@ -619,6 +725,63 @@ const EN: SettingsCopy = {
     colResult: 'Result',
     resultSuccess: 'Successful',
     resultFailed: 'Failed',
+  },
+  backup: {
+    title: 'Backup & restore',
+    description: 'Download a copy of the municipality data, schedule backups, and restore them.',
+    manualHeading: 'Back up now',
+    manualHint: 'Each table is exported as CSV and bundled into a single ZIP archive.',
+    backupNow: 'Back up now',
+    backingUp: 'Exporting…',
+    includes: 'Tables included',
+    backupDone: 'Backup created and downloaded.',
+    backupFailed: 'Could not create the backup.',
+    partial: 'Some tables could not be exported — the archive is incomplete.',
+    scheduleHeading: 'Automatic backups',
+    scheduleHint: 'When backups should run without anyone asking.',
+    frequency: 'Frequency',
+    frequencyOff: 'Off',
+    frequencyDaily: 'Daily',
+    frequencyWeekly: 'Weekly',
+    frequencyMonthly: 'Monthly',
+    timeOfDay: 'Time',
+    dayOfWeek: 'Day of week',
+    dayOfMonth: 'Day of month',
+    keepCopies: 'Copies to keep',
+    keepCopiesHint: 'The oldest is deleted once the count is exceeded.',
+    nextRun: 'Next run',
+    nextRunNever: 'Nothing scheduled',
+    scheduleNotRun: 'The schedule is saved here; no server job runs it yet.',
+    restoreHeading: 'Restore',
+    restoreHint: 'Upload a ZIP archive from an earlier backup.',
+    dropZone: 'Drop a ZIP file here',
+    dropZoneHint: 'or choose one from your computer',
+    browse: 'Choose file',
+    wrongFormat: 'That file is not a ZIP archive.',
+    restoreSelected: 'Start restore',
+    restoreDisabled: 'Restore needs a server endpoint — not available yet.',
+    clearFile: 'Remove file',
+    historyHeading: 'Backup & restore history',
+    historyHint: 'Operations run from this browser.',
+    historyEmpty: 'Nothing yet.',
+    colWhen: 'Date and time',
+    colAction: 'Operation',
+    colScope: 'Scope',
+    colSize: 'Size',
+    colOutcome: 'Outcome',
+    actionBackup: 'Backup',
+    actionRestore: 'Restore',
+    outcomeOk: 'Successful',
+    outcomeFailed: 'Failed',
+    tables: {
+      citizens: 'Citizens',
+      staff: 'Staff',
+      fees: 'Fees',
+      payments: 'Payments',
+      zones: 'Zones',
+      audit: 'Activity log',
+      settings: 'Settings',
+    },
   },
 };
 
