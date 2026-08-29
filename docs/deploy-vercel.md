@@ -13,6 +13,48 @@ commands are already set — do not override them in the dashboard.
 
 ---
 
+## 0. The scripted path
+
+`scripts/deploy-vercel.mjs` does everything in §1 and §2 in one run: creates
+both projects with the right root directories, uploads every environment
+variable, deploys both, and then corrects each side's URL for the other.
+
+```bash
+# PowerShell
+$env:VERCEL_TOKEN="..."; node scripts/deploy-vercel.mjs
+
+# bash
+VERCEL_TOKEN=... node scripts/deploy-vercel.mjs
+```
+
+Get the token from <https://vercel.com/account/tokens>.
+
+It reads `apps/backend/.env` and `apps/frontend/.env.local` directly, so the
+values it uploads are the ones you already have — nothing is copied into a new
+file. Three variables are overridden rather than carried across: `PORT` and
+`REDIS_URL` are dropped (the platform assigns the port; a `localhost` Redis
+cannot resolve from a function), and `CORS_ORIGINS`, `PUBLIC_API_URL` and
+`PUBLIC_PORTAL_URL` are computed from the two projects' real URLs. A
+`CRON_SECRET` is generated on the first run and appended to
+`apps/backend/.env` so it stays stable and works locally too.
+
+It also sets **`NODE_ENV=development`**. That is a decision, not a default:
+your `.env` has `OTP_ENABLED=false` and no SMS provider, and `env.schema.ts`
+refuses to boot in production in that state — correctly, since a phone number
+alone would then open a citizen record. **What this script produces is a
+staging deployment**: real database, real storage, real tokens, but citizen
+login is not protected by OTP. Do not point residents at it. Turning it into a
+production deployment means supplying `SMS_PROVIDER_API_KEY` and
+`SMS_PROVIDER_FALLBACK_API_KEY`, setting `OTP_ENABLED=true`, and flipping
+`NODE_ENV` — in that order, since the boot check enforces exactly it.
+
+Re-running the script is safe: projects and variables are upserted.
+
+The rest of this document is the manual equivalent, and the reference for what
+each variable is for.
+
+---
+
 ## 1. Create the API project
 
 1. **Add New → Project**, import `abed0srour/mechanization`.
