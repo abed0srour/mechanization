@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '../../../generated/tenant-client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WHISH_GATEWAY } from '../../../domain/interfaces/whish-gateway.interface';
 import type {
@@ -14,9 +15,17 @@ import type {
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
 import { ConflictError, NotFoundError, ValidationError } from '../../common/exceptions';
+import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
 
 /** Property categories that live on `PropertyEntry.propertyType`. */
 const PROPERTY_TYPE_CATEGORIES = new Set(['BUILDING', 'HOUSE', 'LAND', 'TENT']);
+
+/**
+ * Five minutes. Contact details and office hours change a few times a year,
+ * and a write drops the entry outright, so the TTL only bounds how long a
+ * change made *outside* this service could go unseen.
+ */
+const SETTINGS_CACHE_TTL_SECONDS = 300;
 
 /** Guards the period walk below against an unreachable target date. */
 const MAX_PERIOD_STEPS = 600;
@@ -120,6 +129,7 @@ export class FeesService {
     private readonly tenantContext: TenantContextService,
     private readonly events: EventEmitter2,
     @Inject(WHISH_GATEWAY) private readonly whish: WhishGateway,
+    private readonly cache: RedisCacheService,
   ) {}
 
   private get db() {
@@ -128,14 +138,35 @@ export class FeesService {
 
   // ───────────────────────────  Settings  ───────────────────────────
 
-  /**
-   * The municipality's payment configuration.
-   *
-   * Returns nulls rather than creating a row when unset: the portal hides the
-   * Whish option entirely without a number, and inventing a blank row here
-   * would make "never configured" indistinguishable from "deliberately empty".
-   */
-  async getSettings() {
+  /** Namespaced per tenant so one municipality's entry cannot serve another. */
+  private settingsCacheKey(includeLogo: boolean): string {
+    return `settings:${this.tenantContext.tenantSlug}:${includeLogo ? 'full' : 'lite'}`;
+  }
+
+  async getSettings(includeLogo = false) {
+    /*
+     * Cached, because this is the most-read row in the schema.
+     *
+     * The fees screen, the payments screen, every citizen profile and the
+     * citizen-facing pay dialog all read it on load, for a phone number and
+     * some opening hours that change a few times a year. Five minutes rather
+     * than the dashboard's sixty seconds for the same reason: nothing here is
+     * time-sensitive, and `updateSettings` drops the entry anyway, so an edit
+     * is visible immediately regardless of the TTL.
+     *
+     * Keyed on `includeLogo` so the cheap payload and the one carrying the
+     * crest cannot be served for one another.
+     */
+    const key = this.settingsCacheKey(includeLogo);
+    const cached = await this.cache.get<Awaited<ReturnType<FeesService['readSettings']>>>(key);
+    if (cached) return cached;
+
+    const settings = await this.readSettings(includeLogo);
+    await this.cache.set(key, settings, SETTINGS_CACHE_TTL_SECONDS);
+    return settings;
+  }
+
+  private async readSettings(includeLogo: boolean) {
     const row = await withConnectionRetry(() =>
       this.db.systemSettings.findFirst({ where: { singleton: true } }),
     );
@@ -146,6 +177,35 @@ export class FeesService {
       cashOfficeAddress: row?.cashOfficeAddress ?? null,
       contactPhone: row?.contactPhone ?? null,
       whatsappNumber: row?.whatsappNumber ?? null,
+
+      nameAr: row?.nameAr ?? null,
+      nameEn: row?.nameEn ?? null,
+      contactEmail: row?.contactEmail ?? null,
+      website: row?.website ?? null,
+      governorate: row?.governorate ?? null,
+      district: row?.district ?? null,
+      town: row?.town ?? null,
+      // `undefined` rather than null for a citizen: the key is absent, so a
+      // client cannot mistake "not sent to you" for "no logo configured".
+      logoDataUri: includeLogo ? (row?.logoDataUri ?? null) : undefined,
+
+      // The defaults here match the column defaults, so a municipality whose
+      // settings row predates this migration reads the same as one that has
+      // simply never opened the finance section.
+      defaultFeeFrequency: row?.defaultFeeFrequency ?? 'ANNUALLY',
+      defaultDueDays: row?.defaultDueDays ?? 30,
+      priceDisplay: row?.priceDisplay ?? 'compact',
+      // Decimal → number at the boundary, for JSON. Anything computing a charge
+      // must read the column, not this.
+      defaultRatePercent: row ? Number(row.defaultRatePercent) : 0,
+      baseCurrency: row?.baseCurrency ?? 'LBP',
+      secondaryCurrency: row?.secondaryCurrency ?? null,
+      exchangeRate: row?.exchangeRate == null ? null : Number(row.exchangeRate),
+      exchangeRateUpdatedAt: row?.exchangeRateUpdatedAt?.toISOString() ?? null,
+
+      numberingSequences: (row?.numberingSequences as SystemSettingsInput['numberingSequences']) ?? null,
+      backupSchedule: (row?.backupSchedule as SystemSettingsInput['backupSchedule']) ?? null,
+
       updatedAt: row?.updatedAt?.toISOString() ?? null,
     };
   }
@@ -153,8 +213,35 @@ export class FeesService {
   async updateSettings(input: SystemSettingsInput, actor: { id: string; role: string }) {
     // Empty string means "clear it", which has to reach the database as NULL —
     // otherwise the portal would print an empty Whish number as if it were one.
+    // `undefined` means "not sent", which Prisma leaves alone; that difference
+    // is what lets one section of the settings screen save without wiping the
+    // fields owned by the five it did not render.
     const blankToNull = (value: string | undefined) =>
       value === undefined ? undefined : value.trim() === '' ? null : value.trim();
+
+    /*
+     * Stamped here, not by the client.
+     *
+     * The timestamp answers "how stale is this rate", and a browser's clock is
+     * not evidence of when the server accepted a value — nor should a client be
+     * able to claim a rate was refreshed today by sending a date. Only a rate
+     * that actually changes moves it: re-saving the finance section with the
+     * same number must not make a month-old rate look current.
+     */
+    const previous =
+      input.exchangeRate === undefined
+        ? null
+        : await withConnectionRetry(() =>
+            this.db.systemSettings.findFirst({
+              where: { singleton: true },
+              select: { exchangeRate: true },
+            }),
+          );
+    const rateChanged =
+      input.exchangeRate !== undefined &&
+      (previous?.exchangeRate == null
+        ? input.exchangeRate !== null
+        : Number(previous.exchangeRate) !== input.exchangeRate);
 
     const data = {
       whishMoneyNumber: blankToNull(input.whishMoneyNumber),
@@ -162,6 +249,30 @@ export class FeesService {
       cashOfficeAddress: blankToNull(input.cashOfficeAddress),
       contactPhone: blankToNull(input.contactPhone),
       whatsappNumber: blankToNull(input.whatsappNumber),
+
+      nameAr: blankToNull(input.nameAr),
+      nameEn: blankToNull(input.nameEn),
+      contactEmail: blankToNull(input.contactEmail),
+      website: blankToNull(input.website),
+      governorate: blankToNull(input.governorate),
+      district: blankToNull(input.district),
+      town: blankToNull(input.town),
+      logoDataUri: blankToNull(input.logoDataUri),
+
+      defaultFeeFrequency: input.defaultFeeFrequency,
+      defaultDueDays: input.defaultDueDays,
+      priceDisplay: input.priceDisplay,
+      defaultRatePercent: input.defaultRatePercent,
+      baseCurrency: input.baseCurrency,
+      secondaryCurrency: input.secondaryCurrency,
+      exchangeRate: input.exchangeRate,
+      ...(rateChanged
+        ? { exchangeRateUpdatedAt: input.exchangeRate === null ? null : new Date() }
+        : {}),
+
+      numberingSequences: input.numberingSequences,
+      backupSchedule: input.backupSchedule,
+
       updatedById: actor.id,
     };
 
@@ -171,14 +282,29 @@ export class FeesService {
       update: data,
     });
 
+    /*
+     * Dropped before the read below, not left to expire.
+     *
+     * Both variants go: a clerk who saves and is then shown the value they
+     * replaced would reasonably conclude the save failed and do it again. Five
+     * minutes of that is worse than no cache at all, which is why the write
+     * path owns the invalidation rather than the TTL.
+     */
+    await this.cache.invalidatePrefix(`settings:${this.tenantContext.tenantSlug}:`);
+
     this.events.emit('settings.changed', {
       tenantSlug: this.tenantContext.tenantSlug,
       actorId: actor.id,
       actorRole: actor.role,
-      changed: Object.keys(data).filter((key) => key !== 'updatedById'),
+      // Only what was actually sent. Listing every column on every save would
+      // make the audit trail claim a clerk edited the exchange rate whenever
+      // they corrected a phone number.
+      changed: Object.entries(data)
+        .filter(([key, value]) => key !== 'updatedById' && value !== undefined)
+        .map(([key]) => key),
     });
 
-    return this.getSettings();
+    return this.getSettings(true);
   }
 
   // ──────────────────────────  Fee notices  ──────────────────────────
@@ -621,6 +747,78 @@ export class FeesService {
     return { id: created.id };
   }
 
+  /** The include this app always joins onto a `CitizenPayment` for admin use — kept
+   *  in one place so `getPaymentById` and `listAllPayments` read the identical shape. */
+  private readonly ADMIN_PAYMENT_INCLUDE = {
+    citizen: {
+      select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
+    },
+    collectedBy: { select: { firstName: true, lastName: true } },
+    feeNotice: { select: { frequency: true } },
+  } satisfies Prisma.CitizenPaymentInclude;
+
+  /** One row, in the shape the admin ledger and the settle page both read. */
+  private toAdminPaymentItem(
+    row: Prisma.CitizenPaymentGetPayload<{ include: FeesService['ADMIN_PAYMENT_INCLUDE'] }>,
+    now: Date,
+  ) {
+    return {
+      id: row.id,
+      title: row.title,
+      amount: Number(row.amount),
+      paidAmount: Number(row.paidAmount),
+      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
+      currency: row.currency,
+      dueDate: row.dueDate.toISOString(),
+      paymentStatus:
+        row.paymentStatus === 'UNPAID' && row.dueDate < now ? 'OVERDUE' : row.paymentStatus,
+      paymentMethod: row.paymentMethod,
+      whishTransactionRef: row.whishTransactionRef,
+      paidAt: row.paidAt?.toISOString() ?? null,
+      /**
+       * Exposed because `paidAt` is not the whole answer.
+       *
+       * `settle` stamps `paidAt` only when the invoice is *fully* covered
+       * (`paidAt: fullySettled ? new Date() : null`), so a part-payment — real
+       * money, taken at the counter — leaves it null. A transactions screen
+       * with a blank date on every partial is worse than useless, so the row
+       * carries its last-write time too and the UI falls back to it, labelled
+       * as approximate rather than passed off as the moment of payment.
+       */
+      updatedAt: row.updatedAt.toISOString(),
+      /** Set only on a COLLECTOR payment — who is holding the money. */
+      collectedByName: row.collectedBy
+        ? `${row.collectedBy.firstName} ${row.collectedBy.lastName}`.trim()
+        : null,
+      frequency: row.feeNotice?.frequency ?? null,
+      citizenId: row.citizen.id,
+      citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
+      citizenPhone: row.citizen.phone,
+      citizenReference: row.citizen.referenceNumber,
+    };
+  }
+
+  /**
+   * One invoice, loaded directly by id rather than found in an already-loaded
+   * list.
+   *
+   * Exists for تسجيل دفعة as a full page rather than a dialog: a page can be
+   * linked to, refreshed, or opened straight from a receipt or a citizen's
+   * profile, none of which carry the row in memory the way opening a dialog
+   * from a table does. Same shape as a row from `listAllPayments`, so the page
+   * and the ledger table render the payment identically.
+   */
+  async getPaymentById(id: string) {
+    const row = await withConnectionRetry(() =>
+      this.db.citizenPayment.findUnique({
+        where: { id },
+        include: this.ADMIN_PAYMENT_INCLUDE,
+      }),
+    );
+    if (!row) throw new NotFoundError('Payment', id);
+    return this.toAdminPaymentItem(row, new Date());
+  }
+
   /**
    * Every invoice in the municipality, newest obligation first.
    *
@@ -673,14 +871,26 @@ export class FeesService {
         : {}),
       ...(search
         ? {
-            citizen: {
-              OR: [
-                { firstName: { contains: search, mode: 'insensitive' as const } },
-                { lastName: { contains: search, mode: 'insensitive' as const } },
-                { referenceNumber: { contains: search, mode: 'insensitive' as const } },
-                { phone: { contains: search } },
-              ],
-            },
+            OR: [
+              { title: { contains: search, mode: 'insensitive' as const } },
+              { whishTransactionRef: { contains: search, mode: 'insensitive' as const } },
+              { id: { contains: search, mode: 'insensitive' as const } },
+              {
+                citizen: {
+                  OR: [
+                    { firstName: { contains: search, mode: 'insensitive' as const } },
+                    { middleName: { contains: search, mode: 'insensitive' as const } },
+                    { lastName: { contains: search, mode: 'insensitive' as const } },
+                    { referenceNumber: { contains: search, mode: 'insensitive' as const } },
+                    { phone: { contains: search } },
+                    { whatsapp: { contains: search } },
+                    { identityDocNumber: { contains: search, mode: 'insensitive' as const } },
+                    { residencyNumber: { contains: search, mode: 'insensitive' as const } },
+                    { civilRecordNumber: { contains: search, mode: 'insensitive' as const } },
+                  ],
+                },
+              },
+            ],
           }
         : {}),
     };
@@ -713,19 +923,7 @@ export class FeesService {
             : [{ paymentStatus: 'asc' }, { dueDate: 'asc' }, { id: 'asc' }],
           take,
           skip,
-          include: {
-            citizen: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                phone: true,
-                referenceNumber: true,
-              },
-            },
-            collectedBy: { select: { firstName: true, lastName: true } },
-            feeNotice: { select: { frequency: true } },
-          },
+          include: this.ADMIN_PAYMENT_INCLUDE,
         }),
         this.db.citizenPayment.count({ where }),
         /**
@@ -753,40 +951,7 @@ export class FeesService {
     );
 
     const now = new Date();
-    const items = rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      amount: Number(row.amount),
-      paidAmount: Number(row.paidAmount),
-      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
-      currency: row.currency,
-      dueDate: row.dueDate.toISOString(),
-      paymentStatus:
-        row.paymentStatus === 'UNPAID' && row.dueDate < now ? 'OVERDUE' : row.paymentStatus,
-      paymentMethod: row.paymentMethod,
-      whishTransactionRef: row.whishTransactionRef,
-      paidAt: row.paidAt?.toISOString() ?? null,
-      /**
-       * Exposed because `paidAt` is not the whole answer.
-       *
-       * `settle` stamps `paidAt` only when the invoice is *fully* covered
-       * (`paidAt: fullySettled ? new Date() : null`), so a part-payment — real
-       * money, taken at the counter — leaves it null. A transactions screen
-       * with a blank date on every partial is worse than useless, so the row
-       * carries its last-write time too and the UI falls back to it, labelled
-       * as approximate rather than passed off as the moment of payment.
-       */
-      updatedAt: row.updatedAt.toISOString(),
-      /** Set only on a COLLECTOR payment — who is holding the money. */
-      collectedByName: row.collectedBy
-        ? `${row.collectedBy.firstName} ${row.collectedBy.lastName}`.trim()
-        : null,
-      frequency: row.feeNotice?.frequency ?? null,
-      citizenId: row.citizen.id,
-      citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
-      citizenPhone: row.citizen.phone,
-      citizenReference: row.citizen.referenceNumber,
-    }));
+    const items = rows.map((row) => this.toAdminPaymentItem(row, now));
 
     const methodCount = (method: string) =>
       byMethod.find((group) => group.paymentMethod === method)?._count._all ?? 0;
@@ -1063,6 +1228,16 @@ export class FeesService {
 
   /** Headline numbers for the admin fee screen. */
   async summary() {
+    const key = `fees:summary:${this.tenantContext.tenantSlug}`;
+    const cached = await this.cache.get<{
+      unpaidTotal: number;
+      unpaidCount: number;
+      pendingReviewCount: number;
+      paidTotal: number;
+      paidCount: number;
+    }>(key);
+    if (cached) return cached;
+
     const [unpaid, pending, collected, settledCount] = await Promise.all([
       this.db.citizenPayment.aggregate({
         where: { paymentStatus: 'UNPAID' },
@@ -1080,7 +1255,7 @@ export class FeesService {
       this.db.citizenPayment.count({ where: { paymentStatus: 'PAID' } }),
     ]);
 
-    return {
+    const result = {
       unpaidTotal:
         Number(unpaid._sum.amount ?? 0) - Number(unpaid._sum.paidAmount ?? 0),
       unpaidCount: unpaid._count._all,
@@ -1088,5 +1263,7 @@ export class FeesService {
       paidTotal: Number(collected._sum.paidAmount ?? 0),
       paidCount: settledCount,
     };
+    await this.cache.set(key, result, 30);
+    return result;
   }
 }

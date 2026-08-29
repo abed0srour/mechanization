@@ -153,16 +153,21 @@ export function IssueFeeDialog({
   const set = (patch: Partial<IssueFeeValues>) =>
     setValues((previous) => ({ ...previous, ...patch }));
 
-  // Name or رقم مرجعي, because staff are handed one or the other depending on
-  // whether the citizen is standing at the counter or on the phone.
-  const matches = citizenQuery.trim()
+  const q = citizenQuery.trim().toLowerCase();
+  const digitsOnly = q.replace(/\D/g, '');
+  const matches = q
     ? citizens
         .filter(
           (row) =>
-            row.fullName.includes(citizenQuery.trim()) ||
-            (row.referenceNumber ?? '').toUpperCase().includes(citizenQuery.trim().toUpperCase()),
+            row.fullName.toLowerCase().includes(q) ||
+            (row.referenceNumber ?? '').toLowerCase().includes(q) ||
+            (row.phone ?? '').toLowerCase().includes(q) ||
+            (digitsOnly.length > 0 && (row.phone ?? '').replace(/\D/g, '').includes(digitsOnly)) ||
+            (row.whatsapp ?? '').toLowerCase().includes(q) ||
+            (row.identityDocNumber ?? '').toLowerCase().includes(q) ||
+            row.id.toLowerCase().includes(q),
         )
-        .slice(0, 6)
+        .slice(0, 8)
     : [];
 
   const chosen = citizens.find((row) => row.id === values.targetCitizenId);

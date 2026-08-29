@@ -4,6 +4,7 @@ import {
   ParcelRepository,
 } from '../../domain/interfaces/parcel-repository.interface';
 import { TenantContextService } from '../context/tenant-context.service';
+import { withConnectionRetry } from '../prisma/with-connection-retry';
 
 @Injectable()
 export class PrismaParcelRepository implements ParcelRepository {
@@ -14,13 +15,13 @@ export class PrismaParcelRepository implements ParcelRepository {
   }
 
   async count(): Promise<number> {
-    return this.db.parcel.count();
+    return withConnectionRetry(() => this.db.parcel.count());
   }
 
   async findByNumber(parcelNumber: string): Promise<ParcelLocation | null> {
-    const row = await this.db.parcel.findUnique({
-      where: { parcelNumber: parcelNumber.trim() },
-    });
+    const row = await withConnectionRetry(() =>
+      this.db.parcel.findUnique({ where: { parcelNumber: parcelNumber.trim() } }),
+    );
     return row ? toLocation(row) : null;
   }
 
@@ -30,7 +31,9 @@ export class PrismaParcelRepository implements ParcelRepository {
     const wanted = [...new Set(parcelNumbers.map((n) => n.trim()).filter(Boolean))];
     if (wanted.length === 0) return new Map();
 
-    const rows = await this.db.parcel.findMany({ where: { parcelNumber: { in: wanted } } });
+    const rows = await withConnectionRetry(() =>
+      this.db.parcel.findMany({ where: { parcelNumber: { in: wanted } } }),
+    );
     return new Map(rows.map((row) => [row.parcelNumber, toLocation(row)]));
   }
 

@@ -7,6 +7,7 @@ import type { LandType, OccupancyType, PropertyType, UnitType } from '@mechaniza
 import { checkPropertyNumber, type PropertyNumberCheck } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChoiceCard, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -100,6 +101,14 @@ export function PropertyCard({
 
   const set = (patch: Partial<PropertyDraft>) => onChange({ ...draft, ...patch });
 
+  /*
+   * Removal is confirmed in a dialog rather than `confirm()`. A property card
+   * can hold twenty filled fields and a set of units, and the browser's prompt
+   * says only "OK / Cancel" over an RTL form — it neither names which of
+   * several cards is about to go nor how much is in it.
+   */
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+
   const isBuilding = draft.propertyType === 'BUILDING';
   const units = draft.units ?? [];
 
@@ -137,9 +146,7 @@ export function PropertyCard({
           <Button
             variant="ghost"
             className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => {
-              if (confirm('هل أنت متأكد من حذف هذا العقار؟')) onRemove();
-            }}
+            onClick={() => setConfirmingRemove(true)}
           >
             حذف
           </Button>
@@ -353,6 +360,24 @@ export function PropertyCard({
           ) : null}
         </CardContent>
       )}
+
+      <ConfirmDialog
+        open={confirmingRemove}
+        onOpenChange={setConfirmingRemove}
+        title={`حذف العقار ${index + 1}؟`}
+        description={
+          <>
+            سيُحذف هذا العقار من النموذج بكل ما أُدخل فيه
+            {units.length > 0 ? ` و${units.length} وحدة داخله` : ''}. لن يُحفظ شيء حتى تُرسل
+            النموذج، فيمكنك إضافته من جديد.
+          </>
+        }
+        confirmLabel="حذف العقار"
+        onConfirm={() => {
+          setConfirmingRemove(false);
+          onRemove();
+        }}
+      />
     </Card>
   );
 }

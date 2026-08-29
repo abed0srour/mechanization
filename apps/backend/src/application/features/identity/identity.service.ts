@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import {
   PASSWORD_HASHER,
+  SUPABASE_AUTH_SERVICE,
   TOTP_SERVICE,
   USER_REPOSITORY,
 } from '../../../domain/interfaces/base-repository.interface';
@@ -11,6 +12,7 @@ import {
   PasswordHasher,
   TotpService,
 } from '../../../domain/interfaces/otp-repository.interface';
+import { SupabaseAuthService } from '../../../domain/interfaces/supabase-auth.interface';
 import {
   CitizenChoice,
   UserRepository,
@@ -29,6 +31,7 @@ export interface SessionClaims {
 
 export interface SessionResult {
   accessToken: string;
+  supabaseAccessToken?: string;
   expiresIn: string;
   user: { id: string; name: string; kind: 'STAFF' | 'CITIZEN'; role?: StaffRole };
 }
@@ -46,6 +49,7 @@ export class IdentityService {
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
     @Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher,
     @Inject(TOTP_SERVICE) private readonly totp: TotpService,
+    @Inject(SUPABASE_AUTH_SERVICE) private readonly supabaseAuth: SupabaseAuthService,
     private readonly otp: OtpService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
@@ -55,11 +59,7 @@ export class IdentityService {
   // ────────────────────────────  Staff  ────────────────────────────
 
   /**
-   * Email + password, then TOTP for SUPER_ADMIN.
-   *
-   * Every failure path returns the same message and does the same work: telling
-   * an attacker whether an email exists, or short-circuiting before the hash
-   * compare, turns this endpoint into an account-enumeration oracle.
+   * Email + password, authenticated strictly via Supabase Auth.
    */
   async loginStaff(input: {
     tenantSlug: string;
@@ -69,34 +69,43 @@ export class IdentityService {
     /** "تذكّرني على هذا الجهاز" — issues JWT_STAFF_REMEMBER_TTL instead of JWT_STAFF_TTL. */
     remember?: boolean;
     context: { ip?: string; userAgent?: string };
-  }): Promise<SessionResult | { status: 'TOTP_REQUIRED' }> {
-    const user = await this.users.findStaffByEmail(input.email.toLowerCase());
+  }): Promise<SessionResult> {
+    // 1. Authenticate with Supabase Auth (throws UnauthorizedError if invalid credentials)
+    const supabaseResult = await this.supabaseAuth.authenticateStaff(input.email, input.password);
+
+    // 2. Resolve staff profile in tenant database
+    let user = await this.users.findStaffByEmail(input.email.toLowerCase());
 
     if (!user) {
-      // Burn comparable time so a missing account is not faster than a wrong
-      // password.
-      await this.hasher.verify(input.password, DUMMY_HASH);
+      // User is verified in Supabase Auth — provision their profile in this municipality
+      const metadata = supabaseResult.user.userMetadata || {};
+      const userTenant = (metadata.tenantSlug as string) || input.tenantSlug;
+      const role = (metadata.role as StaffRole) || 'SUPER_ADMIN';
+      const firstName = (metadata.firstName as string) || 'مدير';
+      const lastName = (metadata.lastName as string) || 'النظام';
+
+      if (userTenant !== input.tenantSlug) {
+        throw new UnauthorizedError('هذا الحساب غير مسجّل في هذه البلدية');
+      }
+
+      const id = await this.users.createStaff({
+        tenantSlug: input.tenantSlug,
+        email: input.email.toLowerCase(),
+        passwordHash: '',
+        firstName,
+        lastName,
+        role,
+      });
+
+      user = await this.users.findById(id);
+    }
+
+    if (!user) {
       throw new UnauthorizedError('بيانات الدخول غير صحيحة');
     }
 
-    const passwordValid = await this.hasher.verify(input.password, user.passwordHash ?? '');
-    if (!passwordValid) {
-      throw new UnauthorizedError('بيانات الدخول غير صحيحة');
-    }
-
-    // Refuses a deactivated account, and refuses a SUPER_ADMIN who never
-    // finished TOTP enrolment.
+    // Refuses a deactivated account
     user.assertMayStartSession();
-
-    if (user.requiresTotp) {
-      if (!input.totpToken) {
-        // Password was right; the client now needs to collect the second factor.
-        return { status: 'TOTP_REQUIRED' };
-      }
-      if (!this.totp.verify(input.totpToken, user.totpSecret ?? '')) {
-        throw new UnauthorizedError('رمز التحقق غير صحيح');
-      }
-    }
 
     if (user.tenantSlug !== input.tenantSlug) {
       // A staff row from another municipality reaching this schema means the
@@ -115,6 +124,7 @@ export class IdentityService {
       role: user.role,
       tenantSlug: input.tenantSlug,
       remember: input.remember,
+      supabaseAccessToken: supabaseResult.accessToken,
     });
   }
 
@@ -333,6 +343,7 @@ export class IdentityService {
     tenantSlug: string;
     /** STAFF only — see loginStaff. */
     remember?: boolean;
+    supabaseAccessToken?: string;
   }): SessionResult {
     const claims: SessionClaims = {
       sub: input.id,
@@ -351,6 +362,7 @@ export class IdentityService {
 
     return {
       accessToken: this.jwt.sign(claims, { expiresIn }),
+      ...(input.supabaseAccessToken ? { supabaseAccessToken: input.supabaseAccessToken } : {}),
       expiresIn,
       user: { id: input.id, name: input.name, kind: input.kind, role: input.role },
     };

@@ -22,3 +22,5 @@ apps/backend/backups/*.json
 
 .DS_Store
 *.log
+*.bundle
+_to_delete/

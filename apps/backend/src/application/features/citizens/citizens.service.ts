@@ -178,8 +178,12 @@ export class CitizensService {
       ? Prisma.sql`AND (
           (u."firstName" || ' ' || COALESCE(u."middleName" || ' ', '') || u."lastName") ILIKE ${pattern}
           OR u.phone ILIKE ${pattern}
+          OR u.whatsapp ILIKE ${pattern}
           OR u."referenceNumber" ILIKE ${pattern}
           OR u."identityDocNumber" ILIKE ${pattern}
+          OR u."residencyNumber" ILIKE ${pattern}
+          OR u."civilRecordNumber" ILIKE ${pattern}
+          OR u.id::text ILIKE ${pattern}
         )`
       : Prisma.empty;
 

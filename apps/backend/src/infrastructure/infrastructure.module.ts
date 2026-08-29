@@ -8,6 +8,7 @@ import {
   PASSWORD_HASHER,
   REGISTRATION_REPOSITORY,
   SMS_SENDER,
+  SUPABASE_AUTH_SERVICE,
   TENANT_REPOSITORY,
   TOTP_SERVICE,
   USER_REPOSITORY,
@@ -31,6 +32,7 @@ import { PrismaZoneRepository } from './repositories/zone.repository';
 import { BcryptPasswordHasher } from './security/bcrypt-password.hasher';
 import { OtplibTotpService } from './security/totp.service';
 import { SmsProviderService } from './sms/sms-provider.service';
+import { SupabaseAuthServiceImpl } from './supabase/auth/supabase-auth.service';
 import { SupabaseStorageService } from './supabase/storage/supabase-storage.service';
 
 /**
@@ -59,6 +61,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     { provide: ZONE_REPOSITORY, useClass: PrismaZoneRepository },
 
     { provide: IMAGE_STORAGE_SERVICE, useClass: SupabaseStorageService },
+    { provide: SUPABASE_AUTH_SERVICE, useClass: SupabaseAuthServiceImpl },
     { provide: SMS_SENDER, useClass: SmsProviderService },
     { provide: WHISH_GATEWAY, useClass: WhishGatewayService },
     { provide: PASSWORD_HASHER, useClass: BcryptPasswordHasher },
@@ -79,6 +82,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     OTP_REPOSITORY,
     ZONE_REPOSITORY,
     IMAGE_STORAGE_SERVICE,
+    SUPABASE_AUTH_SERVICE,
     SMS_SENDER,
     WHISH_GATEWAY,
     PASSWORD_HASHER,

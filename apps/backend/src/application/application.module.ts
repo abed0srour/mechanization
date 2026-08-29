@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { OtpCleanupJob } from './background-jobs/otp-cleanup.job';
 import { RecurringBillingJob } from './background-jobs/recurring-billing.job';
 import { AuditService } from './features/audit/audit.service';
+import { BackupService } from './features/backup/backup.service';
 import { CadastreImportService } from './features/cadastre/cadastre-import.service';
 import { CitizensService } from './features/citizens/citizens.service';
 import { DocumentService } from './features/documents/document.service';
@@ -45,6 +46,7 @@ import { ZonesService } from './features/zones/zones.service';
     FeesService,
     StaffService,
     ZonesService,
+    BackupService,
     OtpCleanupJob,
     RecurringBillingJob,
   ],
@@ -61,6 +63,7 @@ import { ZonesService } from './features/zones/zones.service';
     FeesService,
     StaffService,
     ZonesService,
+    BackupService,
     RecurringBillingJob,
     JwtModule,
   ],

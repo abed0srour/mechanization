@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Loader2, Layers, Plus, Trash2, X } from 'lucide-react';
+import { Loader2, Plus, Trash2, X } from 'lucide-react';
 import {
   ApiRequestError,
   createZone,
@@ -19,6 +19,9 @@ import {
 import { clearSession, loadSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { ZoneModal, type ZoneFormValues } from '@/components/admin/zone-modal';
+import { DraggablePanel } from '@/components/admin/draggable-panel';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 
 const ZoneEditorMap = dynamic(
   () => import('@/components/admin/zone-editor-map').then((m) => m.ZoneEditorMap),
@@ -66,6 +69,9 @@ export default function ZonesPage({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  /** The sector whose deletion is being confirmed, or null. */
+  const [pendingDelete, setPendingDelete] = useState<ZoneSummary | null>(null);
+  const toast = useToast();
 
   const token = session?.accessToken ?? null;
   const canEdit = session?.user.role === 'SUPER_ADMIN';
@@ -235,61 +241,63 @@ export default function ZonesPage({
     }
   };
 
+  /*
+   * Confirmed because it is not undoable and the sector may carry hundreds of
+   * parcels a colleague assigned; the count is named so the cost is visible.
+   * In a dialog rather than `window.confirm`, which renders LTR over an RTL
+   * page and quotes the sector's Arabic name into a Latin-ordered sentence.
+   */
   const handleDelete = async (zone: ZoneSummary) => {
-    if (!token) return;
-    // Confirmed because it is not undoable and the sector may carry hundreds of
-    // parcels a colleague assigned; the count is named so the cost is visible.
-    const ok = window.confirm(
-      `حذف القطاع "${zone.name}"؟ سيتم إلغاء ربط ${zone.parcelCount} عقار به.`,
-    );
-    if (!ok) return;
-
+    if (!token) throw new Error('انتهت الجلسة.');
     try {
       await deleteZone(tenant, token, zone.id);
       if (editing?.id === zone.id) closeEditor();
       await reload();
-      setNotice('تم حذف القطاع');
+      toast.success('تم حذف القطاع', {
+        description: `${zone.name} — أصبح ${zone.parcelCount} عقار بلا قطاع.`,
+      });
     } catch (caught) {
-      setError(handleApiError(caught, 'تعذّر حذف القطاع.'));
+      const message = handleApiError(caught, 'تعذّر حذف القطاع.');
+      setError(message);
+      throw new Error(message);
     }
   };
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 border-b bg-background px-4 py-3">
-        <div className="space-y-1">
-          <h1 className="flex items-center gap-2 text-lg font-bold">
-            <Layers className="size-5 text-primary" aria-hidden />
-            إدارة القطاعات
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            قسّم عقارات البلدية إلى قطاعات إدارية على الخريطة
-          </p>
-        </div>
-        {canEdit && !editorOpen ? (
-          <Button onClick={startNew}>
-            <Plus className="size-4" aria-hidden />
-            قطاع جديد
-          </Button>
-        ) : null}
-      </header>
-
+      {/*
+        The page header is gone with the one button it held. «قطاع جديد» now
+        sits at the foot of the sector panel, next to the list it adds to,
+        rather than in a bar at the top of the screen that existed only to
+        carry it.
+      */}
       {error ? (
         <p role="alert" className="border-b bg-destructive/5 px-4 py-2 text-sm text-destructive">
           {error}
         </p>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        {/* Sector list — a fixed rail beside the map, not a table page. */}
-        <aside className="flex w-72 shrink-0 flex-col border-e bg-background">
+      <div className="relative flex min-h-0 flex-1">
+        {/*
+          The sector list floats over the map and can be dragged out of the way.
+          As a fixed rail it covered whichever part of the town happened to be
+          behind it, and the only way to see under it was to pan the map — which
+          moves the thing being looked at.
+        */}
+        {/*
+          The drag bar carries the title, so the editor's own heading row is
+          gone — two headings stacked on a 288px panel was most of its top
+          third. The selected-parcel count survives as the line under it, which
+          is the part that actually changes while editing.
+        */}
+        <DraggablePanel
+          storageKey="zones-list"
+          title={editorOpen ? (editing ? `تعديل: ${editing.name}` : 'قطاع جديد') : 'القطاعات'}
+        >
           {editorOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="border-b px-4 py-3">
-                <p className="text-sm font-bold">
-                  {editing ? `تعديل: ${editing.name}` : 'قطاع جديد'}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+              <div className="border-b px-4 py-2">
+                <p className="text-xs text-muted-foreground">
                   {selectedParcels.length} عقار محدّد
                 </p>
               </div>
@@ -343,14 +351,12 @@ export default function ZonesPage({
                   جاري التحميل…
                 </div>
               ) : zones.length === 0 ? (
+                // No "create the first sector" button here any more: the same
+                // button now sits permanently at the panel's foot, and two of
+                // them a centimetre apart is not encouragement, it is doubt
+                // about which one does what.
                 <div className="p-6 text-center">
                   <p className="text-sm text-muted-foreground">لا توجد قطاعات بعد</p>
-                  {canEdit ? (
-                    <Button variant="outline" size="sm" className="mt-3" onClick={startNew}>
-                      <Plus className="size-4" aria-hidden />
-                      إنشاء أول قطاع
-                    </Button>
-                  ) : null}
                 </div>
               ) : (
                 <ul className="divide-y">
@@ -381,7 +387,7 @@ export default function ZonesPage({
                             variant="ghost"
                             size="icon"
                             className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => void handleDelete(zone)}
+                            onClick={() => setPendingDelete(zone)}
                             aria-label={`حذف ${zone.name}`}
                           >
                             <Trash2 className="size-3.5" aria-hidden />
@@ -392,9 +398,23 @@ export default function ZonesPage({
                   ))}
                 </ul>
               )}
+
+              {/*
+                At the foot of the list rather than in a page header: the button
+                that adds a sector belongs beside the sectors, and this is also
+                the one spot that stays put as the panel is dragged around.
+              */}
+              {canEdit ? (
+                <div className="sticky bottom-0 border-t bg-card p-3">
+                  <Button className="w-full" onClick={startNew}>
+                    <Plus className="size-4" aria-hidden />
+                    قطاع جديد
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )}
-        </aside>
+        </DraggablePanel>
 
         <div className="relative min-w-0 flex-1">
           {token ? (
@@ -409,11 +429,7 @@ export default function ZonesPage({
 
           {!editorOpen && !loading ? (
             <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
-              <p className="rounded-lg border bg-card/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur">
-                {canEdit
-                  ? 'اختر «قطاع جديد» أو «تعديل» لبدء تحديد العقارات'
-                  : 'عرض فقط — تعديل القطاعات متاح لمدير النظام'}
-              </p>
+
             </div>
           ) : null}
 
@@ -439,6 +455,27 @@ export default function ZonesPage({
         fieldErrors={fieldErrors}
         onSave={handleSave}
         onOpenChange={setModalOpen}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="حذف القطاع"
+        description={
+          pendingDelete ? (
+            <>
+              سيُحذف القطاع{' '}
+              <span className="font-semibold text-foreground">{pendingDelete.name}</span>، وسيصبح{' '}
+              {pendingDelete.parcelCount} عقار بلا قطاع. العقارات نفسها لا تتأثر.
+            </>
+          ) : null
+        }
+        confirmLabel="حذف القطاع"
+        onConfirm={async () => {
+          if (pendingDelete) await handleDelete(pendingDelete);
+        }}
       />
     </div>
   );

@@ -12,13 +12,6 @@ import { downloadFile, renderReceiptPdf, shareFile } from '@/lib/receipt-pdf';
 
 /**
  * A receipt number that is stable for a given payment.
- *
- * Derived rather than stored: reprinting the same settled invoice has to
- * produce the same number on the paper, or the municipality's copy and the
- * citizen's copy disagree. Storing one would be better — an incrementing
- * per-municipality series is what an auditor actually wants — but that is a
- * table and a sequence, and this derivation is honest in the meantime because
- * it is a pure function of the invoice it belongs to.
  */
 function receiptNumber(payment: CitizenProfilePayment): string {
   return payment.id.replace(/-/g, '').slice(0, 10).toUpperCase();
@@ -30,25 +23,42 @@ function whatsappNumber(raw: string | null): string | null {
   const digits = raw.replace(/\D/g, '');
   if (!digits) return null;
   if (digits.startsWith('961')) return digits;
-  // A local 8-digit number (03 123456 → 03123456) drops its leading zero and
-  // takes the country code; anything else is passed through as typed rather
-  // than mangled into a number that dials someone else.
   if (digits.startsWith('0')) return `961${digits.slice(1)}`;
   return digits.length <= 8 ? `961${digits}` : digits;
 }
 
 /**
- * وصل قبض — the municipality's cash receipt, laid out to match the printed
- * book it replaces.
- *
- * Laid out as HTML so the browser does the Arabic shaping, then turned into a
- * real PDF file on demand (see `lib/receipt-pdf.ts`) so it can be *attached*
- * to a WhatsApp message rather than merely described in one.
- *
- * Three ways out, in descending order of how much they do for the clerk:
- * share the PDF straight to WhatsApp via the OS share sheet; download the PDF;
- * or print it. The first is the only one that puts an actual document in the
- * citizen's chat — a `wa.me` link has a `text` parameter and nothing else.
+ * Official Republic of Lebanon Calligraphy SVG Vector Emblem.
+ */
+function LebaneseRepublicCalligraphy({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 240 60"
+      fill="currentColor"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="الجمهورية اللبنانية"
+    >
+      <text
+        x="50%"
+        y="50%"
+        dominantBaseline="central"
+        textAnchor="middle"
+        style={{
+          fontFamily: "'Amiri', 'Traditional Arabic', 'Scheherazade New', 'Noto Naskh Arabic', serif",
+          fontSize: '32px',
+          fontWeight: 'bold',
+          letterSpacing: '0.02em',
+        }}
+      >
+        الجمهورية اللبنانية
+      </text>
+    </svg>
+  );
+}
+
+/**
+ * وصل قبض / ايصال جباية — Official municipal collection receipt matching the official physical printed book.
  */
 export function PaymentReceipt({
   open,
@@ -58,7 +68,6 @@ export function PaymentReceipt({
   municipalityName,
   contactPhone,
   officeWhatsapp,
-  /** What was handed over now — may be less than the invoice's full amount. */
   receivedAmount,
 }: {
   open: boolean;
@@ -66,68 +75,44 @@ export function PaymentReceipt({
   citizen: CitizenProfile;
   payment: CitizenProfilePayment | null;
   municipalityName: string;
-  /** The municipality's own numbers, from إعدادات البلدية. */
   contactPhone?: string | null;
-  /**
-   * The office WhatsApp account.
-   *
-   * Printed on the receipt and quoted in the message, but it cannot make the
-   * message *come from* that account: a `wa.me` link names a recipient and has
-   * no sender field at all — WhatsApp sends as whichever account the browser
-   * or phone is signed into. Signing the message body is the mitigation.
-   */
   officeWhatsapp?: string | null;
   receivedAmount?: number;
 }) {
-  /** The node rasterised into the PDF — the receipt itself, not the dialog. */
   const printRef = React.useRef<HTMLDivElement>(null);
   const [busy, setBusy] = React.useState<null | 'share' | 'download'>(null);
   const [shareNote, setShareNote] = React.useState<string | null>(null);
 
-  // Hooks first, guard second: returning before them would change the hook
-  // count between renders the moment a payment is selected.
   if (!payment) return null;
 
   const amount = receivedAmount ?? payment.amount;
   const properties = citizen.registrations.flatMap((r) => r.properties);
   const property = properties[0] ?? null;
 
-  // The template's tick boxes, resolved from what the register actually holds.
+  // The template's tick boxes, resolved from register
   const isCommercial = properties.some(
-    (p) => p.unitType === 'SHOP' || p.units.some((u) => u.unitType === 'SHOP'),
+    (p) => p.unitType === 'SHOP' || p.units?.some((u) => u.unitType === 'SHOP'),
   );
-  const ticks = [
-    { label: 'سكني', on: !isCommercial },
-    { label: 'تجاري', on: isCommercial },
-    { label: 'ملك', on: property?.occupancyType === 'OWNER' },
-    { label: 'نازح', on: citizen.residentStatus === 'DISPLACED' },
-    { label: 'فئة الدم', on: false },
-  ];
+  const isOwner = property?.occupancyType === 'OWNER';
+  const isDisplaced = citizen.residentStatus === 'DISPLACED';
 
   const residentialUnits = properties.reduce(
     (total, p) =>
-      total + (p.units.filter((u) => u.unitType === 'APARTMENT').length || (p.unitType === 'APARTMENT' ? 1 : 0)),
+      total +
+      (p.units?.filter((u) => u.unitType === 'APARTMENT').length ||
+        (p.unitType === 'APARTMENT' ? 1 : 0)),
     0,
   );
   const shopUnits = properties.reduce(
     (total, p) =>
-      total + (p.units.filter((u) => u.unitType === 'SHOP').length || (p.unitType === 'SHOP' ? 1 : 0)),
+      total +
+      (p.units?.filter((u) => u.unitType === 'SHOP').length || (p.unitType === 'SHOP' ? 1 : 0)),
     0,
   );
 
   const tenantProperty = properties.find((p) => p.occupancyType === 'TENANT');
   const wa = whatsappNumber(citizen.whatsapp ?? citizen.phone);
 
-  /**
-   * WhatsApp carries the receipt's *text*, not the PDF.
-   *
-   * `wa.me` can only prefill a message — attaching a file is not something any
-   * link-based hand-off can do; that needs the WhatsApp Business Cloud API
-   * (a Meta app, a registered number, a media upload, a server-side token).
-   * So the clerk prints/saves the PDF here and sends this message alongside
-   * it, and the message is written to stand on its own if they never attach
-   * anything: it carries the receipt number, the amount and the balance.
-   */
   const message = [
     `بلدية ${municipalityName}`,
     `وصل قبض رقم ${receiptNumber(payment)}`,
@@ -141,28 +126,14 @@ export function PaymentReceipt({
       : 'تم تسديد كامل المبلغ. شكراً لكم.',
     '',
     `التاريخ: ${formatDate(new Date())}`,
-    // Signed with the office numbers: the message may well arrive from a
-    // clerk's personal account (a wa.me link cannot choose its sender), so
-    // the municipality has to identify itself in the body or the citizen has
-    // no idea who billed them.
     contactPhone ? `للاستفسار: ${contactPhone}` : null,
     officeWhatsapp ? `واتساب البلدية: ${officeWhatsapp}` : null,
   ]
     .filter(Boolean)
     .join('\n');
 
-  const waHref = wa
-    ? `https://wa.me/${wa}?text=${encodeURIComponent(message)}`
-    : null;
+  const waHref = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(message)}` : null;
 
-  /**
-   * Builds the PDF, then either shares it or saves it.
-   *
-   * The two paths differ only in what happens to the finished file, so they
-   * share the render: producing the PDF is the slow part (a full rasterise of
-   * the receipt at 2×), and doing it twice for "download then share" would be
-   * a visible pause each time.
-   */
   const handlePdf = async (mode: 'share' | 'download') => {
     const node = printRef.current;
     if (!node) return;
@@ -170,10 +141,7 @@ export function PaymentReceipt({
     setBusy(mode);
     setShareNote(null);
     try {
-      const file = await renderReceiptPdf(
-        node,
-        `وصل-${receiptNumber(payment)}.pdf`,
-      );
+      const file = await renderReceiptPdf(node, `وصل-${receiptNumber(payment)}.pdf`);
 
       if (mode === 'download') {
         downloadFile(file);
@@ -182,16 +150,6 @@ export function PaymentReceipt({
 
       if (await shareFile(file, message)) return;
 
-      /*
-       * No file sharing in this browser (Firefox, most desktop browsers with
-       * no share target). Falling back rather than failing: the clerk still
-       * gets the PDF and still gets WhatsApp open on the right conversation —
-       * they attach it themselves, which is one drag instead of nothing.
-       *
-       * The window is opened from inside the same click that started this,
-       * via the href the button already carries, because a `window.open` after
-       * an await has lost its user-gesture and is blocked as a popup.
-       */
       downloadFile(file);
       setShareNote(
         'متصفحك لا يدعم إرسال الملفات مباشرة. تم تنزيل الوصل — افتح واتساب وأرفقه بالرسالة.',
@@ -209,193 +167,265 @@ export function PaymentReceipt({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         closeLabel="إغلاق"
-        className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-3xl"
+        className="flex max-h-[94vh] flex-col gap-0 p-0 sm:max-w-4xl"
       >
-        {/* `receipt-print-area` is what the print stylesheet keeps; everything
-            else on the page — including this dialog's own chrome — is hidden. */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6 bg-muted/20">
+          {/* Printable Receipt Facsimile */}
           <div
             id="receipt-print-area"
             ref={printRef}
             dir="rtl"
-            className="mx-auto max-w-[700px] border-2 border-black bg-white p-6 text-black"
+            className="relative mx-auto min-w-[620px] max-w-[760px] bg-white p-4 text-black shadow-md select-none font-sans"
+            style={{
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08)',
+            }}
           >
-            <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
-              <p className="text-lg font-bold">ايصال جباية بدل النفايات</p>
-              <div className="text-center leading-tight">
-                <p className="text-sm font-bold">الجمهورية اللبنانية</p>
-                <p className="text-[11px]">وزارة الداخلية والبلديات ـ محافظة الجنوب</p>
-                <p className="text-[11px]">قائمقامية صــور</p>
-                <p className="mt-1 text-base font-bold">بلدية {municipalityName}</p>
-              </div>
-            </header>
+            {/* Outer Frame with Corner Ticks */}
+            <div className="relative border-2 border-black p-2 bg-white">
+              {/* Corner tick marks (Printing / Boundary Marks) */}
+              <div className="pointer-events-none absolute -top-3 -start-3 size-6 border-e-2 border-b-2 border-black" />
+              <div className="pointer-events-none absolute -top-3 -end-3 size-6 border-s-2 border-b-2 border-black" />
+              <div className="pointer-events-none absolute -bottom-3 -start-3 size-6 border-e-2 border-t-2 border-black" />
+              <div className="pointer-events-none absolute -bottom-3 -end-3 size-6 border-s-2 border-t-2 border-black" />
 
-            <Line label="إستلمنا من السيد/ السيدة" value={citizen.fullName} bold />
+              {/* Inner Solid Border */}
+              <div className="border-[2px] border-black p-5 sm:p-6 bg-white space-y-4">
+                {/* 1. Top Header */}
+                <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
+                  {/* Left Header Title */}
+                  <div className="text-center pt-2">
+                    <h2 className="text-xl sm:text-2xl font-black tracking-tight font-sans">
+                      ايصال جباية بدل النفايات
+                    </h2>
+                    <div className="w-16 h-[2px] bg-black mx-auto mt-1" />
+                  </div>
 
-            <div className="my-3 flex items-center gap-3">
-              <span className="shrink-0 text-sm font-bold">مبلغ وقدره :</span>
-              <span className="min-w-[190px] rounded-full border-2 border-black px-4 py-1 text-center font-bold tabular-nums">
-                {amount.toLocaleString('en-US')}
-              </span>
-              <span className="font-bold">ل.ل</span>
-              {/* The USD box exists on the printed book and is left blank —
-                  this system holds no USD figure, and printing a converted one
-                  would invent a rate nobody agreed. */}
-              <span className="min-w-[120px] rounded-full border-2 border-black px-4 py-1">
-                &nbsp;
-              </span>
-              <span className="font-bold">$</span>
-            </div>
+                  {/* Right Header: Republic of Lebanon Emblem & Municipality Details */}
+                  <div className="text-center space-y-0.5 leading-tight">
+                    <div className="flex justify-center -mb-1">
+                      <LebaneseRepublicCalligraphy className="h-9 w-44 text-black" />
+                    </div>
+                    <p className="text-xs font-bold text-black">
+                      وزارة الداخلية والبلديات ـ محافظة الجنوب
+                    </p>
+                    <p className="text-xs font-bold text-black">قائمقامية صور</p>
+                    <div className="pt-0.5">
+                      <span className="inline-block border-b-2 border-black pb-0.5 text-base sm:text-lg font-black text-black">
+                        بلدية {municipalityName || 'البازورية'}
+                      </span>
+                    </div>
+                  </div>
+                </header>
 
-            <div className="my-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-              {ticks.map((tick) => (
-                <span key={tick.label} className="flex items-center gap-1.5 text-sm">
-                  {tick.label}
-                  <span className="flex size-5 items-center justify-center border-2 border-black text-xs font-bold">
-                    {tick.on ? '✓' : ''}
+                {/* 2. Payer Section (إستلمنا من السيد/ السيدة) */}
+                <div className="flex items-center gap-3 pt-1">
+                  <span className="shrink-0 text-sm font-bold text-black whitespace-nowrap">
+                    إستلمنا من السيد/ السيدة:
                   </span>
-                </span>
-              ))}
+                  <div className="flex-1 bg-gray-200/90 h-9 px-4 flex items-center font-bold text-base text-black truncate">
+                    {citizen.fullName}
+                  </div>
+                </div>
+
+                {/* 3. Amount Section (مبلغ وقدره) */}
+                <div className="flex items-center gap-3 py-1">
+                  <span className="shrink-0 text-sm sm:text-base font-bold text-black whitespace-nowrap">
+                    مبلغ وقدره :
+                  </span>
+
+                  {/* LBP Capsule */}
+                  <div className="flex-1 max-w-[210px] h-9 rounded-full border-2 border-black px-3 flex items-center justify-center font-bold text-base tabular-nums text-black">
+                    {amount ? Number(amount).toLocaleString('en-US') : ''}
+                  </div>
+                  <span className="font-bold text-base text-black">L.L</span>
+
+                  {/* USD Capsule */}
+                  <div className="flex-1 max-w-[190px] h-9 rounded-full border-2 border-black px-3 flex items-center justify-center font-bold text-base tabular-nums text-black">
+                    {/* Blank on physical book */}
+                  </div>
+                  <span className="font-bold text-xl font-mono text-black">$</span>
+                </div>
+
+                {/* 4. Checkboxes Row */}
+                <div className="flex items-center justify-center gap-4 sm:gap-6 py-1.5 border-y border-black/20">
+                  <CheckboxItem label="سكني" checked={!isCommercial} />
+                  <CheckboxItem label="تجاري" checked={isCommercial} />
+                  <CheckboxItem label="ملك" checked={isOwner} />
+                  <CheckboxItem label="نازح" checked={isDisplaced} />
+                  <CheckboxItem label="فئة الدم" checked={false} />
+                </div>
+
+                {/* 5. Dotted Lines Property & Family Data */}
+                <div className="space-y-2 text-xs sm:text-sm font-bold text-black">
+                  {/* Row 1: Property and Neighborhood */}
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <DottedField
+                      label="رقم العقار"
+                      value={property?.propertyNumber}
+                      flex="flex-[1.2]"
+                    />
+                    <DottedField
+                      label="إسم المبنى"
+                      value={property?.buildingName}
+                      flex="flex-[1.5]"
+                    />
+                    <DottedField label="الحي" value={property?.neighborhood} flex="flex-[1]" />
+                    <DottedField
+                      label="المنطقة"
+                      value={municipalityName || 'البازورية'}
+                      flex="flex-[1]"
+                    />
+                  </div>
+
+                  {/* Row 2: Units and Family Count */}
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <DottedField
+                      label="عدد الوحدات السكنية"
+                      value={residentialUnits > 0 ? String(residentialUnits) : undefined}
+                      flex="flex-1"
+                    />
+                    <DottedField
+                      label="المحلات التابعة"
+                      value={shopUnits > 0 ? String(shopUnits) : undefined}
+                      flex="flex-1"
+                    />
+                    <DottedField
+                      label="عدد الأفراد المقيمين"
+                      value={citizen.familySize ? String(citizen.familySize) : undefined}
+                      flex="flex-1"
+                    />
+                  </div>
+
+                  {/* Row 3: Social Cases */}
+                  <div className="flex items-baseline gap-x-4">
+                    <DottedField
+                      label="الحالات الإجتماعية أن وجدت"
+                      value={
+                        citizen.maritalStatus
+                          ? (ar.maritalStatus?.[citizen.maritalStatus as never] ?? undefined)
+                          : undefined
+                      }
+                      flex="w-full"
+                    />
+                  </div>
+
+                  {/* Row 4: Landlord and Contact */}
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <DottedField
+                      label="اسم المالك بحال كان مستأجر"
+                      value={tenantProperty?.landlordName}
+                      flex="flex-[1.5]"
+                    />
+                    <DottedField label="الهاتف" value={citizen.phone} flex="flex-1" />
+                    <DottedField label="الواتسب" value={citizen.whatsapp} flex="flex-1" />
+                  </div>
+                </div>
+
+                {/* 6. Signatures Footer */}
+                <div className="pt-6 pb-2 grid grid-cols-3 gap-6 text-center text-xs sm:text-sm font-bold text-black">
+                  <div>
+                    <p className="font-bold">ملاحظات</p>
+                    <div className="w-24 sm:w-32 border-b-2 border-black mt-6 mx-auto" />
+                  </div>
+                  <div>
+                    <p className="font-bold">توقيع أمين الصندوق</p>
+                    <div className="w-24 sm:w-32 border-b-2 border-black mt-6 mx-auto" />
+                  </div>
+                  <div>
+                    <p className="font-bold">توقيع المكلف</p>
+                    <div className="w-24 sm:w-32 border-b-2 border-black mt-6 mx-auto" />
+                  </div>
+                </div>
+              </div>
             </div>
-
-            <Line
-              pairs={[
-                ['رقم العقار', property?.propertyNumber],
-                ['إسم المبنى', property?.buildingName],
-                ['الحي', property?.neighborhood],
-                ['المنطقة', municipalityName],
-              ]}
-            />
-            <Line
-              pairs={[
-                ['عدد الوحدات السكنية', residentialUnits || null],
-                ['المحلات التابعة', shopUnits || null],
-                ['عدد الافراد المقيمين', citizen.familySize],
-              ]}
-            />
-            <Line
-              pairs={[
-                [
-                  'الحالات الإجتماعية أن وجدت',
-                  citizen.maritalStatus
-                    ? (ar.maritalStatus?.[citizen.maritalStatus as never] ?? null)
-                    : null,
-                ],
-              ]}
-            />
-            <Line
-              pairs={[
-                ['اسم المالك بحال كان مستأجر', tenantProperty?.landlordName],
-                ['الهاتف', citizen.phone],
-                ['الواتسب', citizen.whatsapp],
-              ]}
-            />
-
-            <div className="mt-6 grid grid-cols-3 gap-4 text-center text-sm font-bold">
-              <div>
-                <p>ملاحظات</p>
-                <p className="mt-1 text-[11px] font-normal">
-                  وصل رقم {receiptNumber(payment)} — {payment.title}
-                </p>
-              </div>
-              <div>
-                <p>توقيع أمين الصندوق</p>
-                <p className="mx-auto mt-6 w-28 border-t border-black" />
-              </div>
-              <div>
-                <p>توقيع المكلف</p>
-                <p className="mx-auto mt-6 w-28 border-t border-black" />
-              </div>
-            </div>
-
-            <p className="mt-4 border-t border-black pt-2 text-center text-[11px]">
-              {contactPhone || officeWhatsapp ? (
-                <span dir="ltr" className="me-3">
-                  {[contactPhone, officeWhatsapp].filter(Boolean).join(' · ')}
-                </span>
-              ) : null}
-              التاريخ: {formatDate(new Date())}
-              {payment.remaining > 0
-                ? ` — دفعة جزئية، الرصيد المتبقي ${formatLbp(payment.remaining)}`
-                : ''}
-            </p>
           </div>
         </div>
 
-        <footer className="shrink-0 space-y-2 border-t p-4">
+        {/* Modal Action Buttons Footer */}
+        <footer className="shrink-0 space-y-2 border-t p-4 bg-card">
           {shareNote ? (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
               {shareNote}
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              <X className="size-4" aria-hidden />
-              إغلاق
-            </Button>
-            <Button variant="outline" onClick={() => window.print()}>
-              <Printer className="size-4" aria-hidden />
-              طباعة
-            </Button>
-            <Button variant="outline" onClick={() => void handlePdf('download')} disabled={busy !== null}>
-              {busy === 'download' ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Download className="size-4" aria-hidden />
-              )}
-              تنزيل PDF
-            </Button>
-            {/*
-              The headline action. It builds the PDF and hands the *file* to
-              the OS share sheet, which is where WhatsApp picks it up — the
-              only route by which a link-based flow can carry an attachment.
-              Where the browser cannot share files it degrades to
-              "download + open WhatsApp", explained in `shareNote` rather than
-              left for the clerk to work out.
-            */}
-            <Button onClick={() => void handlePdf('share')} disabled={busy !== null || !wa}>
-              {busy === 'share' ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <MessageCircle className="size-4" aria-hidden />
-              )}
-              إرسال الوصل PDF عبر واتساب
-            </Button>
-          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground font-mono">
+              رقم الوصل: {receiptNumber(payment)} • التاريخ: {formatDate(new Date())}
+            </span>
 
-          {!wa ? (
-            <p className="text-end text-xs text-muted-foreground">
-              لا يوجد رقم واتساب مسجّل لهذا المواطن — يمكنك تنزيل الوصل وإرساله يدوياً.
-            </p>
-          ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+                <X className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
+                إغلاق
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => window.print()}>
+                <Printer className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
+                طباعة الوصل
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handlePdf('download')}
+                disabled={busy !== null}
+              >
+                {busy === 'download' ? (
+                  <Loader2 className="size-4 animate-spin rtl:ml-1.5 ltr:mr-1.5" />
+                ) : (
+                  <Download className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
+                )}
+                تنزيل PDF
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handlePdf('share')}
+                disabled={busy !== null || !wa}
+              >
+                {busy === 'share' ? (
+                  <Loader2 className="size-4 animate-spin rtl:ml-1.5 ltr:mr-1.5" />
+                ) : (
+                  <MessageCircle className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
+                )}
+                إرسال عبر واتساب
+              </Button>
+            </div>
+          </div>
         </footer>
       </DialogContent>
     </Dialog>
   );
 }
 
-/** One dotted-underline row of the printed form. */
-function Line({
+/** Checkbox item matching the official template square boxes. */
+function CheckboxItem({ label, checked }: { label: string; checked: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-black">
+      <div className="size-5 border-2 border-black flex items-center justify-center font-black text-xs text-black">
+        {checked ? '✓' : ''}
+      </div>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/** Dotted line fillable row field matching the official municipal receipt format. */
+function DottedField({
   label,
   value,
-  pairs,
-  bold,
+  flex = 'flex-1',
 }: {
-  label?: string;
+  label: string;
   value?: React.ReactNode;
-  pairs?: Array<[string, React.ReactNode]>;
-  bold?: boolean;
+  flex?: string;
 }) {
-  const entries = pairs ?? [[label ?? '', value]];
   return (
-    <div className="flex flex-wrap items-end gap-x-4 gap-y-1 border-b border-dotted border-black py-1.5 text-sm">
-      {entries.map(([key, val]) => (
-        <span key={key} className="flex min-w-0 items-end gap-1">
-          <span className={bold ? 'font-bold' : 'font-semibold'}>{key} :</span>
-          <span className={bold ? 'font-bold' : ''}>{val ?? '—'}</span>
-        </span>
-      ))}
+    <div className={`flex items-baseline gap-1.5 ${flex} min-w-0`}>
+      <span className="shrink-0 text-xs sm:text-sm font-bold whitespace-nowrap text-black">
+        {label} :
+      </span>
+      <div className="flex-1 border-b-2 border-dotted border-black/80 px-1.5 min-h-[22px] flex items-center font-semibold text-xs sm:text-sm truncate text-black">
+        {value || ''}
+      </div>
     </div>
   );
 }

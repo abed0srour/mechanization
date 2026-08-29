@@ -1,77 +1,121 @@
 'use client';
 
-import { useEffect, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import {
-  ArrowLeftRight,
-  LayoutDashboard,
-  Map as MapIcon,
-  Layers,
-  ShieldCheck,
-  LogOut,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Languages,
-  Palette,
-  Receipt,
-  Settings,
-  Users,
-  UsersRound,
-} from 'lucide-react';
-import { clearSession, loadSession } from '@/lib/session';
-import { ThemeToggle } from '@/components/theme-toggle';
+import { usePathname } from 'next/navigation';
+import { ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { activeNavItem, visibleGroups, type NavItem } from '@/components/admin/nav';
 import { cn } from '@/lib/utils';
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-  /** Omitted = every staff role can see it. */
-  roles?: string[];
-}
-
-interface NavGroup {
-  /** Shown as a small caps heading; hidden entirely when the rail is folded. */
-  label: string;
-  items: NavItem[];
-}
-
 const COLLAPSE_STORAGE_KEY = 'mechanization.sidebar.collapsed';
+const GROUPS_STORAGE_KEY = 'mechanization.sidebar.groups';
 
 /**
- * Persistent admin navigation, replacing the row of cross-page links every
- * `[adminPath]` screen used to duplicate in its own header (each one
- * repeating "الخريطة" / "سجل النشاطات" / "رجوع إلى اللوحة" as its own button
- * row). One sidebar, one place that knows the section list and who can see
- * which — a page's header is left with only the actions specific to it.
+ * Which nav groups are folded away.
+ *
+ * A module-level store rather than `useState` inside `SidebarNav`, because that
+ * component is mounted twice at once: the rail is `hidden lg:flex`, so it stays
+ * in the DOM behind the drawer rather than unmounting. Two independent copies
+ * of this state means folding «الأرض» in the drawer on a tablet, then rotating
+ * to landscape, reveals a rail that never heard about it.
+ *
+ * Folded labels are stored rather than open ones so that a group added to
+ * `NAV_GROUPS` later starts open — the state is a set of exceptions, and the
+ * default is the useful one.
+ */
+const NO_GROUPS_FOLDED: ReadonlySet<string> = new Set<string>();
+let foldedGroups: ReadonlySet<string> = NO_GROUPS_FOLDED;
+let readFromStorage = false;
+const foldListeners = new Set<() => void>();
+
+function subscribeFolds(listener: () => void): () => void {
+  foldListeners.add(listener);
+  return () => {
+    foldListeners.delete(listener);
+  };
+}
+
+/**
+ * Hydrate once, on the first mount. The stored folds cannot be known while
+ * rendering on the server, so every group starts open and corrects itself here
+ * — the same trade the rail's own collapsed width makes below.
+ */
+function hydrateFolds(): void {
+  if (readFromStorage) return;
+  readFromStorage = true;
+  try {
+    const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+    if (!raw) return;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    foldedGroups = new Set(parsed.filter((entry): entry is string => typeof entry === 'string'));
+    for (const listener of foldListeners) listener();
+  } catch {
+    /* default: every group open */
+  }
+}
+
+function setGroupFolded(label: string, folded: boolean): void {
+  // `<details onToggle>` fires on mount as well as on a real click, so without
+  // this guard every page load rewrites storage and re-renders both instances
+  // for no change.
+  if (foldedGroups.has(label) === folded) return;
+  const next = new Set(foldedGroups);
+  if (folded) next.add(label);
+  else next.delete(label);
+  foldedGroups = next;
+  try {
+    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify([...next]));
+  } catch {
+    /* the fold still holds for this page load */
+  }
+  for (const listener of foldListeners) listener();
+}
+
+function useFoldedGroups(): ReadonlySet<string> {
+  useEffect(hydrateFolds, []);
+  return useSyncExternalStore(
+    subscribeFolds,
+    () => foldedGroups,
+    () => NO_GROUPS_FOLDED,
+  );
+}
+
+/**
+ * The navigation rail.
+ *
+ * It used to be the whole of the admin chrome — it also carried the theme
+ * toggle, the language switch and sign-out in its footer, because there was no
+ * header to put them in. There is one now (`AdminHeader`), and those three
+ * belong to the person rather than to the section list, so they moved there
+ * and this is navigation only.
+ *
+ * It also used to be a plain flex child that was always on screen at 256px,
+ * with no breakpoint anywhere in it. On a 390px phone that left 134px for the
+ * page — a table rendered into a gutter. Below `lg` this is no longer mounted
+ * as a rail at all: `AdminShell` renders the same `SidebarNav` in a drawer.
+ *
+ * `lg` rather than the `md` a marketing site would use. The content beside it
+ * is a wide RTL data table; at 768px a 256px rail leaves 512px, which is not
+ * enough for one and turns every table into a horizontal scroll hunt. A tablet
+ * gets the full width and reaches navigation through the drawer.
  */
 export function AdminSidebar({
   tenant,
   locale,
   adminPath,
+  role,
 }: {
   tenant: string;
   locale: string;
   adminPath: string;
+  role: string | undefined;
 }) {
-  const pathname = usePathname();
-  const router = useRouter();
   const base = `/${tenant}/${locale}/${adminPath}`;
-  const [role, setRole] = useState<string | undefined>();
   const [collapsed, setCollapsed] = useState(false);
 
-  // Re-read on every route change rather than once: signing out and back in
-  // as a different role (or a session expiring) should update which links
-  // show without requiring a full page reload.
-  useEffect(() => {
-    setRole(loadSession(tenant)?.user.role);
-  }, [tenant, pathname]);
-
   // Read on mount only. The rail's stored width cannot be known while
-  // rendering on the server, so it starts expanded and corrects itself here;
-  // the theme is no longer part of this — `ThemeToggle` owns its own state
-  // through the provider.
+  // rendering on the server, so it starts expanded and corrects itself here.
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem(COLLAPSE_STORAGE_KEY) === 'true');
@@ -80,9 +124,9 @@ export function AdminSidebar({
     }
   }, []);
 
-  function toggleCollapsed() {
-    setCollapsed((prev) => {
-      const next = !prev;
+  function toggleCollapsed(): void {
+    setCollapsed((previous) => {
+      const next = !previous;
       try {
         localStorage.setItem(COLLAPSE_STORAGE_KEY, String(next));
       } catch {
@@ -92,130 +136,30 @@ export function AdminSidebar({
     });
   }
 
-  function switchLanguage() {
-    const otherLocale = locale === 'ar' ? 'en' : 'ar';
-    // Swaps only the locale segment, so switching language keeps whatever
-    // page (and sub-route, e.g. a citizen's id) is currently open instead of
-    // bouncing back to the dashboard.
-    router.push(pathname.replace(`/${tenant}/${locale}/`, `/${tenant}/${otherLocale}/`));
-  }
-
-  function signOut() {
-    clearSession(tenant);
-    router.replace(`${base}/login`);
-  }
-
-  /**
-   * The sidebar, in three labelled groups.
-   *
-   * A flat list of eight was already at the edge of scannable, and every
-   * addition made it worse — «القطاعات» and «الموظفون» read as equally likely
-   * neighbours of «المواطنون» when they belong to different jobs entirely.
-   * Grouping puts the register and the money together, the map and its sectors
-   * together, and everything that administers the portal itself at the bottom.
-   *
-   * A group whose every item is filtered out by role renders nothing at all,
-   * heading included — an auditor should not see an «النظام» label with a gap
-   * under it.
-   */
-  const groups: NavGroup[] = [
-    {
-      label: 'السجل',
-      items: [
-        { href: `${base}/dashboard`, label: 'لوحة التحكم', icon: LayoutDashboard },
-        // Directly under the dashboard: the dashboard is the review queue — one
-        // row per طلب, ordered by what needs deciding — and this is the register
-        // it decides about, one row per person. Since the public wizard was
-        // removed, it is also where a citizen is created at all.
-        { href: `${base}/citizens`, label: 'المواطنون', icon: Users },
-        // Next to the registry rather than under settings: a fee is issued
-        // against the citizens on the dashboard, not configured in isolation.
-        { href: `${base}/fees`, label: 'الرسوم والمدفوعات', icon: Receipt },
-        // Directly under it, and read-only: the ledger above answers "who owes
-        // what", this answers "what has been paid". An auditor lives here.
-        {
-          href: `${base}/payments`,
-          label: 'سجل العمليات',
-          icon: ArrowLeftRight,
-          roles: ['SUPER_ADMIN', 'AUDITOR'],
-        },
-      ],
-    },
-    {
-      label: 'الأرض',
-      items: [
-        { href: `${base}/map`, label: 'الخريطة', icon: MapIcon },
-        { href: `${base}/zones`, label: 'القطاعات', icon: Layers },
-      ],
-    },
-    {
-      label: 'النظام',
-      items: [
-        { href: `${base}/appearance`, label: 'المظهر', icon: Palette },
-        {
-          href: `${base}/audit`,
-          label: 'سجل النشاطات',
-          icon: ShieldCheck,
-          roles: ['SUPER_ADMIN', 'AUDITOR'],
-        },
-        {
-          href: `${base}/settings`,
-          label: 'إعدادات البلدية',
-          icon: Settings,
-          // Every /fees/settings write is SUPER_ADMIN-guarded server-side; this
-          // keeps a page that can only refuse an auditor out of their sidebar.
-          roles: ['SUPER_ADMIN'],
-        },
-        {
-          href: `${base}/staff`,
-          label: 'الموظفون',
-          icon: UsersRound,
-          // Creating accounts is the privilege-escalation path in this system —
-          // every /staff route is SUPER_ADMIN-guarded server-side, and this
-          // keeps a page that can only refuse an auditor out of their sidebar.
-          roles: ['SUPER_ADMIN'],
-        },
-      ],
-    },
-  ];
-
-  /**
-   * Longest match wins.
-   *
-   * A plain `startsWith` lights up two rows wherever one route is a prefix of
-   * another — and `/citizens` is a prefix of nothing today but was one race
-   * away from it the moment a sub-route appeared.
-   */
-  const visible = groups.flatMap((group) =>
-    group.items.filter((item) => !item.roles || (role && item.roles.includes(role))),
-  );
-  const activeHref = visible
-    .map((item) => item.href)
-    .filter((href) => pathname === href || pathname?.startsWith(`${href}/`))
-    .sort((a, b) => b.length - a.length)[0];
-
   return (
     <aside
       className={cn(
-        'flex h-screen shrink-0 flex-col border-e bg-background transition-[width] duration-200',
+        'hidden h-screen shrink-0 flex-col border-e bg-card transition-[width] duration-200 lg:flex',
         collapsed ? 'w-[72px]' : 'w-64',
       )}
     >
+      {/* h-14 matches the header beside it, so the rail's rule and the
+          header's are one continuous line across the top of the app. */}
       <div
         className={cn(
-          'flex items-center gap-2.5 border-b px-4 py-4',
+          'flex h-14 shrink-0 items-center gap-2.5 border-b px-4',
           collapsed && 'justify-center px-2',
         )}
       >
         {!collapsed ? (
           <>
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <ShieldCheck className="size-5" aria-hidden />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">لوحة البلدية</p>
-              {role ? <p className="truncate text-xs text-muted-foreground">{role}</p> : null}
-            </div>
+            <span
+              aria-hidden
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+            >
+              <ShieldCheck className="size-[18px]" />
+            </span>
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold">لوحة البلدية</p>
           </>
         ) : null}
         <button
@@ -225,97 +169,165 @@ export function AdminSidebar({
           title={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
           className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
-          {collapsed ? (
-            <PanelLeftOpen className="size-5" />
-          ) : (
-            <PanelLeftClose className="size-5" />
-          )}
+          {collapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
         </button>
       </div>
 
-      <nav className="flex-1 space-y-4 overflow-y-auto p-3">
-        {groups.map((group) => {
-          const items = group.items.filter(
-            (item) => !item.roles || (role && item.roles.includes(role)),
-          );
-          if (items.length === 0) return null;
+      <SidebarNav base={base} role={role} collapsed={collapsed} />
+    </aside>
+  );
+}
 
+/**
+ * The grouped link list itself, shared by the desktop rail and the mobile
+ * drawer so the two can never drift.
+ *
+ * `onNavigate` is how the drawer closes on a tap: the rail passes nothing, the
+ * drawer passes its close handler. Doing it here rather than with a
+ * route-change effect inside the drawer means the panel starts closing on the
+ * press instead of after the next page has resolved — on a slow connection,
+ * the difference between a responsive tap and one that looks ignored.
+ */
+export function SidebarNav({
+  base,
+  role,
+  collapsed = false,
+  onNavigate,
+}: {
+  base: string;
+  role: string | undefined;
+  collapsed?: boolean;
+  onNavigate?: () => void;
+}) {
+  const pathname = usePathname();
+  const groups = visibleGroups(role);
+  const active = activeNavItem(pathname, base, role);
+  const folded = useFoldedGroups();
+
+  /*
+   * A folded group never hides where you actually are.
+   *
+   * Keyed on the group label rather than on the pathname, so this fires on a
+   * real section change and not on every navigation within one — which is what
+   * lets a clerk fold the group they are standing in and have it stay folded
+   * until they leave it.
+   */
+  const activeGroupLabel = groups.find((group) =>
+    group.items.some((item) => item.path === active?.path),
+  )?.label;
+  useEffect(() => {
+    if (activeGroupLabel) setGroupFolded(activeGroupLabel, false);
+  }, [activeGroupLabel]);
+
+  const renderItems = useCallback(
+    (items: NavItem[]) => (
+      <div className="space-y-0.5">
+        {items.map((item) => {
+          const href = `${base}${item.path}`;
+          const isActive = active?.path === item.path;
+          const Icon = item.icon;
           return (
-            <div key={group.label}>
-              {/* Folded, the heading would be a word in a 72px rail — the
-                  divider carries the grouping instead. */}
-              {collapsed ? (
-                <div aria-hidden className="mx-auto mb-2 h-px w-6 bg-border first:hidden" />
-              ) : (
-                <div className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-muted-foreground">
-                  {group.label}
-                </div>
+            <Link
+              key={item.path}
+              href={href}
+              onClick={onNavigate}
+              aria-current={isActive ? 'page' : undefined}
+              title={collapsed ? item.label : undefined}
+              className={cn(
+                // 44px tall below `lg` rather than the rail's 36: in the
+                // drawer these are thumb targets, not cursor targets.
+                'flex items-center gap-2.5 rounded-md px-2.5 py-2.5 text-sm transition-colors lg:py-2',
+                collapsed && 'justify-center px-0',
+                // A tinted row rather than a solid primary bar: with ten of
+                // these stacked, a filled block is the loudest thing on the
+                // page and pulls the eye off the content it introduces.
+                isActive
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
-
-              <div className="space-y-0.5">
-                {items.map((item) => {
-                  const active = item.href === activeHref;
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      aria-current={active ? 'page' : undefined}
-                      title={collapsed ? item.label : undefined}
-                      className={cn(
-                        'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
-                        collapsed && 'justify-center px-0',
-                        // A tinted row rather than a solid primary bar: with
-                        // eight of these stacked, a filled block reads as the
-                        // loudest thing on the page and pulls the eye away from
-                        // the content it was meant to introduce.
-                        active
-                          ? 'bg-primary/10 font-medium text-primary'
-                          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                      )}
-                    >
-                      <Icon className="size-[18px] shrink-0" />
-                      {!collapsed ? item.label : null}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
+            >
+              <Icon className="size-[18px] shrink-0" />
+              {!collapsed ? <span className="truncate">{item.label}</span> : null}
+            </Link>
           );
         })}
-      </nav>
-
-      <div className="space-y-1 border-t p-3">
-        {/* Full-width so the three segments line up with the nav rows above
-            rather than floating in the middle of the footer. */}
-        <ThemeToggle collapsed={collapsed} className={collapsed ? undefined : 'flex w-full'} />
-
-        <button
-          type="button"
-          onClick={switchLanguage}
-          title="لا يترجم النصوص بعد — يبدّل الاتجاه والتاريخ فقط"
-          className={cn(
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground',
-            collapsed && 'justify-center px-0',
-          )}
-        >
-          <Languages className="size-5 shrink-0" />
-          {!collapsed ? (locale === 'ar' ? 'English' : 'عربي') : null}
-        </button>
-
-        <button
-          type="button"
-          onClick={signOut}
-          title="تسجيل الخروج"
-          className={cn(
-            'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive',
-            collapsed && 'justify-center px-0',
-          )}
-        >
-          <LogOut className="size-5 shrink-0" />
-          {!collapsed ? 'تسجيل الخروج' : null}
-        </button>
       </div>
-    </aside>
+    ),
+    [active?.path, base, collapsed, onNavigate],
+  );
+
+  return (
+    <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+      {groups.map((group) => {
+        /* Folded to the icon rail, a heading is a word floating in 72px — the
+           divider carries the grouping instead. There is no heading left to
+           fold against, so the group stays open. */
+        if (collapsed) {
+          return (
+            <div key={group.label}>
+              <div aria-hidden className="mx-auto mb-2 h-px w-6 bg-border first:hidden" />
+              {renderItems(group.items)}
+            </div>
+          );
+        }
+
+        const isFolded = folded.has(group.label);
+        const holdsActive = group.items.some((item) => item.path === active?.path);
+
+        return (
+          /*
+           * `<details>` rather than a `useState` toggle and a hand-paired
+           * `aria-expanded` button, matching `CollapsibleSection`: browser
+           * find-in-page can open a folded group to reveal a match, the summary
+           * is keyboard operable with no `tabIndex` of ours, and — the reason
+           * it matters here specifically — the links inside a folded group
+           * leave the tab order without us tracking `inert` by hand.
+           */
+          <details
+            key={group.label}
+            open={!isFolded}
+            onToggle={(event) => setGroupFolded(group.label, !event.currentTarget.open)}
+            className="group/nav"
+          >
+            <summary
+              className={cn(
+                'flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1.5',
+                'text-[11px] font-semibold tracking-wider text-muted-foreground',
+                'transition-colors hover:bg-accent/50 hover:text-foreground',
+                // Safari still paints its own disclosure triangle without this.
+                '[&::-webkit-details-marker]:hidden',
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate">{group.label}</span>
+              {/* The one thing a folded group must still say: your current
+                  section is in here. Without it, folding «السجل» while on the
+                  dashboard leaves nothing on screen saying where you are. */}
+              {isFolded && holdsActive ? (
+                <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-primary" />
+              ) : null}
+              <ChevronDown
+                aria-hidden
+                className="size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-200 group-open/nav:rotate-180 motion-reduce:transition-none"
+              />
+            </summary>
+
+            {/* `grid-rows-[0fr]` → `[1fr]` animates a panel whose height nobody
+                has measured. The inner `min-h-0 overflow-hidden` is required:
+                without it the child refuses to shrink below its content height
+                and the animation does nothing at all. */}
+            <div
+              className={cn(
+                'grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none',
+                isFolded ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]',
+              )}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="pt-0.5">{renderItems(group.items)}</div>
+              </div>
+            </div>
+          </details>
+        );
+      })}
+    </nav>
   );
 }

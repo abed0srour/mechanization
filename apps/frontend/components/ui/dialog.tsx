@@ -40,7 +40,23 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-xl',
+        'fixed left-1/2 top-1/2 z-50 grid -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+        /*
+         * Fits the phone it opens on.
+         *
+         * This was `w-full max-w-lg p-6` with no height bound, which on a
+         * 360px screen meant a panel wider than the viewport — the 24px
+         * padding pushed its content edge past the screen — and, for anything
+         * taller than the screen (the citizen form, the fee issuance steps), a
+         * bottom half including the Save button that simply could not be
+         * reached: the overlay stops the page behind it from scrolling and the
+         * panel itself had no scroll of its own.
+         *
+         * `dvh` rather than `vh` so the bound survives a mobile browser's
+         * collapsing address bar; with `vh` the footer sits under the chrome
+         * until the first scroll.
+         */
+        'max-h-[calc(100dvh-2rem)] w-[calc(100vw-1.5rem)] max-w-lg overflow-y-auto rounded-xl p-4 sm:w-full sm:p-6',
         className,
       )}
       {...props}

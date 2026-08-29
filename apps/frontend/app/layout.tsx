@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'تسجيل العقارات — البلديات',
-  description: 'منصة تسجيل العقارات والوحدات السكنية للبلديات اللبنانية',
+  title: 'السجل البلدي — منصة العقارات والوحدات السكنية',
+  description: 'النظام الرسمي لتسجيل وحصر العقارات والوحدات السكنية للبلديات اللبنانية',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

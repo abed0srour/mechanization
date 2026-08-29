@@ -104,6 +104,38 @@ function columnPath(x: number, y: number, w: number, h: number, r = 4): string {
 const MAX_BAR = 24;
 const PLOT_H = 200;
 const AXIS_H = 30;
+
+/**
+ * Axis-label thinning.
+ *
+ * Every band used to get its own tick, which is correct only while a band is
+ * wider than the word under it. It is not on a phone: the six-month trend in a
+ * card on a 360px screen leaves each band about 43px, and these are Levantine
+ * month names — `ar-LB` renders even `month: 'short'` as «كانون الثاني», twelve
+ * characters and roughly 66px at 10px. Every label overlapped both neighbours,
+ * so the axis read as a smear rather than as six months.
+ *
+ * Estimated from the character count rather than measured with
+ * `canvas.measureText`, and deliberately: the labels are drawn in a webfont
+ * that may not have loaded when the first frame is measured, so an exact
+ * measurement against the fallback face is precise about the wrong number. The
+ * estimate is tuned to over-state width — at worst it thins one label more than
+ * strictly needed, which is legible, where under-stating collides, which is
+ * not.
+ *
+ * Nothing is lost to the reader: the hover target, its tooltip and the data
+ * table under `ChartCard` all still carry every bucket by name.
+ */
+const AXIS_LABEL_FONT_PX = 10; // matches the `text-[10px]` on the tick
+const AXIS_LABEL_EM = 0.55; // average Arabic glyph advance, rounded up
+const AXIS_LABEL_GUTTER = 8; // clear air between two neighbouring ticks
+
+function axisLabelStride(data: { label: string }[], band: number): number {
+  if (band <= 0 || data.length === 0) return 1;
+  const widest = data.reduce((max, datum) => Math.max(max, datum.label.length), 0);
+  const needed = widest * AXIS_LABEL_FONT_PX * AXIS_LABEL_EM + AXIS_LABEL_GUTTER;
+  return Math.max(1, Math.ceil(needed / band));
+}
 /** Radix-free hover card, positioned against the chart's own box. */
 interface HoverState {
   x: number;
@@ -301,6 +333,7 @@ export function ColumnChart({
   const ticks = niceTicks(max);
   const top = ticks[ticks.length - 1] || 1;
   const band = data.length > 0 ? plotW / data.length : 0;
+  const labelStride = axisLabelStride(data, band);
   const barW = Math.min(MAX_BAR, Math.max(band - 10, 4));
   // Guarded on length: reducing an empty array with `data[0]` as the seed
   // yields `undefined`, which is not `null` and would throw on `.label` below.
@@ -372,14 +405,16 @@ export function ColumnChart({
                     </text>
                   ) : null}
 
-                  <text
-                    x={bandX + band / 2}
-                    y={PLOT_H + 18}
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-[10px]"
-                  >
-                    {datum.label}
-                  </text>
+                  {index % labelStride === 0 ? (
+                    <text
+                      x={bandX + band / 2}
+                      y={PLOT_H + 18}
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[10px]"
+                    >
+                      {datum.label}
+                    </text>
+                  ) : null}
 
                   {/* The hit target is the whole band, not the bar: a 6px-tall
                       column is impossible to hover, and a target smaller than
@@ -474,6 +509,7 @@ export function GroupedColumnChart({
   const ticks = niceTicks(max);
   const top = ticks[ticks.length - 1] || 1;
   const band = data.length > 0 ? plotW / data.length : 0;
+  const labelStride = axisLabelStride(data, band);
 
   // The 2px surface gap between the two bars of a pair is what separates them;
   // never a stroke around each bar.
@@ -533,14 +569,16 @@ export function GroupedColumnChart({
                     );
                   })}
 
-                  <text
-                    x={bandX + band / 2}
-                    y={PLOT_H + 18}
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-[10px]"
-                  >
-                    {group.label}
-                  </text>
+                  {index % labelStride === 0 ? (
+                    <text
+                      x={bandX + band / 2}
+                      y={PLOT_H + 18}
+                      textAnchor="middle"
+                      className="fill-muted-foreground text-[10px]"
+                    >
+                      {group.label}
+                    </text>
+                  ) : null}
 
                   <rect
                     x={bandX}

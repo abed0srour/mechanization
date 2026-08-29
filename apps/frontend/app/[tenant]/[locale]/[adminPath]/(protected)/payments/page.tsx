@@ -45,7 +45,7 @@ import { cn } from '@/lib/utils';
 
 const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في العمليات',
-  searchPlaceholder: 'ابحث باسم الدافع أو رقمه المرجعي…',
+  searchPlaceholder: 'ابحث باسم الدافع، رقم الهاتف، الرقم المرجعي، أو رقم العملية…',
   clearSearch: 'مسح البحث',
   empty: 'لا توجد عمليات دفع بعد.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',
@@ -59,6 +59,9 @@ const TABLE_LABELS: DataTableLabels = {
   sortAscending: 'ترتيب تصاعدي',
   sortDescending: 'ترتيب تنازلي',
   sortNone: 'إلغاء الترتيب',
+  columns: 'الأعمدة',
+  columnsHint: 'الأعمدة الظاهرة',
+  resetColumns: 'استعادة الافتراضي',
 };
 
 /** The method filter, as a segmented row above the table. */
@@ -520,6 +523,7 @@ export default function PaymentsPage({
             columns={columns}
             data={items}
             labels={TABLE_LABELS}
+            columnStorageKey="payments"
             getRowId={(row) => row.id}
             loading={loading}
             error={error}

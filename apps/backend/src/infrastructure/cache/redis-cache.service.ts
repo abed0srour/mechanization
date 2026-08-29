@@ -2,41 +2,71 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
+interface MemoryCacheEntry {
+  value: unknown;
+  expiresAt: number;
+}
+
 /**
- * Thin read-through cache wrapper. `REDIS_URL` is optional (see env.schema.ts):
- * unset, every call is a no-op miss and reads fall straight through to
- * Postgres, so a dev environment without Redis still runs correctly — it just
- * does not get the cached fast path.
+ * Fast multi-tier cache service:
+ * - L1: In-memory Map cache with TTL and prefix invalidation (always active, ~0ms).
+ * - L2: Redis (optional, active when `REDIS_URL` is provided).
  *
- * Every method swallows its own errors rather than throwing: a cache is an
- * optimisation, and a Redis outage must degrade to "as fast as before", never
- * to "the dashboard is down".
+ * When Redis is unset or offline, L1 in-memory caching ensures that tenant lookups,
+ * dashboard metrics, settings, and queries are fast and cached.
  */
 @Injectable()
 export class RedisCacheService implements OnModuleDestroy {
   private readonly logger = new Logger(RedisCacheService.name);
   private readonly client: Redis | null;
+  private readonly memoryCache = new Map<string, MemoryCacheEntry>();
+  private readonly pruneTimer: NodeJS.Timeout;
 
   constructor(config: ConfigService) {
     const url = config.get<string>('REDIS_URL');
     if (!url) {
-      this.logger.warn('REDIS_URL not set — dashboard caching disabled, reads go straight to Postgres');
+      this.logger.log('REDIS_URL not set — using high-performance in-memory cache');
       this.client = null;
-      return;
+    } else {
+      this.client = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1 });
+      this.client.on('error', (error) => this.logger.error(`Redis error: ${error.message}`));
+      this.client.connect().catch((error: Error) => {
+        this.logger.error(`Redis connection failed: ${error.message}`);
+      });
     }
 
-    this.client = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1 });
-    this.client.on('error', (error) => this.logger.error(`Redis error: ${error.message}`));
-    this.client.connect().catch((error: Error) => {
-      this.logger.error(`Redis connection failed: ${error.message}`);
-    });
+    // Periodically prune expired items every 60 seconds
+    this.pruneTimer = setInterval(() => this.pruneExpired(), 60_000);
+    if (this.pruneTimer.unref) this.pruneTimer.unref();
+  }
+
+  private pruneExpired(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.memoryCache.entries()) {
+      if (entry.expiresAt <= now) {
+        this.memoryCache.delete(key);
+      }
+    }
   }
 
   async get<T>(key: string): Promise<T | null> {
+    const now = Date.now();
+    const mem = this.memoryCache.get(key);
+    if (mem) {
+      if (mem.expiresAt > now) {
+        return mem.value as T;
+      }
+      this.memoryCache.delete(key);
+    }
+
     if (!this.client) return null;
     try {
       const raw = await this.client.get(key);
-      return raw ? (JSON.parse(raw) as T) : null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as T;
+      // Populate L1 memory with remaining TTL (default 30s)
+      this.memoryCache.set(key, { value: parsed, expiresAt: now + 30_000 });
+      return parsed;
     } catch (error) {
       this.logger.warn(`GET ${key} failed: ${(error as Error).message}`);
       return null;
@@ -44,6 +74,9 @@ export class RedisCacheService implements OnModuleDestroy {
   }
 
   async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+    const expiresAt = Date.now() + ttlSeconds * 1000;
+    this.memoryCache.set(key, { value, expiresAt });
+
     if (!this.client) return;
     try {
       await this.client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
@@ -52,9 +85,17 @@ export class RedisCacheService implements OnModuleDestroy {
     }
   }
 
-  /** Invalidates every key under a tenant's namespace — used when a write makes
-   * cached dashboard projections stale, rather than tracking individual keys. */
+  /**
+   * Invalidates every key under a prefix across both L1 in-memory cache and Redis.
+   */
   async invalidatePrefix(prefix: string): Promise<void> {
+    // Invalidate L1 memory
+    for (const key of this.memoryCache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.memoryCache.delete(key);
+      }
+    }
+
     if (!this.client) return;
     try {
       const keys = await this.client.keys(`${prefix}*`);
@@ -65,6 +106,8 @@ export class RedisCacheService implements OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
+    clearInterval(this.pruneTimer);
+    this.memoryCache.clear();
     this.client?.disconnect();
   }
 }

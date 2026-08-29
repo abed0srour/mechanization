@@ -5,6 +5,7 @@ import type {
   ZoneRepository,
 } from '../../domain/interfaces/zone-repository.interface';
 import { TenantContextService } from '../context/tenant-context.service';
+import { withConnectionRetry } from '../prisma/with-connection-retry';
 
 @Injectable()
 export class PrismaZoneRepository implements ZoneRepository {
@@ -14,16 +15,25 @@ export class PrismaZoneRepository implements ZoneRepository {
     return this.tenantContext.prisma;
   }
 
+  /*
+   * The reads retry a dropped connection; the writes below deliberately do not.
+   *
+   * A P1001 means the statement never reached the server, so retrying a write
+   * would in fact be safe — but only for as long as that stays true of every
+   * error this helper matches, and a repository is the wrong place to be
+   * betting on that. Reads are where the failures were seen (the sector list
+   * and the map layer, on every page load) and where a retry is unarguable.
+   */
   async findAll(): Promise<Zone[]> {
-    return this.db.zone.findMany({ orderBy: { code: 'asc' } });
+    return withConnectionRetry(() => this.db.zone.findMany({ orderBy: { code: 'asc' } }));
   }
 
   async findById(id: string): Promise<Zone | null> {
-    return this.db.zone.findUnique({ where: { id } });
+    return withConnectionRetry(() => this.db.zone.findUnique({ where: { id } }));
   }
 
   async findByCode(code: string): Promise<Zone | null> {
-    return this.db.zone.findUnique({ where: { code } });
+    return withConnectionRetry(() => this.db.zone.findUnique({ where: { code } }));
   }
 
   /**

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Tenant, TenantConfig } from '../../domain/entities/tenant.entity';
 import { TenantRepository } from '../../domain/interfaces/tenant-repository.interface';
 import { RegistryPrismaService } from '../prisma/registry-prisma.service';
+import { withConnectionRetry } from '../prisma/with-connection-retry';
 
 type TenantRow = {
   id: string;
@@ -25,13 +26,22 @@ type TenantRow = {
 export class PrismaTenantRepository implements TenantRepository {
   constructor(private readonly registry: RegistryPrismaService) {}
 
+  /*
+   * Retried, because this is the query every other query waits behind:
+   * `TenantMiddleware` resolves the slug before any route runs, so one dropped
+   * connection here is a 500 on the whole portal rather than on one screen.
+   */
   async findBySlug(slug: string): Promise<Tenant | null> {
-    const row = await this.registry.tenant.findUnique({ where: { slug } });
+    const row = await withConnectionRetry(() =>
+      this.registry.tenant.findUnique({ where: { slug } }),
+    );
     return row ? this.toDomain(row) : null;
   }
 
   async findById(id: string): Promise<Tenant | null> {
-    const row = await this.registry.tenant.findUnique({ where: { id } });
+    const row = await withConnectionRetry(() =>
+      this.registry.tenant.findUnique({ where: { id } }),
+    );
     return row ? this.toDomain(row) : null;
   }
 

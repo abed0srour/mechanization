@@ -16,6 +16,30 @@ const badgeVariants = cva(
         outline: 'text-foreground',
         success: 'border-transparent bg-emerald-600 text-white hover:bg-emerald-600/80',
         warning: 'border-transparent bg-amber-500 text-white hover:bg-amber-500/80',
+
+        /*
+         * Soft variants.
+         *
+         * The six above are all *solid* — a saturated block carrying white
+         * text. That is right for a badge appearing once beside a heading, and
+         * wrong for the place badges are densest here: a column of them down a
+         * table, where twenty-five solid pills out-shout every name and number
+         * beside them and the eye lands on the colour instead of the row.
+         *
+         * These carry the same hue as a ~10% wash behind coloured text, so a
+         * state still reads at a glance without competing with the data. The
+         * solid set is untouched — nothing using it today changes.
+         *
+         * The dark-mode text steps up (`dark:text-*-400`): the 700 weights
+         * that clear 4.5:1 on the cream page fall under 3:1 on a dark card.
+         */
+        'soft-default': 'border-transparent bg-primary/10 text-primary',
+        'soft-success':
+          'border-transparent bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
+        'soft-warning': 'border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400',
+        'soft-destructive': 'border-transparent bg-destructive/10 text-destructive',
+        'soft-info': 'border-transparent bg-sky-500/10 text-sky-700 dark:text-sky-400',
+        'soft-muted': 'border-transparent bg-muted text-muted-foreground',
       },
     },
     defaultVariants: {

@@ -30,8 +30,12 @@ export function ZoneLegend({
   return (
     /* Physical right, below the registered-parcel counter. Not the logical
        `end-3`: under RTL that resolves to the left edge, where Mapbox's own
-       zoom and compass controls live, and the panel covered them. */
-    <div className="absolute right-3 top-24 z-10 w-56 overflow-hidden rounded-lg border bg-card/95 shadow-sm backdrop-blur">
+       zoom and compass controls live, and the panel covered them.
+
+       `top-32` below `sm`: the parcel-count box above drops to `top-16` there
+       to clear the search pill, which goes full-width on a narrow map, and at
+       `top-24` this panel would land on the counter in turn. */
+    <div className="absolute right-3 top-32 z-10 w-56 overflow-hidden rounded-lg border bg-card/95 shadow-sm backdrop-blur sm:top-24">
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
         <span className="flex items-center gap-1.5 text-sm font-bold">
           <Layers className="size-4 text-primary" aria-hidden />

@@ -36,7 +36,17 @@ export function PageHeader({
         <Icon className="size-5" />
       </span>
       <div className="min-w-0">
-        <h1 className="truncate text-xl font-bold leading-tight tracking-tight md:text-2xl">
+        {/*
+          Wraps on a phone, truncates from `sm` up.
+
+          `truncate` at every width clipped «تسجيل مواطن جديد» to «تسجيل مواطن
+          ج…» on a 390px screen — the page's own name, cut mid-word, at the
+          one width where the reader has the least other context about where
+          they are. Two lines cost less than that. From `sm` there is room for
+          the full title anyway, and truncation goes back to being the guard
+          against an unusually long one.
+        */}
+        <h1 className="text-xl font-bold leading-tight tracking-tight sm:truncate md:text-2xl">
           {title}
         </h1>
         {subtitle ? (

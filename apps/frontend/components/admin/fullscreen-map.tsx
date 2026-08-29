@@ -774,12 +774,34 @@ export function FullscreenMap({
   }, []);
 
   return (
-    <div className="relative h-full w-full">
+    /*
+      `data-sheet-open` while the parcel panel is showing.
+
+      On a phone that panel is a bottom sheet, and everything the map keeps at
+      its own bottom edge — the scale bar, the basemap switcher, and Mapbox's
+      attribution, which its terms require to stay visible — would sit behind
+      it. The rule in the style block below lifts them clear rather than
+      leaving a control that is present, unreachable and invisible.
+    */
+    <div
+      className="group/map relative h-full w-full"
+      data-sheet-open={selected ? "true" : undefined}
+    >
       <div ref={containerRef} className="h-full w-full" aria-label="خريطة العقارات" />
 
       {/* Search by رقم العقار — top-centre, clear of the nav control
-          (top-left), legend (top-right) and basemap switcher (bottom-centre). */}
-      <div className="absolute left-1/2 top-3 z-10 w-[min(22rem,calc(100%-1.5rem))] -translate-x-1/2">
+          (top-left), legend (top-right) and basemap switcher (bottom-centre).
+
+          That "clear of" holds only while the pill is at its 22rem cap. Below
+          about 606px it is `100% - 1.5rem` instead, wide enough to reach under
+          the count box pinned to the right edge — so the two overlaid each
+          other on every phone and on a small tablet in portrait. The boxes
+          below now stack under this one until `sm`, where the cap is back in
+          force and the original side-by-side arrangement fits again.
+
+          `z-20` so the match list this opens covers the boxes beneath it
+          rather than being covered by them. */}
+      <div className="absolute left-1/2 top-3 z-20 w-[min(22rem,calc(100%-1.5rem))] -translate-x-1/2">
         <div className="flex items-center gap-1 rounded-lg border bg-card/95 p-1.5 shadow-sm backdrop-blur">
           <Search className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
           {/* The shared Input, sized down to sit inside the pill: its chrome is
@@ -983,13 +1005,27 @@ export function FullscreenMap({
           70% { transform: scale(1.6); opacity: 0; }
           100% { transform: scale(1.6); opacity: 0; }
         }
+
+        /* Below the sm breakpoint the parcel panel is a sheet off the bottom
+           edge, capped at 68dvh. Anything the map anchors to that edge goes
+           behind it, so it is lifted the sheet's height plus a gap — Mapbox's
+           attribution included, which its terms require to remain visible.
+           Above sm the panel is a side rail and nothing here is in its way.
+           (No backticks in this block: it is inside a template literal.) */
+        @media (max-width: 639px) {
+          [data-sheet-open] .mapboxgl-ctrl-bottom-left,
+          [data-sheet-open] .mapboxgl-ctrl-bottom-right {
+            bottom: calc(68dvh + 0.5rem);
+            transition: bottom 300ms ease;
+          }
+        }
       `}</style>
 
       {/* What the dots mean, stated plainly — the conditional-rendering rule
           is otherwise invisible. Pinned physically right: Mapbox's own nav
           control sits top-left, and the citizen drawer opens from this same
           right edge but well below the header. */}
-      <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
+      <div className="pointer-events-none absolute right-3 top-16 z-10 rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur sm:top-3">
         <p className="text-sm font-bold">
           {zoneParcelNumbers
             ? parcels.filter((parcel) => zoneParcelNumbers.has(parcel.propertyNumber)).length

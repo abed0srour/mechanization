@@ -2,9 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   PASSWORD_HASHER,
+  SUPABASE_AUTH_SERVICE,
   USER_REPOSITORY,
 } from '../../../domain/interfaces/base-repository.interface';
 import { PasswordHasher } from '../../../domain/interfaces/otp-repository.interface';
+import { SupabaseAuthService } from '../../../domain/interfaces/supabase-auth.interface';
 import {
   StaffSummary,
   UserRepository,
@@ -31,6 +33,7 @@ export class StaffService {
   constructor(
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
     @Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher,
+    @Inject(SUPABASE_AUTH_SERVICE) private readonly supabaseAuth: SupabaseAuthService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -60,6 +63,20 @@ export class StaffService {
       lastName: input.lastName,
       role: input.role,
     });
+
+    // Sync to Supabase Auth
+    try {
+      await this.supabaseAuth.createStaffUser({
+        email: input.email,
+        password: input.password,
+        tenantSlug: input.tenantSlug,
+        role: input.role,
+        firstName: input.firstName,
+        lastName: input.lastName,
+      });
+    } catch {
+      // Non-blocking for local fallback if Supabase network is unreachable
+    }
 
     this.events.emit('staff.changed', {
       action: 'STAFF_CREATED',
@@ -103,6 +120,19 @@ export class StaffService {
       ...(input.password ? { passwordHash: await this.hasher.hash(input.password) } : {}),
     });
 
+    // Sync to Supabase Auth
+    try {
+      await this.supabaseAuth.updateStaffUser({
+        email: target.email!,
+        password: input.password,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        role: input.role,
+      });
+    } catch {
+      // Non-blocking
+    }
+
     this.events.emit('staff.changed', {
       action: 'STAFF_UPDATED',
       tenantSlug: input.tenantSlug,
@@ -139,6 +169,16 @@ export class StaffService {
     }
 
     await this.users.setStaffActive(input.id, input.isActive);
+
+    // Sync to Supabase Auth
+    try {
+      await this.supabaseAuth.updateStaffUser({
+        email: target.email!,
+        isActive: input.isActive,
+      });
+    } catch {
+      // Non-blocking
+    }
 
     this.events.emit('staff.changed', {
       action: input.isActive ? 'STAFF_REACTIVATED' : 'STAFF_DEACTIVATED',
@@ -177,6 +217,15 @@ export class StaffService {
     }
 
     await this.users.hardDeleteStaff(input.id);
+
+    // Sync to Supabase Auth
+    try {
+      if (target.email) {
+        await this.supabaseAuth.deleteStaffUser(target.email);
+      }
+    } catch {
+      // Non-blocking
+    }
 
     this.events.emit('staff.changed', {
       action: 'STAFF_DELETED',

@@ -1,5 +1,14 @@
 import { IMPORT_BATCH_SIZE } from '@mechanization/shared-schemas';
-import type { CitizenImportResult, ImportRow } from '@mechanization/shared-schemas';
+import { cachedRequest, invalidateRequests } from './request-cache';
+import type {
+  BackupSchedule,
+  CitizenImportResult,
+  CurrencyCode,
+  FeeFrequency,
+  ImportRow,
+  NumberingSequence,
+  SequenceKey,
+} from '@mechanization/shared-schemas';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -107,7 +116,9 @@ export interface PublicTenantConfig {
  * Unauthenticated — the staff entry form reads it before a tenant is known.
  */
 export function getTenantConfig(tenant: string) {
-  return apiFetch<PublicTenantConfig>(tenant, '/tenant/config');
+  return cachedRequest(`tenant-config:${tenant}`, 5 * 60 * 1000, () =>
+    apiFetch<PublicTenantConfig>(tenant, '/tenant/config'),
+  );
 }
 
 export interface PropertyNumberCheck {
@@ -181,11 +192,10 @@ export function verifyOtp(
   });
 }
 
-export type StaffLoginResponse = Session | { status: 'TOTP_REQUIRED' };
+export type StaffLoginResponse = Session;
 
 /**
- * Staff sign-in. Comes back with `TOTP_REQUIRED` instead of a session
- * when the account is a SUPER_ADMIN that has not sent its second factor.
+ * Staff sign-in.
  */
 export function loginStaff(
   tenant: string,
@@ -204,9 +214,11 @@ export interface DashboardCounters {
   submittedLast7Days: number;
 }
 
-/** Headline totals for the dashboard cards. Cached server-side. */
+/** Headline totals for the dashboard cards. Cached. */
 export function getDashboardCounters(tenant: string, token: string) {
-  return apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token });
+  return cachedRequest(`dashboard-counters:${tenant}`, 30 * 1000, () =>
+    apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token }),
+  );
 }
 
 /** One month of the fee ledger, keyed by the month an invoice fell due. */
@@ -330,7 +342,9 @@ export interface ZoneWriteInput {
 
 /** Every sector with its parcel count, for the list and the map legend. */
 export function getZones(tenant: string, token: string) {
-  return apiFetch<{ zones: ZoneSummary[] }>(tenant, '/zones', { token });
+  return cachedRequest(`zones:${tenant}`, 60 * 1000, () =>
+    apiFetch<{ zones: ZoneSummary[] }>(tenant, '/zones', { token }),
+  );
 }
 
 /** One sector including the parcel numbers it owns, for the editor. */
@@ -339,34 +353,40 @@ export function getZone(tenant: string, token: string, id: string) {
 }
 
 /** SUPER_ADMIN only, server-enforced. */
-export function createZone(tenant: string, token: string, input: ZoneWriteInput) {
-  return apiFetch<ZoneDetail>(tenant, '/zones', {
+export async function createZone(tenant: string, token: string, input: ZoneWriteInput) {
+  const result = await apiFetch<ZoneDetail>(tenant, '/zones', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`zones:${tenant}`);
+  return result;
 }
 
 /** SUPER_ADMIN only. Omitted fields are left as they are. */
-export function updateZone(
+export async function updateZone(
   tenant: string,
   token: string,
   id: string,
   input: Partial<ZoneWriteInput>,
 ) {
-  return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, {
+  const result = await apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, {
     token,
     method: 'PUT',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`zones:${tenant}`);
+  return result;
 }
 
 /** SUPER_ADMIN only. Releases the sector's parcels rather than altering them. */
-export function deleteZone(tenant: string, token: string, id: string) {
-  return apiFetch<{ deleted: boolean }>(tenant, `/zones/${encodeURIComponent(id)}`, {
+export async function deleteZone(tenant: string, token: string, id: string) {
+  const result = await apiFetch<{ deleted: boolean }>(tenant, `/zones/${encodeURIComponent(id)}`, {
     token,
     method: 'DELETE',
   });
+  invalidateRequests(`zones:${tenant}`);
+  return result;
 }
 
 /**
@@ -901,31 +921,129 @@ export interface MunicipalitySettings {
   whishMoneyNumber: string | null;
   cashOfficeHours: string | null;
   cashOfficeAddress: string | null;
+
+  // ── Municipality profile ──────────────────────────────────────────────
+  nameAr: string | null;
+  nameEn: string | null;
+  contactEmail: string | null;
+  website: string | null;
+  governorate: string | null;
+  district: string | null;
+  town: string | null;
+  /**
+   * Absent — not null — for a citizen.
+   *
+   * The crest is a data URI in the hundreds of kilobytes, and this endpoint is
+   * read by everyone opening the pay dialog, so the server sends it to staff
+   * only. The key being missing rather than null is deliberate: a client can
+   * tell "not sent to you" from "no logo configured".
+   */
+  logoDataUri?: string | null;
+
+  // ── Finance defaults ──────────────────────────────────────────────────
+  defaultFeeFrequency: FeeFrequency;
+  defaultDueDays: number;
+  priceDisplay: 'compact' | 'exact';
+  /** Percent. Display only — anything charging money must read the server's
+   *  Decimal rather than this JSON number. */
+  defaultRatePercent: number;
+  baseCurrency: CurrencyCode;
+  secondaryCurrency: CurrencyCode | null;
+  exchangeRate: number | null;
+  /** Stamped server-side, and only when the rate actually changes. */
+  exchangeRateUpdatedAt: string | null;
+
+  numberingSequences: Record<SequenceKey, NumberingSequence> | null;
+  backupSchedule: BackupSchedule | null;
+
   updatedAt: string | null;
 }
 
-/** Readable by any signed-in user — the portal prints these on the pay modal. */
-export function getMunicipalitySettings(tenant: string, token: string) {
-  return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', { token });
-}
+/** How long a settings read is reused. It changes a few times a year. */
+const SETTINGS_TTL_MS = 60_000;
 
-/** SUPER_ADMIN only, server-enforced. */
-export function updateMunicipalitySettings(
+/**
+ * Readable by any signed-in user — the portal prints these on the pay modal.
+ *
+ * De-duplicated and briefly cached, because six unrelated screens read it: the
+ * fees ledger, the payments log, every citizen profile, the citizen pay dialog
+ * and each settings tab as it opens. Concurrent callers share one request.
+ *
+ * `includeLogo` is opt-in and off by default. The crest is a data URI in the
+ * hundreds of kilobytes, and every one of those screens except the settings
+ * form wants a phone number and some opening hours — they were all downloading
+ * it and using none of it.
+ */
+export function getMunicipalitySettings(
   tenant: string,
   token: string,
-  input: {
-    contactPhone?: string;
-    whatsappNumber?: string;
-    whishMoneyNumber?: string;
-    cashOfficeHours?: string;
-    cashOfficeAddress?: string;
-  },
+  options: { includeLogo?: boolean } = {},
 ) {
-  return apiFetch<MunicipalitySettings>(tenant, '/fees/settings', {
+  const includeLogo = options.includeLogo === true;
+  // The token is deliberately not part of the key — see `cachedRequest`.
+  return cachedRequest(
+    `settings:${tenant}:${includeLogo ? 'full' : 'lite'}`,
+    SETTINGS_TTL_MS,
+    () =>
+      apiFetch<MunicipalitySettings>(
+        tenant,
+        `/fees/settings${includeLogo ? '?includeLogo=true' : ''}`,
+        { token },
+      ),
+  );
+}
+
+/**
+ * SUPER_ADMIN only, server-enforced.
+ *
+ * Every field is optional and only what is sent is written — which is what
+ * lets one section of the settings screen save without clearing the fields
+ * owned by the five it did not render. An empty string clears a text field; a
+ * missing key leaves it alone. The two are not the same and the server does
+ * not treat them as such.
+ */
+export async function updateMunicipalitySettings(
+  tenant: string,
+  token: string,
+  input: Partial<{
+    contactPhone: string;
+    whatsappNumber: string;
+    whishMoneyNumber: string;
+    cashOfficeHours: string;
+    cashOfficeAddress: string;
+
+    nameAr: string;
+    nameEn: string;
+    contactEmail: string;
+    website: string;
+    governorate: string;
+    district: string;
+    town: string;
+    logoDataUri: string;
+
+    defaultFeeFrequency: FeeFrequency;
+    defaultDueDays: number;
+    priceDisplay: 'compact' | 'exact';
+    defaultRatePercent: number;
+    baseCurrency: CurrencyCode;
+    /** `null` clears it. Omitting leaves whatever is stored. */
+    secondaryCurrency: CurrencyCode | null;
+    exchangeRate: number | null;
+
+    numberingSequences: Record<SequenceKey, NumberingSequence>;
+    backupSchedule: BackupSchedule;
+  }>,
+) {
+  const result = await apiFetch<MunicipalitySettings>(tenant, '/fees/settings', {
     token,
     method: 'PATCH',
     body: JSON.stringify(input),
   });
+  // Both variants, before the caller sees the response. A clerk who saves and
+  // is then shown the value they replaced — because another tab reads the
+  // cached copy a moment later — reasonably concludes the save failed.
+  invalidateRequests(`settings:${tenant}:`);
+  return result;
 }
 
 export interface FeeNoticeSummary {
@@ -951,7 +1069,7 @@ export function getFeeNotices(tenant: string, token: string) {
 }
 
 /** Writes the rule and bills every matching citizen in one transaction. */
-export function issueFeeNotice(
+export async function issueFeeNotice(
   tenant: string,
   token: string,
   input: {
@@ -965,11 +1083,13 @@ export function issueFeeNotice(
     instructions?: string;
   },
 ) {
-  return apiFetch<{ noticeId: string; issued: number }>(tenant, '/fees/notices', {
+  const result = await apiFetch<{ noticeId: string; issued: number }>(tenant, '/fees/notices', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 export interface FeeSummary {
@@ -981,7 +1101,9 @@ export interface FeeSummary {
 }
 
 export function getFeeSummary(tenant: string, token: string) {
-  return apiFetch<FeeSummary>(tenant, '/fees/summary', { token });
+  return cachedRequest(`fee-summary:${tenant}`, 30 * 1000, () =>
+    apiFetch<FeeSummary>(tenant, '/fees/summary', { token }),
+  );
 }
 
 export interface PendingPayment {
@@ -1003,17 +1125,19 @@ export function getPendingPayments(tenant: string, token: string) {
   return apiFetch<{ items: PendingPayment[] }>(tenant, '/fees/payments/pending', { token });
 }
 
-export function reviewPayment(
+export async function reviewPayment(
   tenant: string,
   token: string,
   id: string,
   input: { confirmed: boolean; note?: string },
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  const result = await apiFetch<{ paymentStatus: string }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/review`,
     { token, method: 'PATCH', body: JSON.stringify(input) },
   );
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 export interface CitizenPaymentItem {
@@ -1167,24 +1291,39 @@ export function getAllPayments(
   }>(tenant, `/fees/payments${suffix}`, { token });
 }
 
+/**
+ * One invoice, loaded directly by id.
+ *
+ * What تسجيل دفعة reads when it is its own page rather than a dialog opened
+ * from an already-loaded row: a refresh, a bookmark, or a link from a receipt
+ * arrives with nothing but this id.
+ */
+export function getPaymentById(tenant: string, token: string, id: string) {
+  return apiFetch<AdminPaymentItem>(tenant, `/fees/payments/${encodeURIComponent(id)}`, {
+    token,
+  });
+}
+
 /** A one-off charge against a single citizen — no notice, no recurrence. */
-export function chargeCitizen(
+export async function chargeCitizen(
   tenant: string,
   token: string,
   input: { citizenId: string; title: string; amount: number; dueDate: string },
 ) {
-  return apiFetch<{ id: string }>(tenant, '/fees/payments', {
+  const result = await apiFetch<{ id: string }>(tenant, '/fees/payments', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 /**
  * Records money handed over in person. Goes straight to PAID — the clerk
  * confirming it is the clerk who took it.
  */
-export function settlePayment(
+export async function settlePayment(
   tenant: string,
   token: string,
   id: string,
@@ -1198,13 +1337,15 @@ export function settlePayment(
     note?: string;
   } = {},
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  const result = await apiFetch<{ paymentStatus: string }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/settle`,
     // The `CASH` default is kept ahead of the spread so an omitted method
     // still means cash, as it did before the counter could bank a transfer.
     { token, method: 'PATCH', body: JSON.stringify({ method: 'CASH', ...input }) },
   );
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 /**
@@ -1231,4 +1372,82 @@ export function setNoticeActive(
     `/fees/notices/${encodeURIComponent(id)}/active`,
     { token, method: 'PATCH', body: JSON.stringify({ isActive }) },
   );
+}
+
+// ─────────────────────────  Backup and restore  ─────────────────────────
+
+export interface SnapshotManifest {
+  version: number;
+  tenantSlug: string;
+  createdAt: string;
+  migrations: string[];
+  counts: Record<string, number>;
+}
+
+export interface RestoreReport {
+  dryRun: boolean;
+  manifest: SnapshotManifest;
+  deleted: Record<string, number>;
+  written: Record<string, number>;
+}
+
+/**
+ * Downloads the restorable snapshot — real table rows, gzipped JSON.
+ *
+ * Not `apiFetch`, which parses every response as JSON: this one is a binary
+ * file the municipality keeps on disk. SUPER_ADMIN only, server-enforced.
+ */
+export async function exportSnapshot(tenant: string, token: string): Promise<Blob> {
+  const response = await fetch(`${API_URL}/t/${encodeURIComponent(tenant)}/backup/export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({
+      code: 'UNKNOWN',
+      message: 'تعذّر إنشاء النسخة الاحتياطية.',
+    }))) as ApiError;
+    throw new ApiRequestError(response.status, payload);
+  }
+  return response.blob();
+}
+
+/**
+ * Puts a snapshot back.
+ *
+ * `dryRun` defaults to true here as well as on the server. Two defaults for one
+ * decision is deliberate: this is the call that replaces a municipality's
+ * register, and a caller that forgets the flag should rehearse, not destroy.
+ */
+export async function restoreSnapshot(
+  tenant: string,
+  token: string,
+  snapshot: Blob,
+  options: { confirmTenantSlug: string; dryRun?: boolean },
+): Promise<RestoreReport> {
+  const query = new URLSearchParams({
+    confirm: options.confirmTenantSlug,
+    dryRun: String(options.dryRun !== false),
+  });
+  const response = await fetch(
+    `${API_URL}/t/${encodeURIComponent(tenant)}/backup/restore?${query}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // Anything but application/json, so no body parser consumes the stream
+        // before the controller reads it.
+        'Content-Type': 'application/gzip',
+      },
+      body: snapshot,
+    },
+  );
+
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiRequestError(
+      response.status,
+      (payload as ApiError) ?? { code: 'UNKNOWN', message: 'تعذّرت الاستعادة.' },
+    );
+  }
+  return payload as RestoreReport;
 }

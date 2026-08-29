@@ -30,6 +30,14 @@ export function MapLayerControl({
       className={cn(
         'pointer-events-auto absolute bottom-6 left-1/2 z-20 -translate-x-1/2',
         'flex items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-lg backdrop-blur',
+        /*
+          Lifted above the parcel sheet on a phone, where that sheet claims the
+          bottom 68dvh. Driven by the `data-sheet-open` attribute the map sets
+          on its container rather than by a prop, so a control that has no
+          business knowing about the sheet does not grow a parameter for it.
+        */
+        'transition-[bottom] duration-300',
+        'group-data-[sheet-open]/map:bottom-[calc(68dvh_+_1.5rem)] sm:group-data-[sheet-open]/map:bottom-6',
       )}
       role="group"
       aria-label="نمط الخريطة"

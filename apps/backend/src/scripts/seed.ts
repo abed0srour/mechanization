@@ -10,6 +10,7 @@
 import { Client } from 'pg';
 import * as bcrypt from 'bcrypt';
 import { authenticator } from 'otplib';
+import { createClient } from '@supabase/supabase-js';
 import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
 import { PrismaClient as TenantPrismaClient } from '../generated/tenant-client';
 import { ReferenceNumber } from '../domain/value-objects/reference-number.vo';
@@ -35,6 +36,37 @@ const TENANTS = [
 
 /** Development only. Production staff are created by the provisioning flow. */
 const DEV_PASSWORD = 'Password123!';
+
+const supabase =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+    : null;
+
+async function syncStaffToSupabase(email: string, password: string, metadata: Record<string, unknown>) {
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+    if (error) {
+      const { data } = await supabase.auth.admin.listUsers();
+      const existing = data?.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+      if (existing) {
+        await supabase.auth.admin.updateUserById(existing.id, {
+          password,
+          user_metadata: metadata,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`  Could not sync ${email} to Supabase: ${(err as Error).message}`);
+  }
+}
 
 /** A Prisma client bound to one municipality's schema. */
 function tenantClient(schemaName: string): TenantPrismaClient {
@@ -151,6 +183,25 @@ async function seedTenant(
         firstName: 'مفتش',
         lastName: 'ميداني',
       },
+    });
+
+    await syncStaffToSupabase(`admin@${tenant.slug}.gov.lb`, DEV_PASSWORD, {
+      role: 'SUPER_ADMIN',
+      tenantSlug: tenant.slug,
+      firstName: 'مدير',
+      lastName: 'النظام',
+    });
+    await syncStaffToSupabase(`auditor@${tenant.slug}.gov.lb`, DEV_PASSWORD, {
+      role: 'AUDITOR',
+      tenantSlug: tenant.slug,
+      firstName: 'مدقق',
+      lastName: 'الحسابات',
+    });
+    await syncStaffToSupabase(`inspector@${tenant.slug}.gov.lb`, DEV_PASSWORD, {
+      role: 'FIELD_INSPECTOR',
+      tenantSlug: tenant.slug,
+      firstName: 'مفتش',
+      lastName: 'ميداني',
     });
 
     console.log(`  staff: admin/auditor/inspector@${tenant.slug}.gov.lb (${DEV_PASSWORD})`);

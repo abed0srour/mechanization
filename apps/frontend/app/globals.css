@@ -28,6 +28,22 @@
     --foreground: 0 0% 4%;
     --card: 40 20% 99%;
     --card-foreground: 0 0% 4%;
+    /**
+     * Overlay surfaces — the chart tooltip, the dropdown menu, the command
+     * palette.
+     *
+     * These were missing from this token set entirely while `bg-popover` and
+     * `text-popover-foreground` were already in use (see `admin/charts.tsx`),
+     * so Tailwind emitted a class that resolved to nothing and the chart
+     * tooltips rendered transparent — the page's own content showing through
+     * the box meant to explain it.
+     *
+     * A hair lighter than `--card` rather than equal to it: a popover floats
+     * *above* a card as often as above the page, and matching the surface it
+     * covers leaves only the shadow to say the two are different planes.
+     */
+    --popover: 40 20% 100%;
+    --popover-foreground: 0 0% 4%;
     --primary: var(--brand-primary, 213 72% 39%);
     --primary-foreground: 0 0% 100%;
     --secondary: 42 25% 94%;
@@ -109,6 +125,10 @@
        border with nothing inside it. */
     --card: 60 2% 10%;
     --card-foreground: 0 0% 98%;
+    /* Lighter than the dark card for the same reason the card is lighter than
+       the page: it is the layer above. */
+    --popover: 60 2% 13%;
+    --popover-foreground: 0 0% 98%;
     --primary: var(--brand-primary, 213 76% 56%);
     /**
      * Dark, not white — the same inversion `--destructive-foreground` takes
