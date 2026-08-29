@@ -59,3 +59,9 @@ pnpm --filter @mechanization/backend cadastre:import --slug <slug> --file <path.
 pnpm --filter @mechanization/backend tenant:migrate-all
 pnpm lint
 ```
+
+## Deploying
+
+Vercel, two projects from this one repository — see [docs/deploy-vercel.md](docs/deploy-vercel.md).
+The container path (`docker compose up --build`) still works and is the one that
+keeps in-process cron and a long-lived Redis connection.

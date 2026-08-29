@@ -71,6 +71,24 @@ export const envSchema = z
      */
     AUDIT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(20),
 
+    /**
+     * Shared secret for the Vercel Cron endpoints. Optional so a local or
+     * Docker deployment — where `ScheduleModule` still runs the jobs in
+     * process — does not need it; `InternalCronController` refuses to run
+     * anything when it is unset, so leaving it out closes the route rather
+     * than opening it.
+     */
+    CRON_SECRET: z.string().min(16).optional(),
+
+    /**
+     * Absolute URLs this service hands to third parties (the Whish callback and
+     * the browser return URL). Localhost defaults are fine on a developer's
+     * machine and useless in a deployment, where the API and the portal are on
+     * separate origins.
+     */
+    PUBLIC_API_URL: z.string().url().optional(),
+    PUBLIC_PORTAL_URL: z.string().url().optional(),
+
     CORS_ORIGINS: z
       .string()
       .default('http://localhost:3000')

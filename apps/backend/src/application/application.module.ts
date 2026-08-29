@@ -64,6 +64,7 @@ import { ZonesService } from './features/zones/zones.service';
     StaffService,
     ZonesService,
     BackupService,
+    OtpCleanupJob,
     RecurringBillingJob,
     JwtModule,
   ],
