@@ -65,6 +65,8 @@ export const APP_CONFIG = {
      * different depth in each, so anchoring on it here would break one of them.
      */
     mapAssetsDir: (tenantSlug: string) =>
-      join(process.cwd(), '..', 'frontend', 'public', 'tenants', tenantSlug),
+      process.env.CADASTRE_ASSETS_DIR
+        ? join(process.env.CADASTRE_ASSETS_DIR, tenantSlug)
+        : join(process.cwd(), '..', 'frontend', 'public', 'tenants', tenantSlug),
   },
 } as const;

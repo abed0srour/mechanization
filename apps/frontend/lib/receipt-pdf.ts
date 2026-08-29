@@ -42,10 +42,11 @@ export async function renderReceiptPdf(
     import('jspdf'),
   ]);
 
+  const dpr = typeof window !== 'undefined' ? Math.max(2, window.devicePixelRatio || 2) : 2;
   const canvas = await html2canvas(element, {
-    // 2× so the print is not visibly soft — a receipt is read at arm's length
+    // 2× minimum so the print is not visibly soft — a receipt is read at arm's length
     // on paper, where a 1× rasterisation of 11px Arabic is mush.
-    scale: 2,
+    scale: dpr,
     // The receipt is deliberately black-on-white regardless of the dashboard's
     // theme; without this the dark-mode surface bleeds through as a black page.
     backgroundColor: '#ffffff',

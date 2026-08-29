@@ -215,13 +215,14 @@ export function FullscreenMap({
   const attachCadastre = useCallback(
     async (map: mapboxgl.Map, force = false) => {
       const base = `/tenants/${encodeURIComponent(tenant)}`;
+      const apiBase = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/t/${encodeURIComponent(tenant)}/cadastre/assets`;
       // A plain cache-buster: these are static files served with long-lived
       // cache headers, so a freshly-uploaded cadastre would otherwise keep
       // serving the browser's cached copy of the old one.
       const bust = refreshToken ? `?v=${refreshToken}` : '';
       const [cadastre, parcelPoints] = await Promise.all([
-        fetchGeoJson(`${base}/cadastre.geojson${bust}`),
-        fetchGeoJson(`${base}/parcels.geojson${bust}`),
+        fetchGeoJson(`${base}/cadastre.geojson${bust}`, `${apiBase}/cadastre.geojson${bust}`),
+        fetchGeoJson(`${base}/parcels.geojson${bust}`, `${apiBase}/parcels.geojson${bust}`),
       ]);
 
       // The style can be swapped again while these are in flight.
@@ -404,6 +405,14 @@ export function FullscreenMap({
 
     return () => {
       mapRef.current = null;
+      markersRef.current.forEach((marker) => marker.remove());
+      markersRef.current = [];
+      searchMarkerRef.current?.remove();
+      searchMarkerRef.current = null;
+      citizenPinRef.current?.remove();
+      citizenPinRef.current = null;
+      selectedPinRef.current?.remove();
+      selectedPinRef.current = null;
       try {
         // React StrictMode's dev-only mount→cleanup→remount can tear this
         // down before mapbox-gl's own async style/worker setup has settled;
@@ -1064,12 +1073,23 @@ export function FullscreenMap({
  * A 404 is an expected answer, not a failure: it means this municipality's
  * cadastre has not been imported. The map still works without it.
  */
-async function fetchGeoJson(url: string): Promise<FeatureCollection | null> {
+async function fetchGeoJson(url: string, fallbackUrl?: string): Promise<FeatureCollection | null> {
   try {
-    const response = await fetch(url);
+    let response = await fetch(url);
+    if (!response.ok && fallbackUrl) {
+      response = await fetch(fallbackUrl);
+    }
     if (!response.ok) return null;
     return (await response.json()) as FeatureCollection;
   } catch {
+    if (fallbackUrl) {
+      try {
+        const response = await fetch(fallbackUrl);
+        if (response.ok) return (await response.json()) as FeatureCollection;
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }

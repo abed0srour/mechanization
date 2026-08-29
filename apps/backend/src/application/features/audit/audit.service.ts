@@ -188,6 +188,118 @@ export class AuditService {
     });
   }
 
+  @OnEvent('citizen.changed')
+  async onCitizenChanged(payload: {
+    citizenId: string;
+    action: string;
+    changed?: string[];
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    actorId?: string;
+    actorRole?: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId ?? payload.citizenId,
+      actorType: payload.actorRole ? 'STAFF' : 'CITIZEN',
+      actorRole: (payload.actorRole ?? null) as never,
+      action: payload.action,
+      entityType: 'User',
+      entityId: payload.citizenId,
+      before: payload.before,
+      after: {
+        ...(payload.after ?? {}),
+        ...(payload.changed ? { changed: payload.changed } : {}),
+      },
+    });
+  }
+
+  @OnEvent('fee.issued')
+  async onFeeIssued(payload: {
+    noticeId: string;
+    title: string;
+    amount: number;
+    targetType: string;
+    issuedCount: number;
+    actorId?: string | null;
+    actorRole?: string | null;
+    recurring?: boolean;
+    periodKey?: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId ?? 'SYSTEM',
+      actorType: payload.actorId ? 'STAFF' : 'SYSTEM',
+      actorRole: (payload.actorRole ?? null) as never,
+      action: payload.recurring ? 'FEE_RECURRING_ISSUED' : 'FEE_ISSUED',
+      entityType: 'FeeNotice',
+      entityId: payload.noticeId,
+      after: {
+        title: payload.title,
+        amount: payload.amount,
+        targetType: payload.targetType,
+        issuedCount: payload.issuedCount,
+        periodKey: payload.periodKey,
+      },
+    });
+  }
+
+  @OnEvent('payment.reviewed')
+  async onPaymentReviewed(payload: {
+    paymentId: string;
+    citizenId: string;
+    confirmed: boolean;
+    actorId: string | null;
+    actorRole: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId ?? 'WHISH',
+      actorType: payload.actorRole === 'WHISH' ? 'SYSTEM' : 'STAFF',
+      actorRole: (payload.actorRole ?? null) as never,
+      action: payload.confirmed ? 'PAYMENT_CONFIRMED' : 'PAYMENT_REJECTED',
+      entityType: 'Payment',
+      entityId: payload.paymentId,
+      after: {
+        citizenId: payload.citizenId,
+        confirmed: payload.confirmed,
+      },
+    });
+  }
+
+  @OnEvent('payment.declared')
+  async onPaymentDeclared(payload: {
+    paymentId: string;
+    citizenId: string;
+    method: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.citizenId,
+      actorType: 'CITIZEN',
+      action: 'PAYMENT_DECLARED',
+      entityType: 'Payment',
+      entityId: payload.paymentId,
+      after: {
+        method: payload.method,
+      },
+    });
+  }
+
+  @OnEvent('settings.changed')
+  async onSettingsChanged(payload: {
+    actorId: string;
+    actorRole: string;
+    changed: string[];
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: 'SETTINGS_UPDATED',
+      entityType: 'SystemSettings',
+      after: {
+        changed: payload.changed,
+      },
+    });
+  }
+
   @OnEvent('report.exported')
   async onExport(payload: {
     actorId: string;

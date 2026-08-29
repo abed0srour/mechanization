@@ -23,8 +23,6 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (!required || required.length === 0) return true;
-
     const request = context.switchToHttp().getRequest<Request>();
     const user = request.user;
 
@@ -32,8 +30,10 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenError('This action is restricted to municipality staff');
     }
 
-    if (!user.role || !required.includes(user.role)) {
-      throw new ForbiddenError('You do not have permission to perform this action');
+    if (required && required.length > 0) {
+      if (!user.role || !required.includes(user.role)) {
+        throw new ForbiddenError('You do not have permission to perform this action');
+      }
     }
 
     return true;

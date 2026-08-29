@@ -1064,7 +1064,7 @@ export class FeesService {
   async settleFromWhishCallback(callback: WhishCallback): Promise<{ applied: boolean }> {
     const payment = await this.db.citizenPayment.findFirst({
       where: { whishTransactionRef: callback.externalRef },
-      select: { id: true, amount: true, paymentStatus: true, citizenId: true },
+      select: { id: true, amount: true, currency: true, paymentStatus: true, citizenId: true },
     });
 
     if (!payment) {
@@ -1087,15 +1087,17 @@ export class FeesService {
     // banking more than the invoice would silently create a credit this system
     // has no way to represent.
     const received = Math.min(callback.amount, total);
+    const isPaidInFull =
+      payment.currency === 'USD' ? received >= total - 0.001 : received >= total - 0.5;
 
     await this.db.citizenPayment.update({
       where: { id: payment.id },
       data: {
         paidAmount: received,
-        paymentStatus: received >= total - 0.5 ? 'PAID' : 'UNPAID',
+        paymentStatus: isPaidInFull ? 'PAID' : 'UNPAID',
         paymentMethod: 'WHISH_MONEY',
         whishTransactionRef: callback.transactionRef,
-        paidAt: received >= total - 0.5 ? new Date() : null,
+        paidAt: isPaidInFull ? new Date() : null,
       },
     });
 

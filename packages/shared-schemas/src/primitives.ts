@@ -1,10 +1,17 @@
 import { z } from 'zod';
 
+/** Converts Eastern Arabic / Arabic-Indic digits to ASCII standard digits. */
+export function normalizeDigits(input: string): string {
+  return input
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
+}
+
 /** Lebanese mobile numbers: +961 3/70/71/76/78/79/81 XXXXXX, stored E.164. */
 export const lebanesePhone = z
   .string({ required_error: 'رقم الهاتف مطلوب' })
   .trim()
-  .transform((v) => v.replace(/[\s-]/g, ''))
+  .transform((v) => normalizeDigits(v).replace(/[\s-]/g, ''))
   .pipe(
     z
       .string()
