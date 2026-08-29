@@ -31,7 +31,17 @@ import { validateEnv } from './presentation/config/env.schema';
      */
     EventEmitterModule.forRoot({ global: true }),
 
-    ScheduleModule.forRoot(),
+    /**
+     * In-process timers, only where a process outlives the request.
+     *
+     * On Vercel the instance is torn down moments after the response, so a
+     * registered `@Cron` would never fire — and worse, it would *look* like it
+     * had, because `ScheduleModule` boots without complaint. The schedule moves
+     * to Vercel Cron (`vercel.json`), which calls the same job classes over
+     * HTTP through `InternalCronController`. Docker and `pnpm dev` keep the
+     * in-process schedule.
+     */
+    ...(process.env.VERCEL ? [] : [ScheduleModule.forRoot()]),
 
     /**
      * In-memory storage — correct for a single instance, which matches the

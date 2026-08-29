@@ -10,6 +10,7 @@ import { CitizenController } from './controllers/citizen.controller';
 import { DashboardController } from './controllers/dashboard.controller';
 import { DocumentController } from './controllers/document.controller';
 import { HealthController } from './controllers/health.controller';
+import { InternalCronController } from './controllers/internal-cron.controller';
 import { RegistrationController } from './controllers/registration.controller';
 import { TenantController } from './controllers/tenant.controller';
 import { FeesController } from './controllers/fees.controller';
@@ -25,6 +26,7 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
   imports: [ApplicationModule],
   controllers: [
     HealthController,
+    InternalCronController,
     TenantController,
     AuthController,
     RegistrationController,

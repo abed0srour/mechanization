@@ -13,6 +13,12 @@
 generator client {
   provider = "prisma-client-js"
   output   = "../../../generated/tenant-client"
+  /// "native" is the local dev machine; "rhel-openssl-3.0.x" is Vercel's
+  /// Amazon Linux 2023 runtime. The query engine is a platform-specific binary,
+  /// so a client generated without the deployment target loads fine at build
+  /// time and then throws at the first query with "Query engine library for
+  /// current platform could not be found".
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

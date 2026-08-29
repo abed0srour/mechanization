@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @mechanization/shared-schemas build && pnpm --filter @mechanization/backend prisma:generate && pnpm --filter @mechanization/backend build",
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "dist/**"
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "crons": [
+    { "path": "/api/v1/internal/cron/otp-cleanup", "schedule": "0 * * * *" },
+    { "path": "/api/v1/internal/cron/recurring-billing", "schedule": "0 2 * * *" }
+  ]
+}
