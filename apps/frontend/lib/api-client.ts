@@ -116,7 +116,9 @@ export interface PublicTenantConfig {
  * Unauthenticated — the staff entry form reads it before a tenant is known.
  */
 export function getTenantConfig(tenant: string) {
-  return apiFetch<PublicTenantConfig>(tenant, '/tenant/config');
+  return cachedRequest(`tenant-config:${tenant}`, 5 * 60 * 1000, () =>
+    apiFetch<PublicTenantConfig>(tenant, '/tenant/config'),
+  );
 }
 
 export interface PropertyNumberCheck {
@@ -212,9 +214,11 @@ export interface DashboardCounters {
   submittedLast7Days: number;
 }
 
-/** Headline totals for the dashboard cards. Cached server-side. */
+/** Headline totals for the dashboard cards. Cached. */
 export function getDashboardCounters(tenant: string, token: string) {
-  return apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token });
+  return cachedRequest(`dashboard-counters:${tenant}`, 30 * 1000, () =>
+    apiFetch<DashboardCounters>(tenant, '/dashboard/counters', { token }),
+  );
 }
 
 /** One month of the fee ledger, keyed by the month an invoice fell due. */
@@ -338,7 +342,9 @@ export interface ZoneWriteInput {
 
 /** Every sector with its parcel count, for the list and the map legend. */
 export function getZones(tenant: string, token: string) {
-  return apiFetch<{ zones: ZoneSummary[] }>(tenant, '/zones', { token });
+  return cachedRequest(`zones:${tenant}`, 60 * 1000, () =>
+    apiFetch<{ zones: ZoneSummary[] }>(tenant, '/zones', { token }),
+  );
 }
 
 /** One sector including the parcel numbers it owns, for the editor. */
@@ -347,34 +353,40 @@ export function getZone(tenant: string, token: string, id: string) {
 }
 
 /** SUPER_ADMIN only, server-enforced. */
-export function createZone(tenant: string, token: string, input: ZoneWriteInput) {
-  return apiFetch<ZoneDetail>(tenant, '/zones', {
+export async function createZone(tenant: string, token: string, input: ZoneWriteInput) {
+  const result = await apiFetch<ZoneDetail>(tenant, '/zones', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`zones:${tenant}`);
+  return result;
 }
 
 /** SUPER_ADMIN only. Omitted fields are left as they are. */
-export function updateZone(
+export async function updateZone(
   tenant: string,
   token: string,
   id: string,
   input: Partial<ZoneWriteInput>,
 ) {
-  return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, {
+  const result = await apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, {
     token,
     method: 'PUT',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`zones:${tenant}`);
+  return result;
 }
 
 /** SUPER_ADMIN only. Releases the sector's parcels rather than altering them. */
-export function deleteZone(tenant: string, token: string, id: string) {
-  return apiFetch<{ deleted: boolean }>(tenant, `/zones/${encodeURIComponent(id)}`, {
+export async function deleteZone(tenant: string, token: string, id: string) {
+  const result = await apiFetch<{ deleted: boolean }>(tenant, `/zones/${encodeURIComponent(id)}`, {
     token,
     method: 'DELETE',
   });
+  invalidateRequests(`zones:${tenant}`);
+  return result;
 }
 
 /**
@@ -1057,7 +1069,7 @@ export function getFeeNotices(tenant: string, token: string) {
 }
 
 /** Writes the rule and bills every matching citizen in one transaction. */
-export function issueFeeNotice(
+export async function issueFeeNotice(
   tenant: string,
   token: string,
   input: {
@@ -1071,11 +1083,13 @@ export function issueFeeNotice(
     instructions?: string;
   },
 ) {
-  return apiFetch<{ noticeId: string; issued: number }>(tenant, '/fees/notices', {
+  const result = await apiFetch<{ noticeId: string; issued: number }>(tenant, '/fees/notices', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 export interface FeeSummary {
@@ -1087,7 +1101,9 @@ export interface FeeSummary {
 }
 
 export function getFeeSummary(tenant: string, token: string) {
-  return apiFetch<FeeSummary>(tenant, '/fees/summary', { token });
+  return cachedRequest(`fee-summary:${tenant}`, 30 * 1000, () =>
+    apiFetch<FeeSummary>(tenant, '/fees/summary', { token }),
+  );
 }
 
 export interface PendingPayment {
@@ -1109,17 +1125,19 @@ export function getPendingPayments(tenant: string, token: string) {
   return apiFetch<{ items: PendingPayment[] }>(tenant, '/fees/payments/pending', { token });
 }
 
-export function reviewPayment(
+export async function reviewPayment(
   tenant: string,
   token: string,
   id: string,
   input: { confirmed: boolean; note?: string },
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  const result = await apiFetch<{ paymentStatus: string }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/review`,
     { token, method: 'PATCH', body: JSON.stringify(input) },
   );
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 export interface CitizenPaymentItem {
@@ -1287,23 +1305,25 @@ export function getPaymentById(tenant: string, token: string, id: string) {
 }
 
 /** A one-off charge against a single citizen — no notice, no recurrence. */
-export function chargeCitizen(
+export async function chargeCitizen(
   tenant: string,
   token: string,
   input: { citizenId: string; title: string; amount: number; dueDate: string },
 ) {
-  return apiFetch<{ id: string }>(tenant, '/fees/payments', {
+  const result = await apiFetch<{ id: string }>(tenant, '/fees/payments', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 /**
  * Records money handed over in person. Goes straight to PAID — the clerk
  * confirming it is the clerk who took it.
  */
-export function settlePayment(
+export async function settlePayment(
   tenant: string,
   token: string,
   id: string,
@@ -1317,13 +1337,15 @@ export function settlePayment(
     note?: string;
   } = {},
 ) {
-  return apiFetch<{ paymentStatus: string }>(
+  const result = await apiFetch<{ paymentStatus: string }>(
     tenant,
     `/fees/payments/${encodeURIComponent(id)}/settle`,
     // The `CASH` default is kept ahead of the spread so an omitted method
     // still means cash, as it did before the counter could bank a transfer.
     { token, method: 'PATCH', body: JSON.stringify({ method: 'CASH', ...input }) },
   );
+  invalidateRequests(`fee-summary:${tenant}`);
+  return result;
 }
 
 /**

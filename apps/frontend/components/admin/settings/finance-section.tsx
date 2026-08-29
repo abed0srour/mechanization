@@ -338,7 +338,13 @@ export function FinanceSection({
                   hint={rateValid ? copy.finance.rateAppliesTo : undefined}
                   error={rateValid ? undefined : copy.finance.invalidRate}
                 >
-                  <div className="relative">
+                  {/* `dir="ltr"` on the wrapper as well as the input: `end-3.5`
+                      below is a logical property and resolves against this
+                      div's own direction. Left off, it inherits the page's
+                      RTL and pins the % sign to the physical left — the same
+                      edge an ltr input's digits start from — so the suffix
+                      and a two-digit rate would sit on top of each other. */}
+                  <div className="relative" dir="ltr">
                     <Input
                       id="default-rate"
                       inputMode="decimal"

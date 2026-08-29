@@ -65,14 +65,21 @@ export function ChargeCitizenDialog({
   const set = (patch: Partial<ChargeValues>) =>
     setValues((previous) => ({ ...previous, ...patch }));
 
-  const matches = query.trim()
+  const q = query.trim().toLowerCase();
+  const digitsOnly = q.replace(/\D/g, '');
+  const matches = q
     ? citizens
         .filter(
           (row) =>
-            row.fullName.includes(query.trim()) ||
-            (row.referenceNumber ?? '').toUpperCase().includes(query.trim().toUpperCase()),
+            row.fullName.toLowerCase().includes(q) ||
+            (row.referenceNumber ?? '').toLowerCase().includes(q) ||
+            (row.phone ?? '').toLowerCase().includes(q) ||
+            (digitsOnly.length > 0 && (row.phone ?? '').replace(/\D/g, '').includes(digitsOnly)) ||
+            (row.whatsapp ?? '').toLowerCase().includes(q) ||
+            (row.identityDocNumber ?? '').toLowerCase().includes(q) ||
+            row.id.toLowerCase().includes(q),
         )
-        .slice(0, 6)
+        .slice(0, 8)
     : [];
 
   const chosen = citizens.find((row) => row.id === values.citizenId);

@@ -871,14 +871,26 @@ export class FeesService {
         : {}),
       ...(search
         ? {
-            citizen: {
-              OR: [
-                { firstName: { contains: search, mode: 'insensitive' as const } },
-                { lastName: { contains: search, mode: 'insensitive' as const } },
-                { referenceNumber: { contains: search, mode: 'insensitive' as const } },
-                { phone: { contains: search } },
-              ],
-            },
+            OR: [
+              { title: { contains: search, mode: 'insensitive' as const } },
+              { whishTransactionRef: { contains: search, mode: 'insensitive' as const } },
+              { id: { contains: search, mode: 'insensitive' as const } },
+              {
+                citizen: {
+                  OR: [
+                    { firstName: { contains: search, mode: 'insensitive' as const } },
+                    { middleName: { contains: search, mode: 'insensitive' as const } },
+                    { lastName: { contains: search, mode: 'insensitive' as const } },
+                    { referenceNumber: { contains: search, mode: 'insensitive' as const } },
+                    { phone: { contains: search } },
+                    { whatsapp: { contains: search } },
+                    { identityDocNumber: { contains: search, mode: 'insensitive' as const } },
+                    { residencyNumber: { contains: search, mode: 'insensitive' as const } },
+                    { civilRecordNumber: { contains: search, mode: 'insensitive' as const } },
+                  ],
+                },
+              },
+            ],
           }
         : {}),
     };
@@ -1216,6 +1228,16 @@ export class FeesService {
 
   /** Headline numbers for the admin fee screen. */
   async summary() {
+    const key = `fees:summary:${this.tenantContext.tenantSlug}`;
+    const cached = await this.cache.get<{
+      unpaidTotal: number;
+      unpaidCount: number;
+      pendingReviewCount: number;
+      paidTotal: number;
+      paidCount: number;
+    }>(key);
+    if (cached) return cached;
+
     const [unpaid, pending, collected, settledCount] = await Promise.all([
       this.db.citizenPayment.aggregate({
         where: { paymentStatus: 'UNPAID' },
@@ -1233,7 +1255,7 @@ export class FeesService {
       this.db.citizenPayment.count({ where: { paymentStatus: 'PAID' } }),
     ]);
 
-    return {
+    const result = {
       unpaidTotal:
         Number(unpaid._sum.amount ?? 0) - Number(unpaid._sum.paidAmount ?? 0),
       unpaidCount: unpaid._count._all,
@@ -1241,5 +1263,7 @@ export class FeesService {
       paidTotal: Number(collected._sum.paidAmount ?? 0),
       paidCount: settledCount,
     };
+    await this.cache.set(key, result, 30);
+    return result;
   }
 }

@@ -3,24 +3,18 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import type { ColumnDef } from '@tanstack/react-table';
 import {
-  BadgeCheck,
+  AlertTriangle,
   Banknote,
   CheckCircle2,
-  ChevronUp,
-  Clock,
-  Eye,
-  Inbox,
+  Clock3,
   Loader2,
-  PauseCircle,
-  PlayCircle,
+  Plus,
   Receipt,
   RefreshCw,
-  Search,
-  Settings2,
   UserPlus,
   Wallet,
-  XCircle,
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import {
@@ -28,80 +22,74 @@ import {
   chargeCitizen,
   getAllPayments,
   getCitizenProfile,
-  getFeeNotices,
   getFeeSummary,
   getMunicipalitySettings,
-  getPendingPayments,
-  getStaff,
   getTenantConfig,
   issueFeeNotice,
   listCitizens,
   logApiError,
   reviewPayment,
-  runRecurringBilling,
-  setNoticeActive,
 } from '@/lib/api-client';
 import type {
   AdminPaymentItem,
   CitizenListItem,
   CitizenProfile,
   CitizenProfilePayment,
-  MunicipalitySettings,
-  FeeNoticeSummary,
   FeeSummary,
-  PendingPayment,
-  StaffSummary,
+  MunicipalitySettings,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { formatDate } from '@/lib/dates';
-import { cn } from '@/lib/utils';
-import { useSectionNav } from '@/lib/use-section-nav';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import {
-  WorkflowEmpty,
-  WorkflowRail,
-  WorkflowSection,
-  type WorkflowStep,
-} from '@/components/admin/workflow';
+import { ChargeCitizenDialog, type ChargeValues } from '@/components/admin/charge-citizen-dialog';
 import { IssueFeeDialog, type IssueFeeValues } from '@/components/admin/issue-fee-dialog';
-import {
-  ChargeCitizenDialog,
-  type ChargeValues,
-} from '@/components/admin/charge-citizen-dialog';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
+import { cn } from '@/lib/utils';
 
-/**
- * LBP has no minor unit in practice — whole pounds, grouped.
- *
- * Kept as a local alias rather than three call sites reaching for the shared
- * name: this screen prints exact figures throughout (it is the ledger), so it
- * deliberately does not use the compacting `Money` the citizens registry does.
- */
-const lbp = formatLbp;
+const TABLE_LABELS: DataTableLabels = {
+  searchAriaLabel: 'بحث في الرسوم والمطالبات',
+  searchPlaceholder: 'ابحث باسم المواطن أو الرسم أو الرقم المرجعي…',
+  clearSearch: 'مسح البحث',
+  empty: 'لا توجد رسوم أو مطالبات مسجّلة بعد.',
+  emptyHint: 'أصدر أول رسم من زر «إصدار رسم جديد» أعلاه.',
+  emptySearch: 'لا توجد نتائج مطابقة لبحثك.',
+  emptySearchHint: 'جرّب البحث باسم المواطن، أو نوع الرسم، أو الرقم المرجعي.',
+  loadError: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
+  retry: 'إعادة المحاولة',
+  previous: 'السابق',
+  next: 'التالي',
+  pageOf: 'صفحة {current} من {total}',
+  rowsPerPage: 'عدد الصفوف',
+  totalRows: '{count} مطالبة',
+  sortAscending: 'ترتيب تصاعدي',
+  sortDescending: 'ترتيب تنازلي',
+  sortNone: 'إلغاء الترتيب',
+  columns: 'الأعمدة',
+  columnsHint: 'الأعمدة الظاهرة',
+  resetColumns: 'استعادة الافتراضي',
+};
 
-type StageId = 'issue' | 'ledger' | 'verify' | 'closing';
+const STATUS_FILTERS = [
+  { id: '', label: 'الكل' },
+  { id: 'UNPAID', label: 'غير مسددة' },
+  { id: 'OVERDUE', label: 'متأخرة' },
+  { id: 'PENDING_REVIEW', label: 'قيد المراجعة' },
+  { id: 'PAID', label: 'مدفوعة' },
+] as const;
 
-/**
- * إدارة الرسوم والمدفوعات.
- *
- * Three jobs on one screen because they are one job in practice: issue what
- * the municipality is owed, confirm what has arrived, and keep the transfer
- * details the citizen portal quotes correct.
- *
- * They are now laid out in the order money actually moves — إصدار، تحصيل،
- * تأكيد، وصل — with a sticky rail across the top. The previous layout led with
- * the review queue on the grounds that it is the only part where someone is
- * waiting; that reasoning was sound but the fix was in the wrong place. A queue
- * placed out of sequence teaches nobody the sequence, whereas a counted, raised
- * pill on the rail says "three people are waiting" from anywhere on the page —
- * which is what leading with it was trying to achieve.
- */
+function initials(fullName: string): string {
+  const words = fullName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '—';
+  return `${words[0][0] ?? ''}${words.length > 1 ? (words[words.length - 1][0] ?? '') : ''}`;
+}
+
 export default function FeesPage({
   params,
 }: {
@@ -113,45 +101,27 @@ export default function FeesPage({
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
-  const [summary, setSummary] = useState<FeeSummary | null>(null);
-  const [notices, setNotices] = useState<FeeNoticeSummary[]>([]);
-  const [pending, setPending] = useState<PendingPayment[]>([]);
-  const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
-  const [staff, setStaff] = useState<StaffSummary[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [issuing, setIssuing] = useState(false);
-  const [issueError, setIssueError] = useState<string | null>(null);
+
+  // Table Data State
+  const [items, setItems] = useState<AdminPaymentItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<FeeSummary | null>(null);
+  const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
+
+  // Dialogs State
   const [issueOpen, setIssueOpen] = useState(false);
-  const [ledger, setLedger] = useState<AdminPaymentItem[]>([]);
-  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [issuing, setIssuing] = useState(false);
   const [chargeOpen, setChargeOpen] = useState(false);
   const [charging, setCharging] = useState(false);
-  const [chargeError, setChargeError] = useState<string | null>(null);
-  const [runningBilling, setRunningBilling] = useState(false);
   const [busyPaymentId, setBusyPaymentId] = useState<string | null>(null);
-  /*
-   * Success messages are toasts now, not the inline banner this held.
-   *
-   * The banner rendered at the very top of a page four sections long. Every
-   * action that raised one — issuing a fee from the third section, settling a
-   * payment from the fourth — left the reader scrolled well past it, so the
-   * confirmation for the thing they had just done was off-screen. Errors keep
-   * their inline banner: an error is a state the page is *in* until it is
-   * resolved, not an event that has finished.
-   */
-  const toast = useToast();
-  /** Which citizen's itemised breakdown is open, if any. */
-  const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
-  /**
-   * The receipt shown after money is taken.
-   *
-   * Holds the full citizen profile rather than the ledger row, because the
-   * printed وصل carries the property, the units and the household size — none
-   * of which the payment row knows about.
-   */
+
+  // Receipt State
   const [receipt, setReceipt] = useState<{
     citizen: CitizenProfile;
     payment: CitizenProfilePayment;
@@ -160,109 +130,8 @@ export default function FeesPage({
   const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
   const [municipalityName, setMunicipalityName] = useState('');
 
+  const toast = useToast();
   const canManage = role === 'SUPER_ADMIN';
-
-  /**
-   * The ledger, one row per citizen.
-   *
-   * Grouped in the browser rather than by a second endpoint because the flat
-   * list is already loaded and already scoped by the same search — a grouped
-   * query would be a second round trip that could disagree with the rows it
-   * summarises. `outstanding` sums the *balance* of each unsettled invoice,
-   * which is what makes a part-payment visible here at all.
-   */
-  const byCitizen = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        citizenId: string;
-        citizenName: string;
-        citizenReference: string | null;
-        items: AdminPaymentItem[];
-        billed: number;
-        outstanding: number;
-        overdueCount: number;
-      }
-    >();
-
-    for (const payment of ledger) {
-      const group = groups.get(payment.citizenId) ?? {
-        citizenId: payment.citizenId,
-        citizenName: payment.citizenName,
-        citizenReference: payment.citizenReference,
-        items: [],
-        billed: 0,
-        outstanding: 0,
-        overdueCount: 0,
-      };
-      group.items.push(payment);
-      group.billed += payment.amount;
-      if (payment.paymentStatus !== 'PAID') group.outstanding += payment.remaining;
-      if (payment.paymentStatus === 'OVERDUE') group.overdueCount += 1;
-      groups.set(payment.citizenId, group);
-    }
-
-    // Most owed first: the point of this screen is who to chase.
-    return [...groups.values()].sort((a, b) => b.outstanding - a.outstanding);
-  }, [ledger]);
-
-  /**
-   * The four stages, declared once.
-   *
-   * Read by both the rail and the section headings, so a rail entry can never
-   * point at an anchor that is not rendered. الوصولات is dropped entirely for a
-   * clerk who cannot manage: the card behind it is a link to settings they
-   * cannot open, and a rail step leading to a locked door is worse than a rail
-   * with three steps.
-   */
-  const stages = useMemo<WorkflowStep<StageId>[]>(
-    () => [
-      {
-        id: 'issue',
-        step: '١',
-        title: 'إصدار الرسوم',
-        icon: Banknote,
-        count: notices.length,
-      },
-      {
-        id: 'ledger',
-        step: '٢',
-        title: 'تحصيل المطالبات',
-        icon: Wallet,
-        count: byCitizen.length,
-      },
-      {
-        id: 'verify',
-        step: '٣',
-        title: 'تأكيد الدفعات',
-        icon: Clock,
-        count: pending.length,
-        urgent: true,
-      },
-      ...(canManage
-        ? [
-            {
-              id: 'closing' as const,
-              step: '٤',
-              title: 'الوصولات والإعدادات',
-              icon: Settings2,
-            },
-          ]
-        : []),
-    ],
-    [notices.length, byCitizen.length, pending.length, canManage],
-  );
-
-  const stageIds = useMemo(() => stages.map((stage) => stage.id), [stages]);
-
-  // The lists' lengths change the page height enough to invalidate the
-  // observer, so they are what the hook re-measures on.
-  const { active, jumpTo } = useSectionNav(stageIds, [
-    notices.length,
-    byCitizen.length,
-    pending.length,
-    expandedCitizen,
-  ]);
 
   useEffect(() => {
     const session = loadSession(tenant);
@@ -274,880 +143,595 @@ export default function FeesPage({
     setRole(session.user.role);
   }, [tenant, base, router]);
 
-  const load = useCallback(async () => {
-    if (!token) return;
-    try {
-      const [
-        summaryResult,
-        noticesResult,
-        pendingResult,
-        settingsResult,
-        configResult,
-        registryResult,
-        ledgerResult,
-        staffResult,
-      ] = await Promise.all([
-        getFeeSummary(tenant, token),
-        getFeeNotices(tenant, token),
-        getPendingPayments(tenant, token),
-        // Read, not edited, here: the receipt prints the office numbers and the
-        // municipality name. The form for them lives in إعدادات البلدية.
-        getMunicipalitySettings(tenant, token),
-        getTenantConfig(tenant),
-        listCitizens(tenant, token, { limit: 200 }),
-        /**
-         * An explicit page size, because this screen groups what it fetches.
-         *
-         * سجل المطالبات collapses invoices into one row per citizen in the
-         * browser, so a page boundary drawn across *invoices* would split a
-         * citizen's balance in half and show them twice — once per page, each
-         * with part of what they owe. Until the grouping moves into the query,
-         * the honest thing is to ask for a slice large enough to hold a
-         * village's ledger and say so, rather than accept the endpoint's new
-         * 25-row default and quietly under-report every total on the page.
-         */
-        getAllPayments(tenant, token, {
-          search: ledgerSearch || undefined,
-          limit: 500,
-        }),
-        // Only to name a محصّل when cash is recorded as collected on a round.
-        // `/staff` is SUPER_ADMIN-only, which is exactly who may settle, so
-        // this cannot 403 for anyone who can reach the dialog.
-        getStaff(tenant, token),
-      ]);
-
-      setSummary(summaryResult);
-      setNotices(noticesResult.items);
-      setPending(pendingResult.items);
-      setLedger(ledgerResult.items);
-      setCitizens(registryResult.items);
-      // Deactivated accounts are dropped: a collector who has left the
-      // municipality cannot be taking money on its behalf today.
-      setStaff(staffResult.items.filter((member) => member.isActive));
-      setSettings(settingsResult);
-      setMunicipalityName(configResult.nameAr || configResult.name);
+  const load = useCallback(
+    async (isManualRefresh = false) => {
+      if (!token) return;
+      if (isManualRefresh) setRefreshing(true);
+      else setLoading(true);
       setError(null);
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError && caught.status === 401) {
-        clearSession(tenant);
-        router.replace(`${base}/login`);
-        return;
+
+      try {
+        const [paymentsRes, summaryRes, settingsRes, configRes, citizensRes] =
+          await Promise.allSettled([
+            getAllPayments(tenant, token, {
+              status: statusFilter || undefined,
+              search: appliedSearch || undefined,
+              limit: pagination.pageSize,
+              offset: pagination.pageIndex * pagination.pageSize,
+            }),
+            getFeeSummary(tenant, token),
+            getMunicipalitySettings(tenant, token),
+            getTenantConfig(tenant),
+            listCitizens(tenant, token, { limit: 200 }),
+          ]);
+
+        if (paymentsRes.status === 'fulfilled') {
+          setItems(paymentsRes.value.items);
+          setTotal(paymentsRes.value.total);
+        } else {
+          logApiError(paymentsRes.reason);
+          setError('تعذّر تحميل سجل الرسوم والمدفوعات.');
+        }
+
+        if (summaryRes.status === 'fulfilled') {
+          setSummary(summaryRes.value);
+        }
+
+        if (settingsRes.status === 'fulfilled') {
+          setSettings(settingsRes.value);
+        }
+
+        if (configRes.status === 'fulfilled') {
+          setMunicipalityName(configRes.value.nameAr || configRes.value.name);
+        }
+
+        if (citizensRes.status === 'fulfilled') {
+          setCitizens(citizensRes.value.items);
+        }
+      } catch (caught) {
+        logApiError(caught);
+        if (caught instanceof ApiRequestError && caught.status === 401) {
+          clearSession(tenant);
+          router.replace(`${base}/login`);
+          return;
+        }
+        setError('تعذّر تحميل بيانات الرسوم.');
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-      setError('تعذّر تحميل بيانات الرسوم.');
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, token, base, router, ledgerSearch]);
+    },
+    [tenant, token, base, router, statusFilter, appliedSearch, pagination],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  /** Manual reload — spins its own flag so the page does not blank out. */
-  const refresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
+  // Reset page index on search or filter change
+  useEffect(() => {
+    setPagination((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
+  }, [statusFilter, appliedSearch]);
 
-  const submitFee = useCallback(
-    async (values: IssueFeeValues) => {
-      if (!token) return;
-      setIssuing(true);
-      setIssueError(null);
-      try {
-        const result = await issueFeeNotice(tenant, token, {
-          title: values.title.trim(),
-          amount: Number(values.amount.replace(/\D/g, '')),
-          frequency: values.frequency,
-          targetType: values.targetType,
-          ...(values.targetType === 'BUILDING_CATEGORY'
-            ? { targetCategory: values.targetCategory }
-            : {}),
-          ...(values.targetType === 'INDIVIDUAL_CITIZEN'
-            ? { targetCitizenId: values.targetCitizenId }
-            : {}),
-          dueDate: new Date(values.dueDate).toISOString(),
-          ...(values.instructions.trim() ? { instructions: values.instructions.trim() } : {}),
-        });
-
-        setIssueOpen(false);
-        toast.success('تم إصدار الرسم', {
-          description: `${result.issued} مطالبة على المواطنين المشمولين.`,
-        });
-        await load();
-      } catch (caught) {
-        logApiError(caught);
-        setIssueError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر إصدار الرسم.',
-        );
-      } finally {
-        setIssuing(false);
-      }
-    },
-    [tenant, token, load],
-  );
-
-  const submitCharge = useCallback(
-    async (values: ChargeValues) => {
-      if (!token) return;
-      setCharging(true);
-      setChargeError(null);
-      try {
-        await chargeCitizen(tenant, token, {
-          citizenId: values.citizenId,
-          title: values.title.trim(),
-          amount: Number(values.amount.replace(/\D/g, '')),
-          dueDate: new Date(values.dueDate).toISOString(),
-        });
-        setChargeOpen(false);
-        toast.success('تمت إضافة المطالبة');
-        await load();
-      } catch (caught) {
-        logApiError(caught);
-        setChargeError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر إضافة المطالبة.',
-        );
-      } finally {
-        setCharging(false);
-      }
-    },
-    [tenant, token, load],
-  );
-
-  /**
-   * Opens the وصل for one invoice.
-   *
-   * Fetches the citizen's profile on demand rather than holding every
-   * profile in state: the receipt needs the property, the unit counts and the
-   * household size, and loading all of that for a ledger of two hundred rows
-   * to serve the one receipt a clerk actually prints would be absurd.
-   *
-   * The payment is then taken *from the profile* rather than from the ledger
-   * row, so the printed figures are the committed ones and carry the fields
-   * (`reviewNote`, `frequency`) the ledger row does not.
-   */
   const openReceipt = useCallback(
-    async (citizenId: string, paymentId: string, received: number) => {
+    async (citizenId: string, paymentId: string, receivedAmount: number) => {
       if (!token) return;
+      setBusyPaymentId(paymentId);
       try {
         const profile = await getCitizenProfile(tenant, token, citizenId);
-        const payment = profile.payments.find((row) => row.id === paymentId);
-        if (!payment) return;
-        setReceipt({ citizen: profile, payment, received });
+        const row = profile.payments.find((entry) => entry.id === paymentId);
+        if (!row) {
+          toast.error('تعذّر العثور على سجل الدفعة.');
+          return;
+        }
+        setReceipt({ citizen: profile, payment: row, received: receivedAmount });
       } catch (caught) {
         logApiError(caught);
-        setError('تعذّر فتح الوصل — يمكن إصداره من ملف المواطن.');
-      }
-    },
-    [tenant, token],
-  );
-
-  /**
-   * Runs tonight's biller now. Safe to press twice — the job is idempotent
-   * within a period, so a second click reports zero new invoices.
-   */
-  const runBillingNow = useCallback(async () => {
-    if (!token) return;
-    setRunningBilling(true);
-    try {
-      const result = await runRecurringBilling(tenant, token);
-      if (result.invoicesCreated > 0) {
-        toast.success('تم إصدار مطالبات الدورة', {
-          description: `${result.invoicesCreated} مطالبة جديدة.`,
-        });
-      } else {
-        // Not an error and not a success — the job is idempotent within a
-        // period, so pressing it twice is expected and reporting "0 created"
-        // as a failure would teach clerks to distrust a correct answer.
-        toast.info('لا مطالبات جديدة', {
-          description: 'الدورة الحالية مُصدرة بالفعل.',
-        });
-      }
-      await load();
-    } catch (caught) {
-      logApiError(caught);
-      setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تشغيل الإصدار.');
-    } finally {
-      setRunningBilling(false);
-    }
-  }, [tenant, token, load]);
-
-  const toggleNotice = useCallback(
-    async (id: string, next: boolean) => {
-      if (!token) return;
-      try {
-        await setNoticeActive(tenant, token, id, next);
-        await load();
-      } catch (caught) {
-        logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الرسم.');
-      }
-    },
-    [tenant, token, load],
-  );
-
-  const decide = useCallback(
-    async (payment: PendingPayment, confirmed: boolean) => {
-      if (!token) return;
-      // A refusal has to say why — the citizen sees this note next to a bill
-      // they believed was settled.
-      const note = confirmed
-        ? undefined
-        : (prompt(`سبب رفض دفعة ${payment.citizenName} *:`) ?? '').trim();
-      if (!confirmed && !note) return;
-
-      setBusyPaymentId(payment.id);
-      try {
-        await reviewPayment(tenant, token, payment.id, { confirmed, note });
-        await load();
-      } catch (caught) {
-        logApiError(caught);
-        setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الدفعة.');
+        toast.error('تعذّر فتح الوصل — يمكنك إصداره من ملف المواطن.');
       } finally {
         setBusyPaymentId(null);
       }
     },
-    [tenant, token, load],
+    [tenant, token, toast],
+  );
+
+  const handleReview = async (paymentId: string, confirmed: boolean) => {
+    if (!token || busyPaymentId) return;
+    setBusyPaymentId(paymentId);
+    try {
+      await reviewPayment(tenant, token, paymentId, { confirmed });
+      toast.success(confirmed ? 'تم تأكيد الدفعة بنجاح.' : 'تم رفض الدفعة.');
+      void load();
+    } catch (caught) {
+      logApiError(caught);
+      toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر مراجعة الدفعة.');
+    } finally {
+      setBusyPaymentId(null);
+    }
+  };
+
+  const handleIssueNotice = async (values: IssueFeeValues) => {
+    if (!token) return;
+    setIssuing(true);
+    try {
+      const res = await issueFeeNotice(tenant, token, {
+        title: values.title,
+        amount: Number(values.amount.replace(/\D/g, '')),
+        frequency: values.frequency,
+        targetType: values.targetType,
+        targetCategory: values.targetCategory || undefined,
+        targetCitizenId: values.targetCitizenId || undefined,
+        dueDate: values.dueDate,
+        instructions: values.instructions || undefined,
+      });
+      toast.success(`تم إصدار الرسم بنجاح وتكليف ${res.issued} مواطن.`);
+      setIssueOpen(false);
+      void load();
+    } catch (caught) {
+      logApiError(caught);
+      toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر إصدار الرسم.');
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  const handleChargeCitizen = async (values: ChargeValues) => {
+    if (!token) return;
+    setCharging(true);
+    try {
+      await chargeCitizen(tenant, token, {
+        citizenId: values.citizenId,
+        title: values.title,
+        amount: Number(values.amount.replace(/\D/g, '')),
+        dueDate: values.dueDate,
+      });
+      toast.success('تم تسجيل التكليف المالي على المواطن بنجاح.');
+      setChargeOpen(false);
+      void load();
+    } catch (caught) {
+      logApiError(caught);
+      toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر تكليف المواطن.');
+    } finally {
+      setCharging(false);
+    }
+  };
+
+  const columns = useMemo<ColumnDef<AdminPaymentItem>[]>(
+    () => [
+      {
+        accessorKey: 'citizenName',
+        header: 'المواطن',
+        cell: ({ row }) => {
+          const payment = row.original;
+          return (
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary"
+              >
+                {initials(payment.citizenName)}
+              </span>
+              <div className="min-w-0 space-y-0.5">
+                <Link
+                  href={`${base}/citizens/${payment.citizenId}`}
+                  className="truncate font-semibold text-foreground hover:text-primary transition-colors block"
+                >
+                  {payment.citizenName}
+                </Link>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {payment.citizenReference ? (
+                    <span className="font-mono text-[11px]" dir="ltr">
+                      {payment.citizenReference}
+                    </span>
+                  ) : null}
+                  {payment.citizenPhone ? (
+                    <>
+                      <span>•</span>
+                      <span className="font-mono text-[11px]" dir="ltr">
+                        {payment.citizenPhone}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'title',
+        header: 'الرسم / المطالبة',
+        cell: ({ row }) => {
+          const payment = row.original;
+          return (
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">{payment.title}</p>
+              {payment.frequency ? (
+                <Badge variant="soft-muted" className="text-[10px] px-1.5 py-0">
+                  {ar.feeFrequency[payment.frequency as never] ?? payment.frequency}
+                </Badge>
+              ) : null}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'dueDate',
+        header: 'تاريخ الاستحقاق',
+        cell: ({ row }) => {
+          return (
+            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+              {formatDate(row.original.dueDate)}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: 'amount',
+        header: 'قيمة الرسم',
+        meta: { align: 'end' },
+        cell: ({ row }) => (
+          <span className="font-mono text-sm tabular-nums text-foreground whitespace-nowrap">
+            {formatLbp(row.original.amount)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'paidAmount',
+        header: 'المسدد',
+        meta: { align: 'end' },
+        cell: ({ row }) => {
+          const paid = row.original.paidAmount;
+          return (
+            <span
+              className={cn(
+                'font-mono text-sm tabular-nums whitespace-nowrap',
+                paid > 0 ? 'font-semibold text-success' : 'text-muted-foreground',
+              )}
+            >
+              {paid > 0 ? formatLbp(paid) : '—'}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: 'remaining',
+        header: 'الرصيد المستحق',
+        meta: { align: 'end' },
+        cell: ({ row }) => {
+          const remaining = row.original.remaining;
+          const isPaid = row.original.paymentStatus === 'PAID';
+          return (
+            <span
+              className={cn(
+                'font-mono text-sm font-bold tabular-nums whitespace-nowrap',
+                isPaid
+                  ? 'text-muted-foreground line-through opacity-70'
+                  : remaining > 0
+                    ? 'text-foreground'
+                    : 'text-success',
+              )}
+            >
+              {formatLbp(remaining)}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: 'paymentStatus',
+        header: 'الحالة',
+        cell: ({ row }) => {
+          const status = row.original.paymentStatus;
+          return (
+            <Badge
+              variant="outline"
+              className={cn(
+                'whitespace-nowrap px-2.5 py-0.5 text-xs font-medium',
+                status === 'PAID'
+                  ? 'border-success/40 bg-success/10 text-success'
+                  : status === 'OVERDUE'
+                    ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                    : status === 'PENDING_REVIEW'
+                      ? 'border-warning/40 bg-warning/10 text-warning'
+                      : 'border-border bg-muted/50 text-muted-foreground',
+              )}
+            >
+              {ar.paymentStatus[status as never] ?? status}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: 'actions',
+        header: 'الإجراءات',
+        meta: { align: 'end' },
+        cell: ({ row }) => {
+          const payment = row.original;
+          const isPaid = payment.paymentStatus === 'PAID';
+          const isPendingReview = payment.paymentStatus === 'PENDING_REVIEW';
+          const isBusy = busyPaymentId === payment.id;
+
+          return (
+            <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+              {/* Review actions for claims pending review */}
+              {isPendingReview && canManage ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs border-success/40 text-success hover:bg-success/10"
+                    disabled={isBusy}
+                    onClick={() => void handleReview(payment.id, true)}
+                  >
+                    {isBusy ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="size-3.5 rtl:ml-1 ltr:mr-1" />
+                    )}
+                    تأكيد
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-xs text-destructive hover:bg-destructive/10"
+                    disabled={isBusy}
+                    onClick={() => void handleReview(payment.id, false)}
+                  >
+                    رفض
+                  </Button>
+                </>
+              ) : null}
+
+              {/* Settle button for unpaid / overdue / partial */}
+              {canManage && !isPaid && !isPendingReview ? (
+                <Link
+                  href={`${base}/fees/payments/${payment.id}/settle`}
+                  className={buttonVariants({ variant: 'default', size: 'sm' })}
+                >
+                  <Banknote className="size-3.5 rtl:ml-1.5 ltr:mr-1.5" />
+                  تسجيل دفعة
+                </Link>
+              ) : null}
+
+              {/* Receipt button for any invoice with payments */}
+              {payment.paidAmount > 0 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  disabled={isBusy}
+                  onClick={() =>
+                    void openReceipt(payment.citizenId, payment.id, payment.paidAmount)
+                  }
+                >
+                  {isBusy ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Receipt className="size-3.5 rtl:ml-1.5 ltr:mr-1.5" />
+                  )}
+                  وصل القبض
+                </Button>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ],
+    [base, canManage, busyPaymentId, openReceipt],
   );
 
   if (!token) return null;
 
-  const collected = summary?.paidTotal ?? 0;
-  const outstanding = summary?.unpaidTotal ?? 0;
-  const billedTotal = collected + outstanding;
-
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         icon={Receipt}
         title="إدارة الرسوم والمدفوعات"
-        subtitle="من إصدار الرسم إلى الوصل — أربع مراحل على صفحة واحدة"
+        subtitle="سجل الرسوم والمطالبات المالية للمواطنين — الإصدار والتحصيل والوصولات"
         actions={
-          <>
-            <Button variant="ghost" onClick={() => void refresh()} disabled={refreshing}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void load(true)}
+              disabled={refreshing}
+            >
               <RefreshCw
-                className={cn('size-4', refreshing && 'animate-spin')}
+                className={cn('size-4 rtl:ml-1.5 ltr:mr-1.5', refreshing && 'animate-spin')}
                 aria-hidden
               />
               تحديث
             </Button>
+
             {canManage ? (
               <>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setChargeError(null);
-                    setChargeOpen(true);
-                  }}
-                >
-                  <UserPlus className="size-4" aria-hidden />
-                  إضافة مطالبة لمواطن
+                <Button variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
+                  <UserPlus className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
+                  تكليف مباشر
                 </Button>
-                <Button
-                  onClick={() => {
-                    setIssueError(null);
-                    setIssueOpen(true);
-                  }}
-                >
-                  <Receipt className="size-4" aria-hidden />
+                <Button size="sm" onClick={() => setIssueOpen(true)}>
+                  <Plus className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
                   إصدار رسم جديد
                 </Button>
               </>
             ) : null}
-          </>
+          </div>
         }
       />
 
       {error ? (
         <p
           role="alert"
-          className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
+          className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
         >
-          <XCircle className="mt-0.5 size-5 shrink-0" aria-hidden />
-          <span className="flex-1">{error}</span>
+          {error}
         </p>
       ) : null}
 
-      {/* The four figures, each a jump into the stage that would change it —
-          «قيد المراجعة» is not a statistic, it is a queue with a door. */}
+      {/* KPI Cards Summary Row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="إجمالي المستحقات"
-          value={summary ? lbp(summary.unpaidTotal) : '—'}
-          hint={summary ? `${summary.unpaidCount} مطالبة` : ''}
-          icon={<Wallet className="size-6 text-destructive" aria-hidden />}
-          accent="bg-destructive/10"
-          loading={loading}
-          onClick={() => jumpTo('ledger')}
-        />
-        <MetricCard
-          label="قيد المراجعة"
-          value={summary ? String(summary.pendingReviewCount) : '—'}
-          hint="دفعات بانتظار التأكيد"
-          icon={<Clock className="size-6 text-warning" aria-hidden />}
-          accent="bg-warning/10"
-          loading={loading}
-          attention={pending.length > 0}
-          onClick={() => jumpTo('verify')}
-        />
-        <MetricCard
           label="إجمالي المحصّل"
-          value={summary ? lbp(summary.paidTotal) : '—'}
-          hint={summary ? `${summary.paidCount} دفعة` : ''}
-          icon={<BadgeCheck className="size-6 text-success" aria-hidden />}
-          accent="bg-success/10"
+          value={formatLbp(summary?.paidTotal ?? 0)}
+          subtext={summary ? `${summary.paidCount} دفعة مسددة` : undefined}
           loading={loading}
-          onClick={() => jumpTo('ledger')}
+          icon={<Wallet className="size-6 text-success" />}
+          accent="bg-success/10"
         />
         <MetricCard
-          label="الرسوم المُصدرة"
-          value={String(notices.length)}
-          hint="إشعارات فعّالة"
-          icon={<Banknote className="size-6 text-primary" aria-hidden />}
+          label="المستحقات غير المسددة"
+          value={formatLbp(summary?.unpaidTotal ?? 0)}
+          subtext={summary ? `${summary.unpaidCount} مطالبة مطلوبة` : undefined}
           loading={loading}
-          onClick={() => jumpTo('issue')}
+          icon={<Banknote className="size-6 text-primary" />}
+        />
+        <MetricCard
+          label="دفعات بانتظار التحقق"
+          value={(summary?.pendingReviewCount ?? 0).toLocaleString('en-US')}
+          subtext="تحويلات تحتاج موافقة الموظف"
+          loading={loading}
+          icon={<Clock3 className="size-6 text-warning" />}
+          accent="bg-warning/10"
+        />
+        <MetricCard
+          label="إجمالي الرسوم الصادرة"
+          value={formatLbp((summary?.paidTotal ?? 0) + (summary?.unpaidTotal ?? 0))}
+          subtext="المجموع الكلي للمطالبات"
+          loading={loading}
+          icon={<Receipt className="size-6 text-primary" />}
         />
       </div>
 
-      {/* Collected against billed. Two totals sitting in separate tiles are
-          two numbers; one bar is a ratio, which is the thing anyone actually
-          wants to know from a fees screen. */}
-      {billedTotal > 0 ? (
-        <Card>
-          <CardContent className="space-y-3 p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-sm font-medium">نسبة التحصيل</p>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-foreground tabular-nums">
-                  {Math.round((collected / billedTotal) * 100)}%
-                </span>{' '}
-                — {lbp(collected)} من {lbp(billedTotal)}
-              </p>
+      {/* Main Table Card */}
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base font-bold">
+              <Receipt className="size-5 text-primary" />
+              سجل الرسوم والمطالبات
+            </CardTitle>
+
+            {/* Status Tabs Filter */}
+            <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
+              {STATUS_FILTERS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.id)}
+                  className={cn(
+                    'rounded-lg px-3 py-1 text-xs font-semibold transition-all',
+                    statusFilter === tab.id
+                      ? 'bg-card text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-            <div
-              className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
-              role="img"
-              aria-label={`محصّل ${lbp(collected)} من أصل ${lbp(billedTotal)}`}
-            >
-              <div
-                className="h-full rounded-full bg-success transition-[width] duration-500"
-                style={{ width: `${(collected / billedTotal) * 100}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <WorkflowRail steps={stages} active={active} onJump={jumpTo} label="مراحل الرسوم" />
-
-      {/* ─── ١ ─── The rules. One notice here can be a thousand invoices below. */}
-      <WorkflowSection
-        id="issue"
-        step="١"
-        icon={Banknote}
-        title="إصدار الرسوم"
-        description="الإشعارات التي تولّد المطالبات. المتكرّرة منها تُصدر دورتها تلقائياً كل ليلة."
-        contentClassName="p-0"
-        actions={
-          canManage ? (
-            <Button
-              variant="outline"
-              onClick={() => void runBillingNow()}
-              disabled={runningBilling}
-            >
-              {runningBilling ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <RefreshCw className="size-4" aria-hidden />
-              )}
-              إصدار الدورة الحالية
-            </Button>
-          ) : null
-        }
-      >
-        {notices.length === 0 ? (
-          <WorkflowEmpty
-            icon={Banknote}
-            title="لم يتم إصدار أي رسم بعد"
-            hint={
-              canManage
-                ? 'ابدأ من «إصدار رسم جديد» في أعلى الصفحة — ثلاث خطوات ومراجعة قبل الاعتماد.'
-                : undefined
-            }
-          />
-        ) : (
-          <ul className="divide-y">
-            {notices.map((item) => (
-              <li
-                key={item.id}
-                className="flex flex-wrap items-center justify-between gap-3 p-4"
-              >
-                <div className="min-w-0 space-y-1">
-                  <p className="font-medium">{item.title}</p>
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-                    <Badge variant="secondary">
-                      {ar.feeFrequency[item.frequency as never] ?? item.frequency}
-                    </Badge>
-                    {item.frequency !== 'ONCE' && !item.isActive ? (
-                      <Badge variant="outline" className="gap-1 text-muted-foreground">
-                        <PauseCircle className="size-3" aria-hidden />
-                        متوقّف
-                      </Badge>
-                    ) : null}
-                    <Badge variant="outline">
-                      {item.targetCitizenName ??
-                        (item.targetCategory
-                          ? (ar.feeTargetCategory[item.targetCategory as never] ??
-                            item.targetCategory)
-                          : (ar.feeTargetType[item.targetType as never] ?? item.targetType))}
-                    </Badge>
-                    <span>استحقاق {formatDate(item.dueDate)}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-end">
-                    <p className="font-semibold tabular-nums">{lbp(item.amount)}</p>
-                    <p className="text-xs text-muted-foreground">{item.issuedCount} مطالبة</p>
-                  </div>
-                  {/* Only recurring notices have anything to stop — a one-off
-                      fee has already done all it will ever do. */}
-                  {canManage && item.frequency !== 'ONCE' ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void toggleNotice(item.id, !item.isActive)}
-                      title={
-                        item.isActive
-                          ? 'إيقاف الإصدار التلقائي للدورات القادمة'
-                          : 'استئناف الإصدار التلقائي'
-                      }
-                    >
-                      {item.isActive ? (
-                        <>
-                          <PauseCircle className="size-4" aria-hidden />
-                          إيقاف التكرار
-                        </>
-                      ) : (
-                        <>
-                          <PlayCircle className="size-4" aria-hidden />
-                          استئناف
-                        </>
-                      )}
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </WorkflowSection>
-
-      {/* ─── ٢ ─── The ledger, and where cash over the counter is recorded. */}
-      <WorkflowSection
-        id="ledger"
-        step="٢"
-        icon={Wallet}
-        title="تحصيل المطالبات"
-        description="كل المطالبات الصادرة، مجمّعة بالمواطن ومرتّبة بالأكثر استحقاقاً. سجّل الدفعات النقدية من هنا."
-        contentClassName="p-0"
-        actions={
-          <div className="relative w-full md:w-72">
-            <Search
-              className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              className="h-10 ps-9"
-              placeholder="ابحث باسم المواطن أو رقمه المرجعي…"
-              value={ledgerSearch}
-              onChange={(event) => setLedgerSearch(event.target.value)}
-            />
           </div>
-        }
-      >
-        {byCitizen.length === 0 ? (
-          <WorkflowEmpty
-            icon={ledgerSearch ? Search : Inbox}
-            title={ledgerSearch ? 'لا توجد مطالبات مطابقة' : 'لا توجد مطالبات بعد'}
-            hint={
-              ledgerSearch
-                ? 'جرّب الاسم كاملاً أو الرقم المرجعي.'
-                : 'تظهر هنا فور إصدار أول رسم في المرحلة السابقة.'
-            }
+        </CardHeader>
+
+        <CardContent className="p-6">
+          <DataTable
+            columns={columns}
+            data={items}
+            labels={TABLE_LABELS}
+            getRowId={(row) => row.id}
+            loading={loading}
+            onRetry={() => void load()}
+            emptyIcon={<Receipt className="size-10 text-muted-foreground/60" />}
+            manualPagination
+            manualFiltering
+            sortable={false}
+            pageCount={Math.max(Math.ceil(total / pagination.pageSize), 1)}
+            totalRowCount={total}
+            pagination={pagination}
+            onPaginationChange={setPagination}
+            searchValue={appliedSearch}
+            onSearchChange={setAppliedSearch}
           />
-        ) : (
-          /*
-            One row per citizen, not per invoice.
-            A resident billed monthly accumulates a row a month, and the flat
-            list repeated their name down the whole page — three postings of
-            500,000 and 5,000,000 read as three separate people owing three
-            separate debts, with no total anywhere. Grouping puts the
-            accumulated balance on one line and moves the individual charges
-            behind «عرض», which is also where they get cleared one by one.
-          */
-          <ul className="divide-y">
-            {byCitizen.map((group) => {
-              const expanded = expandedCitizen === group.citizenId;
-              const settled = group.billed - group.outstanding;
-              const share = group.billed > 0 ? settled / group.billed : 1;
+        </CardContent>
+      </Card>
 
-              return (
-                <li key={group.citizenId}>
-                  <div
-                    className={cn(
-                      'flex flex-wrap items-center justify-between gap-4 p-4 transition-colors',
-                      expanded && 'bg-accent/40',
-                    )}
-                  >
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <p className="font-medium">{group.citizenName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        <span className="font-mono" dir="ltr">
-                          {group.citizenReference ?? '—'}
-                        </span>{' '}
-                        · {group.items.length} مطالبة
-                        {group.overdueCount > 0 ? (
-                          <span className="text-destructive">
-                            {' '}
-                            · {group.overdueCount} متأخرة
-                          </span>
-                        ) : null}
-                      </p>
-                      {/* How far down the balance has been paid, without
-                          opening the breakdown to find out. */}
-                      <div
-                        className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted"
-                        role="img"
-                        aria-label={`سُدّد ${lbp(settled)} من أصل ${lbp(group.billed)}`}
-                      >
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            group.overdueCount > 0 ? 'bg-destructive' : 'bg-success',
-                          )}
-                          style={{ width: `${share * 100}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="text-end">
-                        <p className="font-semibold tabular-nums">{lbp(group.outstanding)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          من أصل {lbp(group.billed)}
-                        </p>
-                      </div>
-                      {group.outstanding === 0 ? (
-                        <Badge
-                          variant="outline"
-                          className="border-success/40 bg-success/10 text-success"
-                        >
-                          مسدَّد بالكامل
-                        </Badge>
-                      ) : null}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        aria-expanded={expanded}
-                        onClick={() => setExpandedCitizen(expanded ? null : group.citizenId)}
-                      >
-                        {expanded ? (
-                          <ChevronUp className="size-4" aria-hidden />
-                        ) : (
-                          <Eye className="size-4" aria-hidden />
-                        )}
-                        {expanded ? 'إخفاء' : 'عرض'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* The itemised breakdown: every posting on its own line,
-                      each settleable on its own. */}
-                  {expanded ? (
-                    <ul className="divide-y border-t bg-muted/20">
-                      {group.items.map((payment) => {
-                        const paid = payment.paymentStatus === 'PAID';
-                        const partly = !paid && payment.paidAmount > 0;
-                        return (
-                          <li
-                            key={payment.id}
-                            className="flex flex-wrap items-center justify-between gap-3 py-3 pe-4 ps-10"
-                          >
-                            <div className="min-w-0 space-y-0.5">
-                              <p className="text-sm font-medium">{payment.title}</p>
-                              <p className="text-xs text-muted-foreground">
-                                استحقاق{' '}
-                                {formatDate(payment.dueDate)}
-                                {partly
-                                  ? ` · مسدَّد ${lbp(payment.paidAmount)} من ${lbp(payment.amount)}`
-                                  : ''}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-semibold tabular-nums">
-                                {lbp(paid ? payment.amount : payment.remaining)}
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  payment.paymentStatus === 'PAID'
-                                    ? 'border-success/40 bg-success/10 text-success'
-                                    : payment.paymentStatus === 'OVERDUE'
-                                      ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                      : 'border-warning/40 bg-warning/10 text-warning'
-                                }
-                              >
-                                {ar.paymentStatus[payment.paymentStatus as never] ??
-                                  payment.paymentStatus}
-                              </Badge>
-                              {canManage && !paid ? (
-                                // Navigates to تسجيل دفعة's own page rather than
-                                // opening a dialog over this table — see that
-                                // page's own note for why. Load falls through
-                                // to it via `getPaymentById`, so nothing needs
-                                // to be threaded through the link beyond the id.
-                                <Link
-                                  href={`${base}/fees/payments/${payment.id}/settle`}
-                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                                >
-                                  <Banknote className="size-4" aria-hidden />
-                                  تسجيل دفعة
-                                </Link>
-                              ) : null}
-
-                              {/* Any invoice that has received money can be
-                                  receipted again — a citizen who lost the
-                                  first copy should not need a second payment
-                                  to get one. */}
-                              {canManage && payment.paidAmount > 0 ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    void openReceipt(
-                                      payment.citizenId,
-                                      payment.id,
-                                      payment.paidAmount,
-                                    )
-                                  }
-                                >
-                                  <Receipt className="size-4" aria-hidden />
-                                  الوصل
-                                </Button>
-                              ) : null}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </WorkflowSection>
-
-      {/* ─── ٣ ─── The only stage where someone outside the building is
-          waiting on the municipality. */}
-      <WorkflowSection
-        id="verify"
-        step="٣"
-        icon={Clock}
-        title="تأكيد الدفعات الواردة"
-        description="دفعات أعلن المواطنون تحويلها. أكّد وصول المبلغ إلى حساب البلدية قبل اعتمادها."
-        contentClassName="p-0"
-        attention={pending.length > 0}
-      >
-        {pending.length === 0 ? (
-          <WorkflowEmpty
-            icon={CheckCircle2}
-            title="لا توجد دفعات بانتظار المراجعة"
-            hint="كل ما أعلنه المواطنون تمّت معالجته."
-          />
-        ) : (
-          <ul className="divide-y">
-            {pending.map((payment) => (
-              <li
-                key={payment.id}
-                className="flex flex-wrap items-center justify-between gap-4 p-4"
-              >
-                <div className="min-w-0 space-y-1">
-                  <p className="font-medium">{payment.citizenName}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {payment.title} · <span className="tabular-nums">{lbp(payment.amount)}</span>{' '}
-                    · {ar.paymentMethod[payment.paymentMethod as never] ?? '—'}
-                  </p>
-                  {payment.whishTransactionRef ? (
-                    <p className="text-xs text-muted-foreground">
-                      رقم العملية:{' '}
-                      <span className="font-mono" dir="ltr">
-                        {payment.whishTransactionRef}
-                      </span>
-                    </p>
-                  ) : null}
-                </div>
-                {canManage ? (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busyPaymentId === payment.id}
-                      onClick={() => void decide(payment, false)}
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <XCircle className="size-4" aria-hidden />
-                      رفض
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busyPaymentId === payment.id}
-                      onClick={() => void decide(payment, true)}
-                    >
-                      {busyPaymentId === payment.id ? (
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                      ) : (
-                        <CheckCircle2 className="size-4" aria-hidden />
-                      )}
-                      تأكيد الاستلام
-                    </Button>
-                  </div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </WorkflowSection>
-
-      {/*
-        ─── ٤ ───
-        The settings themselves moved to إعدادات البلدية.
-        They were edited here but read everywhere — the office WhatsApp number
-        is printed on every receipt, the opening hours appear on the citizen's
-        pay dialog — so they belong to the municipality rather than to this
-        ledger. What stays is a pointer, so nobody hunts for a form that has
-        moved; it sits at the end because that is where the money's journey
-        ends, on a printed وصل carrying those numbers.
-      */}
-      {canManage ? (
-        <WorkflowSection
-          id="closing"
-          step="٤"
-          icon={Settings2}
-          title="الوصولات وإعدادات الدفع"
-          description="ما يُطبع على الوصل، وما يراه المواطن حين يختار طريقة الدفع."
-        >
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <ul className="min-w-0 space-y-2 text-sm text-muted-foreground">
-              <li className="flex items-start gap-2">
-                <Receipt className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                <span>
-                  الوصل يُطبع من زر «الوصل» بجانب أي مطالبة استُلم عليها مبلغ، في المرحلة
-                  الثانية.
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Wallet className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                <span>
-                  رقم Whish، أوقات الدوام، وأرقام هاتف وواتساب البلدية المطبوعة على
-                  الوصولات.
-                </span>
-              </li>
-            </ul>
-            <Link
-              href={`${base}/settings`}
-              className={buttonVariants({ variant: 'outline' })}
-            >
-              <Settings2 className="size-4" aria-hidden />
-              فتح الإعدادات
-            </Link>
-          </div>
-        </WorkflowSection>
-      ) : null}
-
+      {/* Issue Fee Dialog */}
       <IssueFeeDialog
         open={issueOpen}
         onOpenChange={setIssueOpen}
         citizens={citizens}
         submitting={issuing}
-        error={issueError}
-        onSubmit={(values) => void submitFee(values)}
+        error={null}
+        onSubmit={handleIssueNotice}
       />
 
-      {receipt ? (
-        <PaymentReceipt
-          open
-          onOpenChange={(next) => {
-            if (!next) setReceipt(null);
-          }}
-          citizen={receipt.citizen}
-          payment={receipt.payment}
-          receivedAmount={receipt.received}
-          municipalityName={municipalityName}
-          contactPhone={settings?.contactPhone}
-          officeWhatsapp={settings?.whatsappNumber}
-        />
-      ) : null}
-
+      {/* Charge Citizen Dialog */}
       <ChargeCitizenDialog
         open={chargeOpen}
         onOpenChange={setChargeOpen}
         citizens={citizens}
         submitting={charging}
-        error={chargeError}
-        onSubmit={(values) => void submitCharge(values)}
+        error={null}
+        onSubmit={handleChargeCitizen}
+      />
+
+      {/* Receipt Modal Dialog */}
+      <PaymentReceipt
+        open={receipt !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setReceipt(null);
+            void load();
+          }
+        }}
+        citizen={receipt?.citizen ?? ({} as CitizenProfile)}
+        payment={receipt?.payment ?? null}
+        municipalityName={municipalityName}
+        contactPhone={settings?.contactPhone}
+        officeWhatsapp={settings?.whatsappNumber}
+        receivedAmount={receipt?.received}
       />
     </div>
   );
 }
 
-/**
- * A headline figure with an accent icon chip.
- *
- * Clickable, because every one of these four numbers is answered by exactly one
- * stage further down the page — a total with no way to reach what it counts is
- * a dead end, and «قيد المراجعة» in particular is a queue rather than a fact.
- */
 function MetricCard({
   label,
   value,
-  hint,
-  icon,
-  accent = 'bg-accent',
+  subtext,
   loading,
-  attention,
-  onClick,
+  icon,
+  accent,
 }: {
   label: string;
-  value: string;
-  hint?: string;
+  value: React.ReactNode;
+  subtext?: string;
+  loading: boolean;
   icon: React.ReactNode;
   accent?: string;
-  loading: boolean;
-  attention?: boolean;
-  onClick?: () => void;
 }) {
   return (
-    <Card
-      className={cn(
-        'transition-shadow hover:shadow-md',
-        attention && 'border-warning/50 ring-1 ring-warning/20',
-      )}
-    >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex w-full items-center justify-between gap-3 rounded-lg p-5 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="truncate text-2xl font-bold tabular-nums">{loading ? '—' : value}</p>
-          {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    <Card>
+      <CardContent className="flex items-center justify-between p-5">
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          {loading ? (
+            <Skeleton className="h-7 w-28" />
+          ) : (
+            <div className="text-xl font-bold tracking-tight text-foreground">{value}</div>
+          )}
+          {subtext && !loading ? (
+            <p className="text-[11px] text-muted-foreground">{subtext}</p>
+          ) : null}
         </div>
-        <div className={`rounded-lg p-3 ${accent}`}>{icon}</div>
-      </button>
+        <div
+          className={cn(
+            'flex size-11 items-center justify-center rounded-xl bg-primary/10',
+            accent,
+          )}
+        >
+          {icon}
+        </div>
+      </CardContent>
     </Card>
   );
 }

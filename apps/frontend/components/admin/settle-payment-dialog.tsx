@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Banknote, CreditCard, Loader2, UserCheck } from 'lucide-react';
 import { formatLbp } from '@/lib/currency';
+import { tafqeet } from '@/lib/tafqeet';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -23,36 +24,27 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
-/**
- * The two ways money reaches the municipality.
- *
- * Both go straight to PAID here — the distinction is what is being recorded,
- * not whether it needs verifying. A clerk choosing Whish is stating they have
- * already seen the transfer land, which is precisely the check PENDING_REVIEW
- * performs for a citizen's unverified claim.
- */
 const METHODS = [
   {
     value: 'CASH',
     title: 'نقداً',
-    description: 'مبلغ استُلم في البلدية',
+    description: 'استلام في الصندوق',
     icon: Banknote,
   },
   {
     value: 'WHISH_MONEY',
     title: 'تحويل Whish',
-    description: 'تحويل مؤكَّد في حساب البلدية',
+    description: 'تحويل مؤكد',
     icon: CreditCard,
   },
   {
     value: 'COLLECTOR',
     title: 'عبر المحصّل',
-    description: 'مبلغ حصّله موظّف في جولته',
+    description: 'استلام ميداني',
     icon: UserCheck,
   },
 ] as const;
 
-/** Only the fields this dialog needs, so it works with any payment shape. */
 export interface SettleTarget {
   id: string;
   title: string;
@@ -65,14 +57,11 @@ export interface SettleTarget {
 export interface SettleValues {
   method: 'CASH' | 'WHISH_MONEY' | 'COLLECTOR';
   amount: number;
-  /** Only ever sent for a Whish payment; the server rejects it as missing. */
   whishTransactionRef?: string;
-  /** Only ever sent for a collector payment; the server rejects it as missing. */
   collectedById?: string;
   note?: string;
 }
 
-/** The subset of a staff record this dialog needs to offer a collector. */
 export interface CollectorOption {
   id: string;
   fullName: string;
@@ -80,30 +69,6 @@ export interface CollectorOption {
   isActive: boolean;
 }
 
-/**
- * تسجيل دفعة — records what was actually received.
- *
- * The amount used to be fixed: the button settled the whole invoice or did
- * nothing, so a citizen arriving with part of the money could not be recorded
- * as having paid at all. It is now an editable figure that **defaults to the
- * outstanding balance**, which keeps the common case a single click while
- * making a partial a matter of typing over it.
- *
- * The balance — not the invoice's face value — is what defaults and what caps:
- * on an invoice already part-settled, offering the full amount again would
- * take the money twice.
- *
- * The method used to be assumed. It was hard-wired to cash — reasonably, since
- * this is the counter — but a clerk who has just watched a transfer land in the
- * municipality's account has no way to bank it here except by calling it cash,
- * which loses both the method and the transfer's reference. Choosing Whish now
- * asks for that reference, exactly as the citizen-facing declaration does, so
- * the two routes to the same fact record the same evidence.
- *
- * Either way this still skips PENDING_REVIEW: that queue exists to verify a
- * transfer *nobody in the building witnessed*, and a clerk selecting Whish here
- * is asserting they have already seen it in the account.
- */
 export function SettlePaymentDialog({
   open,
   onOpenChange,
@@ -118,7 +83,6 @@ export function SettlePaymentDialog({
   payment: SettleTarget | null;
   submitting: boolean;
   error: string | null;
-  /** Active staff, offered as the محصّل when that method is chosen. */
   collectors?: CollectorOption[];
   onSubmit: (values: SettleValues) => void;
 }) {
@@ -130,12 +94,7 @@ export function SettlePaymentDialog({
 
   useEffect(() => {
     if (!open || !payment) return;
-    // Digits only: the input is `inputMode="numeric"` and LBP has no minor
-    // unit, so a grouped default like "5,000,000" would have to be stripped
-    // again on every keystroke.
     setAmount(String(Math.round(payment.remaining)));
-    // Cash is the default because this dialog is opened at a counter; Whish is
-    // the deliberate choice, not the one you land on by not reading.
     setMethod('CASH');
     setReference('');
     setCollectedById('');
@@ -144,7 +103,7 @@ export function SettlePaymentDialog({
 
   if (!payment) return null;
 
-  const received = Number(amount.replace(/\D/g, ''));
+  const received = Number(amount.replace(/\D/g, '')) || 0;
   const isWhish = method === 'WHISH_MONEY';
   const isCollector = method === 'COLLECTOR';
   const missingReference = isWhish && reference.trim() === '';
@@ -156,7 +115,6 @@ export function SettlePaymentDialog({
     !missingReference &&
     !missingCollector;
   const isPartial = received > 0 && received < payment.remaining;
-
   const tooMuch = received > payment.remaining;
 
   return (
@@ -177,16 +135,13 @@ export function SettlePaymentDialog({
             </p>
           ) : null}
 
-          <dl className="space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
-            <Row label="قيمة المطالبة" value={formatLbp(payment.amount)} />
-            {payment.paidAmount > 0 ? (
-              <Row label="المسدَّد سابقاً" value={formatLbp(payment.paidAmount)} />
-            ) : null}
-            <Row label="الرصيد المستحق" value={formatLbp(payment.remaining)} strong />
-          </dl>
+          <div className="flex items-center justify-between rounded-lg bg-muted/40 p-3 text-sm">
+            <span className="text-muted-foreground">الرصيد المستحق:</span>
+            <span className="font-bold tabular-nums">{formatLbp(payment.remaining)}</span>
+          </div>
 
           <Field label="طريقة الدفع" htmlFor="settle-method" required>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
               {METHODS.map((option) => (
                 <ChoiceCard
                   key={option.value}
@@ -195,10 +150,6 @@ export function SettlePaymentDialog({
                   checked={method === option.value}
                   onChange={(next) => {
                     setMethod(next as SettleValues['method']);
-                    // Each method carries exactly one extra fact, so switching
-                    // away drops the other's. The server nulls them anyway; the
-                    // two agreeing is what keeps this form from showing a value
-                    // it will not send.
                     if (next !== 'WHISH_MONEY') setReference('');
                     if (next !== 'COLLECTOR') setCollectedById('');
                   }}
@@ -215,30 +166,25 @@ export function SettlePaymentDialog({
               label="رقم عملية التحويل"
               htmlFor="settle-reference"
               required
-              hint="كما يظهر في حساب البلدية — هو الإثبات الوحيد للتحويل."
+              hint="كما يظهر في إشعار Whish."
             >
               <Input
                 id="settle-reference"
                 dir="ltr"
-                className="text-start font-mono"
+                className="text-start font-mono font-semibold"
                 placeholder="TRX-000000"
                 invalid={missingReference && reference !== ''}
                 value={reference}
-                onChange={(event) => setReference(event.target.value)}
+                onChange={(e) => setReference(e.target.value)}
               />
             </Field>
           ) : null}
 
           {isCollector ? (
-            <Field
-              label="المحصّل"
-              htmlFor="settle-collector"
-              required
-              hint="من استلم المبلغ في جولته — يبقى المبلغ في عهدته حتى تسليمه."
-            >
+            <Field label="المحصّل" htmlFor="settle-collector" required hint="الموظف المسؤول.">
               {collectors.length === 0 ? (
-                <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-                  لا توجد حسابات موظفين فعّالة لاختيار محصّل منها.
+                <p className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+                  لا توجد حسابات موظفين.
                 </p>
               ) : (
                 <Select value={collectedById} onValueChange={setCollectedById}>
@@ -257,74 +203,60 @@ export function SettlePaymentDialog({
             </Field>
           ) : null}
 
-          <Field
-            label="المبلغ المستلم (ل.ل)"
-            htmlFor="settle-amount"
-            required
-            hint="يمكن تسجيل دفعة جزئية — عدّل المبلغ حسب ما استُلم فعلياً."
-            error={
-              tooMuch
-                ? `المبلغ أكبر من الرصيد المستحق (${formatLbp(payment.remaining)})`
-                : undefined
-            }
-          >
-            <Input
-              id="settle-amount"
-              inputMode="numeric"
-              dir="ltr"
-              className="text-start text-lg font-semibold tabular-nums"
-              invalid={tooMuch}
-              value={amount}
-              onChange={(event) => setAmount(event.target.value.replace(/\D/g, ''))}
-            />
-          </Field>
+          <div className="space-y-1.5">
+            <Field
+              label="المبلغ المستلم (ل.ل)"
+              htmlFor="settle-amount"
+              required
+              error={
+                tooMuch
+                  ? `المبلغ أكبر من الرصيد (${formatLbp(payment.remaining)})`
+                  : undefined
+              }
+            >
+              <Input
+                id="settle-amount"
+                inputMode="numeric"
+                dir="ltr"
+                className="text-start text-lg font-bold tabular-nums"
+                invalid={tooMuch}
+                value={amount ? Number(amount).toLocaleString('en-US') : ''}
+                onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
+                placeholder="0"
+              />
+            </Field>
 
-          {/* Quick splits, because "half" is the commonest partial by a mile
-              and typing 2,750,000 by hand invites a slipped digit. */}
-          {payment.remaining > 1 ? (
-            <div className="flex flex-wrap gap-2">
-              {[
-                { label: 'النصف', value: Math.round(payment.remaining / 2) },
-                { label: 'الثلث', value: Math.round(payment.remaining / 3) },
-                { label: 'كامل الرصيد', value: Math.round(payment.remaining) },
-              ].map((preset) => (
-                <Button
-                  key={preset.label}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAmount(String(preset.value))}
-                >
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
-          ) : null}
+            {received > 0 && !tooMuch ? (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">كتابةً:</span> {tafqeet(received)}
+              </p>
+            ) : null}
+          </div>
 
           {isPartial ? (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              دفعة جزئية — سيبقى{' '}
-              <span className="font-semibold">{formatLbp(payment.remaining - received)}</span>{' '}
-              مستحقاً على هذه المطالبة.
+            <p className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+              دفعة جزئية — سيبقى <span className="font-bold">{formatLbp(payment.remaining - received)}</span> مستحقاً.
             </p>
           ) : null}
 
-          <Field label="ملاحظة" htmlFor="settle-note" hint="اختياري — تظهر في سجل الدفعة">
+          <Field label="ملاحظة" htmlFor="settle-note" hint="اختياري">
             <Textarea
               id="settle-note"
               rows={2}
+              placeholder="ملاحظات…"
               value={note}
-              onChange={(event) => setNote(event.target.value)}
+              onChange={(e) => setNote(e.target.value)}
             />
           </Field>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             إلغاء
           </Button>
           <Button
             disabled={!valid || submitting}
+            className="font-semibold"
             onClick={() =>
               onSubmit({
                 method,
@@ -335,21 +267,11 @@ export function SettlePaymentDialog({
               })
             }
           >
-            {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            تسجيل {formatLbp(valid ? received : 0)}{' '}
-            {isWhish ? 'تحويلاً' : method === 'COLLECTOR' ? 'عبر المحصّل' : 'نقداً'}
+            {submitting ? <Loader2 className="size-4 animate-spin rtl:ml-2 ltr:mr-2" aria-hidden /> : null}
+            تسجيل {formatLbp(valid ? received : 0)}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={strong ? 'font-semibold tabular-nums' : 'tabular-nums'}>{value}</dd>
-    </div>
   );
 }

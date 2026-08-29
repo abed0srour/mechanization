@@ -45,7 +45,7 @@ import { cn } from '@/lib/utils';
 
 const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في العمليات',
-  searchPlaceholder: 'ابحث باسم الدافع أو رقمه المرجعي…',
+  searchPlaceholder: 'ابحث باسم الدافع، رقم الهاتف، الرقم المرجعي، أو رقم العملية…',
   clearSearch: 'مسح البحث',
   empty: 'لا توجد عمليات دفع بعد.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   Banknote,
+  CheckCircle2,
   CreditCard,
   Loader2,
   UserCheck,
@@ -30,6 +31,7 @@ import type {
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { formatDate } from '@/lib/dates';
+import { tafqeet } from '@/lib/tafqeet';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,55 +48,29 @@ import {
 import { ErrorState } from '@/components/ui/states';
 import { Textarea } from '@/components/ui/textarea';
 
-/**
- * The two ways money reaches the municipality, plus the collector's round.
- *
- * All three go straight to PAID — the distinction is what is being recorded,
- * not whether it needs verifying. A clerk choosing Whish is stating they have
- * already seen the transfer land, which is precisely the check PENDING_REVIEW
- * performs for a citizen's own unverified claim.
- */
 const METHODS = [
-  { value: 'CASH', title: 'نقداً', description: 'مبلغ استُلم في البلدية', icon: Banknote },
+  {
+    value: 'CASH',
+    title: 'نقداً',
+    description: 'استلام مباشر في الصندوق',
+    icon: Banknote,
+  },
   {
     value: 'WHISH_MONEY',
     title: 'تحويل Whish',
-    description: 'تحويل مؤكَّد في حساب البلدية',
+    description: 'تحويل مؤكد في الحساب',
     icon: CreditCard,
   },
   {
     value: 'COLLECTOR',
     title: 'عبر المحصّل',
-    description: 'مبلغ حصّله موظّف في جولته',
+    description: 'استلام في الجولة الميدانية',
     icon: UserCheck,
   },
 ] as const;
 
 type Method = (typeof METHODS)[number]['value'];
 
-/**
- * تسجيل دفعة — its own page rather than a dialog opened from the ledger row.
- *
- * A dialog over a table works until the table is a phone screen: `sm:max-w-md`
- * on a 375px viewport left barely a hand's width of margin on every side, the
- * payment method cards stacked into a scroll before the amount field was even
- * visible, and the submit button — the one control that matters — sat behind
- * whatever the keyboard was covering the moment someone tapped the amount.
- * None of that is a spacing fix; it is the wrong container for the content.
- *
- * A full page fixes the container and, as a consequence, fixes reachability
- * too: this loads by `paymentId` alone (`getPaymentById`), so a link, a
- * bookmark, or a receipt's own "عدّل الدفعة" can point straight at it — a
- * dialog driven by a row already in a loaded table could only ever be opened
- * from that table.
- *
- * The amount defaults to the outstanding balance and caps at it, exactly as
- * the dialog did: the balance, not the invoice's face value, is what a partial
- * payment is measured against, or a part-settled invoice could be charged
- * twice. Recording still ends the same way — straight into the printed
- * receipt, with no PENDING_REVIEW detour, because a clerk selecting a method
- * here is asserting they have already seen the money.
- */
 export default function SettlePaymentPage({
   params,
 }: {
@@ -113,6 +89,7 @@ export default function SettlePaymentPage({
   const [municipalityName, setMunicipalityName] = useState('');
   const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
 
+  // Form State
   const [method, setMethod] = useState<Method>('CASH');
   const [reference, setReference] = useState('');
   const [collectedById, setCollectedById] = useState('');
@@ -122,7 +99,6 @@ export default function SettlePaymentPage({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  /** The receipt for what was just recorded, opened the moment the write lands. */
   const [receipt, setReceipt] = useState<{
     citizen: CitizenProfile;
     payment: CitizenProfilePayment;
@@ -143,9 +119,6 @@ export default function SettlePaymentPage({
     try {
       const row = await getPaymentById(tenant, accessToken, paymentId);
       setPayment(row);
-      // Digits only: the amount field is `inputMode="numeric"` with no
-      // separators, so a grouped default would have to be stripped again on
-      // the first keystroke.
       setAmount(String(Math.round(row.remaining)));
     } catch (caught) {
       logApiError(caught);
@@ -164,9 +137,6 @@ export default function SettlePaymentPage({
       setLoading(false);
     }
 
-    // Every one of these three only feeds the receipt or the محصّل picker —
-    // never the record that is actually written — so a failure here degrades
-    // what gets printed rather than blocking the page.
     getStaff(tenant, accessToken)
       .then(({ items }) => setCollectors(items))
       .catch(() => setCollectors([]));
@@ -184,7 +154,7 @@ export default function SettlePaymentPage({
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+      <div className="w-full px-4 py-16 sm:px-6 lg:px-8">
         <p className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
           جارٍ التحميل…
@@ -195,15 +165,15 @@ export default function SettlePaymentPage({
 
   if (loadError || !payment) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4 px-4 py-10 sm:px-6">
+      <div className="w-full max-w-2xl mx-auto space-y-4 px-4 py-12 sm:px-6">
         <ErrorState description={loadError ?? undefined} onRetry={() => void load()} />
         <div className="flex justify-center">
           <Link
             href={`${base}/fees`}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-            رجوع إلى الرسوم والمدفوعات
+            الرجوع إلى الرسوم والمدفوعات
           </Link>
         </div>
       </div>
@@ -223,6 +193,7 @@ export default function SettlePaymentPage({
     if (!token || !valid || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
+
     try {
       await settlePayment(tenant, token, payment.id, {
         method,
@@ -232,19 +203,11 @@ export default function SettlePaymentPage({
         note: note.trim() || undefined,
       });
 
-      // Straight into the receipt: a clerk who has just taken money needs the
-      // paper in the citizen's hand before they walk away. The full profile is
-      // fetched fresh rather than assembled from what this page already has,
-      // because the printed receipt carries the property and household detail
-      // that `AdminPaymentItem` was never meant to hold.
       const profile = await getCitizenProfile(tenant, token, payment.citizenId);
       const settled = profile.payments.find((row) => row.id === payment.id);
       if (settled) {
         setReceipt({ citizen: profile, payment: settled, received });
       } else {
-        // The write succeeded even though the receipt could not be assembled —
-        // going back to the ledger is correct here, not staying on a page
-        // whose own numbers are now stale.
         router.push(`${base}/fees`);
       }
     } catch (caught) {
@@ -258,269 +221,267 @@ export default function SettlePaymentPage({
   };
 
   return (
-    <div className="mx-auto max-w-4xl px-4 pb-28 pt-6 sm:px-6 sm:pt-8 lg:pb-10">
-      <Link
-        href={`${base}/fees`}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-        رجوع إلى الرسوم والمدفوعات
-      </Link>
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      {/* Back link */}
+      <div>
+        <Link
+          href={`${base}/fees`}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+          الرجوع إلى الرسوم والمدفوعات
+        </Link>
+      </div>
 
+      {/* Header */}
       <PageHeader
         icon={Banknote}
         title="تسجيل دفعة"
         subtitle={`${payment.title} — ${payment.citizenName}`}
+        actions={
+          <Badge variant="outline" className="text-sm font-semibold px-3 py-1">
+            الرصيد المستحق: {formatLbp(payment.remaining)}
+          </Badge>
+        }
       />
 
       {submitError ? (
         <p
           role="alert"
-          className="mt-6 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+          className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
         >
           {submitError}
         </p>
       ) : null}
 
-      {/*
-        Two columns from lg, one below it. The summary is what a dialog buried
-        in a scrolling `<dl>` above the fold — here it gets its own sticky rail,
-        visible the whole time the form is being filled rather than scrolled
-        past the moment the method cards appear.
-      */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
-        <div className="space-y-6">
-          <Field label="طريقة الدفع" htmlFor="settle-method" required>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {METHODS.map((option) => (
-                <ChoiceCard
-                  key={option.value}
-                  name="settle-method"
-                  value={option.value}
-                  checked={method === option.value}
-                  onChange={(next) => {
-                    setMethod(next as Method);
-                    // Each method carries exactly one extra fact; switching
-                    // away drops the other's so the form never shows a value it
-                    // will not send.
-                    if (next !== 'WHISH_MONEY') setReference('');
-                    if (next !== 'COLLECTOR') setCollectedById('');
-                  }}
-                  title={option.title}
-                  description={option.description}
-                  icon={option.icon}
-                />
-              ))}
-            </div>
-          </Field>
+      {/* Full Page Width 2-Column Equal-Height Grid */}
+      <div className="grid gap-6 lg:grid-cols-12 lg:items-stretch">
+        {/* Left Column (8 cols): Form Controls */}
+        <div className="h-full lg:col-span-8">
+          <div className="flex flex-col justify-between h-full space-y-5 rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="space-y-5">
+              {/* Payment Method */}
+              <Field label="طريقة الدفع" htmlFor="settle-method" required>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {METHODS.map((option) => (
+                    <ChoiceCard
+                      key={option.value}
+                      name="settle-method"
+                      value={option.value}
+                      checked={method === option.value}
+                      onChange={(next) => {
+                        setMethod(next as Method);
+                        if (next !== 'WHISH_MONEY') setReference('');
+                        if (next !== 'COLLECTOR') setCollectedById('');
+                      }}
+                      title={option.title}
+                      description={option.description}
+                      icon={option.icon}
+                    />
+                  ))}
+                </div>
+              </Field>
 
-          {isWhish ? (
-            <Field
-              label="رقم عملية التحويل"
-              htmlFor="settle-reference"
-              required
-              hint="كما يظهر في حساب البلدية — هو الإثبات الوحيد للتحويل."
-            >
-              <Input
-                id="settle-reference"
-                dir="ltr"
-                className="text-start font-mono"
-                placeholder="TRX-000000"
-                invalid={missingReference && reference !== ''}
-                value={reference}
-                onChange={(event) => setReference(event.target.value)}
-              />
-            </Field>
-          ) : null}
+              {/* Method-specific fields */}
+              {isWhish ? (
+                <Field
+                  label="رقم عملية التحويل"
+                  htmlFor="settle-reference"
+                  required
+                  hint="كما يظهر في إشعار تطبيق Whish."
+                >
+                  <Input
+                    id="settle-reference"
+                    dir="ltr"
+                    className="text-start font-mono font-semibold"
+                    placeholder="TRX-000000"
+                    invalid={missingReference && reference !== ''}
+                    value={reference}
+                    onChange={(e) => setReference(e.target.value)}
+                  />
+                </Field>
+              ) : null}
 
-          {isCollector ? (
-            <Field
-              label="المحصّل"
-              htmlFor="settle-collector"
-              required
-              hint="من استلم المبلغ في جولته — يبقى المبلغ في عهدته حتى تسليمه."
-            >
-              {collectors.length === 0 ? (
-                <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-                  لا توجد حسابات موظفين فعّالة لاختيار محصّل منها.
-                </p>
-              ) : (
-                <Select value={collectedById} onValueChange={setCollectedById}>
-                  <SelectTrigger id="settle-collector">
-                    <SelectValue placeholder="اختر المحصّل…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {collectors
-                      .filter((collector) => collector.isActive)
-                      .map((collector) => (
-                        <SelectItem key={collector.id} value={collector.id}>
-                          {collector.fullName}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </Field>
-          ) : null}
+              {isCollector ? (
+                <Field label="المحصّل" htmlFor="settle-collector" required hint="الموظف الذي استلم المبلغ.">
+                  {collectors.length === 0 ? (
+                    <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs text-warning">
+                      لا توجد حسابات موظفين لاختيار محصّل.
+                    </p>
+                  ) : (
+                    <Select value={collectedById} onValueChange={setCollectedById}>
+                      <SelectTrigger id="settle-collector">
+                        <SelectValue placeholder="اختر المحصّل…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {collectors
+                          .filter((c) => c.isActive)
+                          .map((collector) => (
+                            <SelectItem key={collector.id} value={collector.id}>
+                              {collector.fullName}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </Field>
+              ) : null}
 
-          {/*
-            The amount, given a whole card of its own rather than one more
-            field in a stack — it is the number every other control on this
-            page exists to qualify, and on a page (unlike a squeezed dialog)
-            there is room to say so.
-          */}
-          <div className="rounded-2xl border bg-card p-5 shadow-sm">
-            <Field
-              label="المبلغ المستلم (ل.ل)"
-              htmlFor="settle-amount"
-              required
-              hint="يمكن تسجيل دفعة جزئية — عدّل المبلغ حسب ما استُلم فعلياً."
-              error={
-                tooMuch
-                  ? `المبلغ أكبر من الرصيد المستحق (${formatLbp(payment.remaining)})`
-                  : undefined
-              }
-            >
-              <Input
-                id="settle-amount"
-                inputMode="numeric"
-                dir="ltr"
-                className="text-start text-2xl font-bold tabular-nums"
-                invalid={tooMuch}
-                value={amount}
-                onChange={(event) => setAmount(event.target.value.replace(/\D/g, ''))}
-              />
-            </Field>
+              {/* Amount */}
+              <div className="space-y-2">
+                <Field
+                  label="المبلغ المستلم (ل.ل)"
+                  htmlFor="settle-amount"
+                  required
+                  error={
+                    tooMuch
+                      ? `المبلغ أكبر من الرصيد المستحق (${formatLbp(payment.remaining)})`
+                      : undefined
+                  }
+                >
+                  <div className="relative flex items-center">
+                    <Input
+                      id="settle-amount"
+                      inputMode="numeric"
+                      dir="ltr"
+                      className="text-start text-xl font-bold tabular-nums pe-16"
+                      invalid={tooMuch}
+                      value={amount ? Number(amount).toLocaleString('en-US') : ''}
+                      onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
+                      placeholder="0"
+                    />
+                    <div className="pointer-events-none absolute inset-y-0 end-0 flex items-center pe-4 text-xs font-bold text-muted-foreground">
+                      ل.ل
+                    </div>
+                  </div>
+                </Field>
 
-            {/* Quick splits: "half" is the commonest partial by a mile, and
-                typing 2,750,000 by hand invites a slipped digit. */}
-            {payment.remaining > 1 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {[
-                  { label: 'النصف', value: Math.round(payment.remaining / 2) },
-                  { label: 'الثلث', value: Math.round(payment.remaining / 3) },
-                  { label: 'كامل الرصيد', value: Math.round(payment.remaining) },
-                ].map((preset) => (
-                  <Button
-                    key={preset.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAmount(String(preset.value))}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
+                {/* Amount Quick Presets */}
+                {payment.remaining > 1 ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => setAmount(String(Math.round(payment.remaining)))}
+                    >
+                      كامل الرصيد ({formatLbp(payment.remaining)})
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => setAmount(String(Math.round(payment.remaining / 2)))}
+                    >
+                      النصف ({formatLbp(Math.round(payment.remaining / 2))})
+                    </Button>
+                  </div>
+                ) : null}
+
+                {/* Tafqeet in Arabic Words */}
+                {received > 0 && !tooMuch ? (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    <span className="font-semibold text-foreground">كتابةً:</span> {tafqeet(received)}
+                  </p>
+                ) : null}
+
+                {isPartial ? (
+                  <p className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+                    دفعة جزئية — سيبقى <span className="font-bold">{formatLbp(payment.remaining - received)}</span> مستحقاً على هذه المطالبة.
+                  </p>
+                ) : null}
               </div>
-            ) : null}
+            </div>
 
-            {isPartial ? (
-              <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-                دفعة جزئية — سيبقى{' '}
-                <span className="font-semibold">
-                  {formatLbp(payment.remaining - received)}
-                </span>{' '}
-                مستحقاً على هذه المطالبة.
-              </p>
-            ) : null}
-          </div>
-
-          <Field label="ملاحظة" htmlFor="settle-note" hint="اختياري — تظهر في سجل الدفعة">
-            <Textarea
-              id="settle-note"
-              rows={2}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-          </Field>
-
-          {/*
-            The primary action, kept in normal flow here and repeated in the
-            sticky bar below. From `lg` the sticky bar is hidden (there is
-            always room to see this one), so the two never show at once.
-          */}
-          <div className="hidden lg:block">
-            <SubmitRow
-              method={method}
-              amount={received}
-              valid={valid}
-              submitting={submitting}
-              onSubmit={() => void submit()}
-            />
+            {/* Note at bottom of left card */}
+            <div className="pt-2">
+              <Field label="ملاحظة" htmlFor="settle-note" hint="اختياري">
+                <Textarea
+                  id="settle-note"
+                  rows={2}
+                  placeholder="أي ملاحظات حول الدفعة…"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </Field>
+            </div>
           </div>
         </div>
 
-        <aside className="space-y-4 lg:sticky lg:top-6">
-          <div className="space-y-3 rounded-2xl border bg-muted/30 p-5">
-            <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                المطالبة
-              </p>
-              <p className="font-semibold leading-snug">{payment.title}</p>
-              {payment.frequency ? (
-                <Badge variant="soft-muted" className="mt-1">
-                  {payment.frequency}
-                </Badge>
-              ) : null}
+        {/* Right Column (4 cols): Summary & Submission */}
+        <div className="h-full lg:col-span-4">
+          <div className="flex flex-col justify-between h-full rounded-2xl border bg-card p-6 shadow-sm">
+            {/* Top: Details List */}
+            <div className="space-y-4">
+              <h3 className="font-bold text-sm text-foreground border-b pb-3">
+                تفاصيل العملية
+              </h3>
+
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">المواطن:</span>
+                  <span className="font-semibold text-foreground">{payment.citizenName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">المطالبة:</span>
+                  <span className="font-semibold text-foreground">{payment.title}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">تاريخ الاستحقاق:</span>
+                  <span className="text-foreground">{formatDate(payment.dueDate)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">قيمة المطالبة:</span>
+                  <span className="tabular-nums text-foreground">{formatLbp(payment.amount)}</span>
+                </div>
+                {payment.paidAmount > 0 ? (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">المسدد سابقاً:</span>
+                    <span className="tabular-nums text-success font-semibold">
+                      {formatLbp(payment.paidAmount)}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between border-t pt-2 font-bold">
+                  <span className="text-foreground">الرصيد المستحق:</span>
+                  <span className="tabular-nums text-foreground">{formatLbp(payment.remaining)}</span>
+                </div>
+              </div>
             </div>
 
-            <dl className="space-y-1.5 border-t pt-3 text-sm">
-              <Row label="المواطن" value={payment.citizenName} />
-              {payment.citizenReference ? (
-                <Row label="الرقم المرجعي" value={payment.citizenReference} mono />
-              ) : null}
-              <Row label="تاريخ الاستحقاق" value={formatDate(payment.dueDate)} />
-            </dl>
+            {/* Bottom: Recording summary + Submit Button */}
+            <div className="mt-6 space-y-3 pt-4 border-t">
+              <div className="rounded-xl bg-primary/5 border border-primary/20 p-3.5 space-y-1">
+                <span className="text-xs text-muted-foreground">المبلغ المراد تسجيله:</span>
+                <p className="text-xl font-bold tabular-nums text-primary">
+                  {formatLbp(valid ? received : 0)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {isWhish ? 'تحويلاً عبر Whish' : isCollector ? 'عبر المحصّل' : 'نقداً في الصندوق'}
+                </p>
+              </div>
 
-            <dl className="space-y-1.5 border-t pt-3 text-sm">
-              <Row label="قيمة المطالبة" value={formatLbp(payment.amount)} />
-              {payment.paidAmount > 0 ? (
-                <Row label="المسدَّد سابقاً" value={formatLbp(payment.paidAmount)} />
-              ) : null}
-              <Row label="الرصيد المستحق" value={formatLbp(payment.remaining)} strong />
-            </dl>
+              <Button
+                size="lg"
+                className="w-full font-bold text-base h-12 shadow-sm"
+                disabled={!valid || submitting}
+                onClick={() => void submit()}
+              >
+                {submitting ? (
+                  <Loader2 className="size-4 animate-spin rtl:ml-2 ltr:mr-2" aria-hidden />
+                ) : (
+                  <CheckCircle2 className="size-4 rtl:ml-2 ltr:mr-2" aria-hidden />
+                )}
+                تأكيد وتسجيل الدفعة
+              </Button>
+            </div>
           </div>
-
-          {/*
-            What is about to be written, named plainly rather than left for the
-            clerk to compute from the form above. On the dialog this same
-            information was implicit in the button's own label; here, with the
-            button itself living in a sticky bar a scroll away on a phone, it
-            gets a line of its own.
-          */}
-          {received > 0 ? (
-            <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 text-sm">
-              <p className="text-muted-foreground">سيُسجَّل الآن</p>
-              <p className="mt-1 text-lg font-bold tabular-nums">{formatLbp(received)}</p>
-              <p className="mt-0.5 text-muted-foreground">
-                {isWhish ? 'تحويلاً عبر Whish' : isCollector ? 'عبر المحصّل' : 'نقداً'}
-              </p>
-            </div>
-          ) : null}
-        </aside>
-      </div>
-
-      {/*
-        Sticky bottom bar, `lg:hidden`. This is the direct fix for the dialog's
-        worst failure on a phone: the one button that matters sitting behind
-        whatever the on-screen keyboard was covering the moment the amount
-        field was focused. Pinned to the viewport instead of to the end of a
-        scrolling form, it is reachable regardless of scroll position or
-        keyboard state.
-      */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-card/95 p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
-        <div className="mx-auto max-w-4xl">
-          <SubmitRow
-            method={method}
-            amount={received}
-            valid={valid}
-            submitting={submitting}
-            onSubmit={() => void submit()}
-            fullWidth
-          />
         </div>
       </div>
 
+      {/* Receipt Modal */}
       <PaymentReceipt
         open={receipt !== null}
         onOpenChange={(next) => {
@@ -537,66 +498,5 @@ export default function SettlePaymentPage({
         receivedAmount={receipt?.received}
       />
     </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  strong,
-  mono,
-}: {
-  label: string;
-  value: string;
-  strong?: boolean;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd
-        className={
-          strong
-            ? 'font-semibold tabular-nums'
-            : mono
-              ? 'font-mono text-xs'
-              : 'tabular-nums'
-        }
-        dir={mono ? 'ltr' : undefined}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-/** The submit button, identical wherever it appears — in flow on desktop,
- *  pinned to the viewport on a phone. */
-function SubmitRow({
-  method,
-  amount,
-  valid,
-  submitting,
-  onSubmit,
-  fullWidth,
-}: {
-  method: Method;
-  amount: number;
-  valid: boolean;
-  submitting: boolean;
-  onSubmit: () => void;
-  fullWidth?: boolean;
-}) {
-  const how = method === 'WHISH_MONEY' ? 'تحويلاً' : method === 'COLLECTOR' ? 'عبر المحصّل' : 'نقداً';
-  return (
-    <Button
-      size="lg"
-      className={fullWidth ? 'w-full' : undefined}
-      disabled={!valid || submitting}
-      onClick={onSubmit}
-    >
-      {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-      تسجيل {formatLbp(valid ? amount : 0)} {how}
-    </Button>
   );
 }

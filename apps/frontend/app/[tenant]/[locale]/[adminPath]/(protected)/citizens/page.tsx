@@ -51,7 +51,7 @@ const CAN_WRITE = ['SUPER_ADMIN', 'FIELD_INSPECTOR'];
 
 const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في المواطنين',
-  searchPlaceholder: 'ابحث بالاسم أو الهاتف أو الرقم المرجعي…',
+  searchPlaceholder: 'ابحث بالاسم، رقم الهاتف، الرقم المرجعي، أو رقم الهوية…',
   clearSearch: 'مسح البحث',
   empty: 'لا يوجد مواطنون مسجّلون بعد.',
   emptyHint: 'أضف أول مواطن، أو استورد سجلاً من ملف Excel.',
