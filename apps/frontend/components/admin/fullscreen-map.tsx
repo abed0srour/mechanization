@@ -774,7 +774,19 @@ export function FullscreenMap({
   }, []);
 
   return (
-    <div className="relative h-full w-full">
+    /*
+      `data-sheet-open` while the parcel panel is showing.
+
+      On a phone that panel is a bottom sheet, and everything the map keeps at
+      its own bottom edge — the scale bar, the basemap switcher, and Mapbox's
+      attribution, which its terms require to stay visible — would sit behind
+      it. The rule in the style block below lifts them clear rather than
+      leaving a control that is present, unreachable and invisible.
+    */
+    <div
+      className="group/map relative h-full w-full"
+      data-sheet-open={selected ? "true" : undefined}
+    >
       <div ref={containerRef} className="h-full w-full" aria-label="خريطة العقارات" />
 
       {/* Search by رقم العقار — top-centre, clear of the nav control
@@ -992,6 +1004,20 @@ export function FullscreenMap({
           0% { transform: scale(0.6); opacity: 0.9; }
           70% { transform: scale(1.6); opacity: 0; }
           100% { transform: scale(1.6); opacity: 0; }
+        }
+
+        /* Below the sm breakpoint the parcel panel is a sheet off the bottom
+           edge, capped at 68dvh. Anything the map anchors to that edge goes
+           behind it, so it is lifted the sheet's height plus a gap — Mapbox's
+           attribution included, which its terms require to remain visible.
+           Above sm the panel is a side rail and nothing here is in its way.
+           (No backticks in this block: it is inside a template literal.) */
+        @media (max-width: 639px) {
+          [data-sheet-open] .mapboxgl-ctrl-bottom-left,
+          [data-sheet-open] .mapboxgl-ctrl-bottom-right {
+            bottom: calc(68dvh + 0.5rem);
+            transition: bottom 300ms ease;
+          }
         }
       `}</style>
 

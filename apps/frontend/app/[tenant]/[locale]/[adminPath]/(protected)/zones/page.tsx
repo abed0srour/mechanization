@@ -429,11 +429,7 @@ export default function ZonesPage({
 
           {!editorOpen && !loading ? (
             <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
-              <p className="rounded-lg border bg-card/95 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur">
-                {canEdit
-                  ? 'اختر «قطاع جديد» أو «تعديل» لبدء تحديد العقارات'
-                  : 'عرض فقط — تعديل القطاعات متاح لمدير النظام'}
-              </p>
+
             </div>
           ) : null}
 
