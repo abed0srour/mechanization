@@ -1,5 +1,3 @@
-import { Prisma } from '../../generated/tenant-client';
-
 /**
  * Delay before each retry, in milliseconds.
  *
@@ -21,15 +19,35 @@ const RETRY_DELAYS_MS = [250, 900];
  *
  * Retrying this is safe for a write as well as a read, and that is not an
  * accident of the code: P1001 means the statement never reached the server, so
- * there is no half-applied effect to duplicate. A pool timeout or a statement
- * timeout would *not* be safe to retry blindly, which is why neither is matched
- * here.
+ * there is no half-applied effect to duplicate.
+ *
+ * **P2024 is deliberately not matched.** "Timed out fetching a new connection
+ * from the pool" means the pool is already saturated, and the one thing that
+ * cannot help a saturated pool is the same request asking it again — a retry
+ * there converts a slow minute into a stampede. It has to surface as an error
+ * so the queue drains.
  */
-function isTransientConnectionError(error: unknown): boolean {
-  if (error instanceof Prisma.PrismaClientInitializationError) return true;
+export function isTransientConnectionError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { code?: unknown; name?: unknown; message?: unknown };
+
+  /*
+   * Matched structurally, not with `instanceof`.
+   *
+   * This app generates two Prisma clients — `registry-client` and
+   * `tenant-client` — and each ships its own error classes. An
+   * `instanceof Prisma.PrismaClientKnownRequestError` imported from one of them
+   * is simply false for an error thrown by the other, silently and with no type
+   * error to catch it. That is not hypothetical: the tenant lookup in
+   * `TenantMiddleware` runs on the registry client, so the check this replaces
+   * would have declined to retry the single most important query in the system
+   * while appearing to cover it.
+   */
+  if (candidate.code === 'P1001') return true;
+  if (candidate.name === 'PrismaClientInitializationError') return true;
   return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.message.includes("Can't reach database server")
+    typeof candidate.message === 'string' &&
+    candidate.message.includes("Can't reach database server")
   );
 }
 

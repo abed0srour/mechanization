@@ -1,10 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Tenant, TenantProps } from '../../../domain/entities/tenant.entity';
 import { NotFoundError } from '../../../domain/errors/domain-error';
 import { TENANT_REPOSITORY } from '../../../domain/interfaces/base-repository.interface';
 import { TenantRepository } from '../../../domain/interfaces/tenant-repository.interface';
 import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
+import { isTransientConnectionError } from '../../../infrastructure/prisma/with-connection-retry';
 
 export interface PublicTenantConfig {
   slug: string;
@@ -18,6 +19,14 @@ export interface PublicTenantConfig {
 
 @Injectable()
 export class TenantService {
+  private readonly logger = new Logger(TenantService.name);
+
+  /**
+   * The last record successfully read for each slug, held for the life of the
+   * process. A handful of municipalities, a few hundred bytes each.
+   */
+  private readonly lastKnownGood = new Map<string, TenantProps>();
+
   constructor(
     @Inject(TENANT_REPOSITORY) private readonly tenants: TenantRepository,
     private readonly cache: RedisCacheService,
@@ -46,7 +55,38 @@ export class TenantService {
     const key = `tenant:resolve:${normalizedSlug}`;
 
     const cached = await this.cache.get<TenantProps>(key);
-    const tenant = cached ? this.rehydrate(cached) : await this.fetchAndCache(normalizedSlug, key);
+    let tenant: Tenant;
+
+    if (cached) {
+      tenant = this.rehydrate(cached);
+    } else {
+      try {
+        tenant = await this.fetchAndCache(normalizedSlug, key);
+      } catch (error) {
+        /*
+         * Last known good, when the registry is unreachable.
+         *
+         * This lookup gates every request, so a database blip that lands in the
+         * moment after the Redis entry expires takes the entire portal down —
+         * not one screen, every screen, for a row that changes when a
+         * municipality is onboarded and essentially never again. That is what
+         * happened: a P1001 in the middleware, 500 on citizens, on fees, on
+         * everything.
+         *
+         * Serving a remembered copy through the outage is plainly better than
+         * refusing to serve anything. Only for a *connection* failure — a
+         * genuinely missing or renamed slug still throws, since answering that
+         * from memory would keep a decommissioned municipality alive.
+         */
+        const remembered = this.lastKnownGood.get(normalizedSlug);
+        if (!remembered || !isTransientConnectionError(error)) throw error;
+
+        this.logger.warn(
+          `Registry unreachable for '${normalizedSlug}'; serving the last known good record.`,
+        );
+        tenant = this.rehydrate(remembered);
+      }
+    }
 
     tenant.assertServable();
     tenant.assertSchemaNameConsistent();
@@ -70,6 +110,10 @@ export class TenantService {
 
     const ttl = this.config.get<number>('TENANT_CACHE_TTL_SECONDS') ?? 300;
     await this.cache.set(key, tenant.toProps(), ttl);
+    // Kept without expiry, in this process only. It is the fallback for an
+    // unreachable registry, so a TTL on it would remove the safety net at
+    // exactly the moment the Redis entry expired too — which is the scenario.
+    this.lastKnownGood.set(slug, tenant.toProps());
     return tenant;
   }
 
