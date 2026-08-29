@@ -258,6 +258,26 @@ export class FeesController {
   }
 
   /**
+   * One invoice, for a page loaded directly by id rather than a row already in
+   * a fetched list — تسجيل دفعة opens as its own page rather than a dialog, so
+   * a refresh, a bookmark, or a link from a receipt has to be able to load it
+   * from nothing but this id.
+   *
+   * Registered after every literal `payments/...` GET route above
+   * (`payments/pending`, `payments/mine`) rather than beside `payments/:id/settle`
+   * where it reads more naturally — Nest matches routes in registration order,
+   * and a `:id` segment ahead of them would swallow `pending` and `mine` as if
+   * they were ids, which is exactly the kind of routing bug a test suite run
+   * against real HTTP requests catches and a unit test calling the method
+   * directly never would.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Get('payments/:id')
+  async getPayment(@Param('id') id: string) {
+    return this.fees.getPaymentById(id);
+  }
+
+  /**
    * Opens a Whish checkout for one of the signed-in citizen's own bills.
    *
    * The callback and return URLs are built here from configuration rather than

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '../../../generated/tenant-client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WHISH_GATEWAY } from '../../../domain/interfaces/whish-gateway.interface';
 import type {
@@ -746,6 +747,78 @@ export class FeesService {
     return { id: created.id };
   }
 
+  /** The include this app always joins onto a `CitizenPayment` for admin use — kept
+   *  in one place so `getPaymentById` and `listAllPayments` read the identical shape. */
+  private readonly ADMIN_PAYMENT_INCLUDE = {
+    citizen: {
+      select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
+    },
+    collectedBy: { select: { firstName: true, lastName: true } },
+    feeNotice: { select: { frequency: true } },
+  } satisfies Prisma.CitizenPaymentInclude;
+
+  /** One row, in the shape the admin ledger and the settle page both read. */
+  private toAdminPaymentItem(
+    row: Prisma.CitizenPaymentGetPayload<{ include: FeesService['ADMIN_PAYMENT_INCLUDE'] }>,
+    now: Date,
+  ) {
+    return {
+      id: row.id,
+      title: row.title,
+      amount: Number(row.amount),
+      paidAmount: Number(row.paidAmount),
+      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
+      currency: row.currency,
+      dueDate: row.dueDate.toISOString(),
+      paymentStatus:
+        row.paymentStatus === 'UNPAID' && row.dueDate < now ? 'OVERDUE' : row.paymentStatus,
+      paymentMethod: row.paymentMethod,
+      whishTransactionRef: row.whishTransactionRef,
+      paidAt: row.paidAt?.toISOString() ?? null,
+      /**
+       * Exposed because `paidAt` is not the whole answer.
+       *
+       * `settle` stamps `paidAt` only when the invoice is *fully* covered
+       * (`paidAt: fullySettled ? new Date() : null`), so a part-payment — real
+       * money, taken at the counter — leaves it null. A transactions screen
+       * with a blank date on every partial is worse than useless, so the row
+       * carries its last-write time too and the UI falls back to it, labelled
+       * as approximate rather than passed off as the moment of payment.
+       */
+      updatedAt: row.updatedAt.toISOString(),
+      /** Set only on a COLLECTOR payment — who is holding the money. */
+      collectedByName: row.collectedBy
+        ? `${row.collectedBy.firstName} ${row.collectedBy.lastName}`.trim()
+        : null,
+      frequency: row.feeNotice?.frequency ?? null,
+      citizenId: row.citizen.id,
+      citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
+      citizenPhone: row.citizen.phone,
+      citizenReference: row.citizen.referenceNumber,
+    };
+  }
+
+  /**
+   * One invoice, loaded directly by id rather than found in an already-loaded
+   * list.
+   *
+   * Exists for تسجيل دفعة as a full page rather than a dialog: a page can be
+   * linked to, refreshed, or opened straight from a receipt or a citizen's
+   * profile, none of which carry the row in memory the way opening a dialog
+   * from a table does. Same shape as a row from `listAllPayments`, so the page
+   * and the ledger table render the payment identically.
+   */
+  async getPaymentById(id: string) {
+    const row = await withConnectionRetry(() =>
+      this.db.citizenPayment.findUnique({
+        where: { id },
+        include: this.ADMIN_PAYMENT_INCLUDE,
+      }),
+    );
+    if (!row) throw new NotFoundError('Payment', id);
+    return this.toAdminPaymentItem(row, new Date());
+  }
+
   /**
    * Every invoice in the municipality, newest obligation first.
    *
@@ -838,19 +911,7 @@ export class FeesService {
             : [{ paymentStatus: 'asc' }, { dueDate: 'asc' }, { id: 'asc' }],
           take,
           skip,
-          include: {
-            citizen: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                phone: true,
-                referenceNumber: true,
-              },
-            },
-            collectedBy: { select: { firstName: true, lastName: true } },
-            feeNotice: { select: { frequency: true } },
-          },
+          include: this.ADMIN_PAYMENT_INCLUDE,
         }),
         this.db.citizenPayment.count({ where }),
         /**
@@ -878,40 +939,7 @@ export class FeesService {
     );
 
     const now = new Date();
-    const items = rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      amount: Number(row.amount),
-      paidAmount: Number(row.paidAmount),
-      remaining: Math.max(Number(row.amount) - Number(row.paidAmount), 0),
-      currency: row.currency,
-      dueDate: row.dueDate.toISOString(),
-      paymentStatus:
-        row.paymentStatus === 'UNPAID' && row.dueDate < now ? 'OVERDUE' : row.paymentStatus,
-      paymentMethod: row.paymentMethod,
-      whishTransactionRef: row.whishTransactionRef,
-      paidAt: row.paidAt?.toISOString() ?? null,
-      /**
-       * Exposed because `paidAt` is not the whole answer.
-       *
-       * `settle` stamps `paidAt` only when the invoice is *fully* covered
-       * (`paidAt: fullySettled ? new Date() : null`), so a part-payment — real
-       * money, taken at the counter — leaves it null. A transactions screen
-       * with a blank date on every partial is worse than useless, so the row
-       * carries its last-write time too and the UI falls back to it, labelled
-       * as approximate rather than passed off as the moment of payment.
-       */
-      updatedAt: row.updatedAt.toISOString(),
-      /** Set only on a COLLECTOR payment — who is holding the money. */
-      collectedByName: row.collectedBy
-        ? `${row.collectedBy.firstName} ${row.collectedBy.lastName}`.trim()
-        : null,
-      frequency: row.feeNotice?.frequency ?? null,
-      citizenId: row.citizen.id,
-      citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
-      citizenPhone: row.citizen.phone,
-      citizenReference: row.citizen.referenceNumber,
-    }));
+    const items = rows.map((row) => this.toAdminPaymentItem(row, now));
 
     const methodCount = (method: string) =>
       byMethod.find((group) => group.paymentMethod === method)?._count._all ?? 0;

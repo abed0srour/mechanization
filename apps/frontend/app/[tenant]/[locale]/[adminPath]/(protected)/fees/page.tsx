@@ -40,7 +40,6 @@ import {
   reviewPayment,
   runRecurringBilling,
   setNoticeActive,
-  settlePayment,
 } from '@/lib/api-client';
 import type {
   AdminPaymentItem,
@@ -75,10 +74,6 @@ import {
   ChargeCitizenDialog,
   type ChargeValues,
 } from '@/components/admin/charge-citizen-dialog';
-import {
-  SettlePaymentDialog,
-  type SettleValues,
-} from '@/components/admin/settle-payment-dialog';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
 
 /**
@@ -150,9 +145,6 @@ export default function FeesPage({
   const toast = useToast();
   /** Which citizen's itemised breakdown is open, if any. */
   const [expandedCitizen, setExpandedCitizen] = useState<string | null>(null);
-  const [settling, setSettling] = useState<AdminPaymentItem | null>(null);
-  const [recordingCash, setRecordingCash] = useState(false);
-  const [settleError, setSettleError] = useState<string | null>(null);
   /**
    * The receipt shown after money is taken.
    *
@@ -450,65 +442,6 @@ export default function FeesPage({
       }
     },
     [tenant, token],
-  );
-
-  /**
-   * Records a payment — full or partial — against one invoice.
-   *
-   * The `confirm()` that used to gate this is gone: it asked "settle the full
-   * amount?" with no way to say "half", which is the whole thing partial
-   * payments exist to allow. The dialog that replaced it *is* the confirmation,
-   * and it shows the balance being paid down rather than a figure the clerk
-   * cannot change.
-   */
-  const recordCash = useCallback(
-    async ({ method, amount, whishTransactionRef, collectedById, note }: SettleValues) => {
-      const target = settling;
-      if (!token || !target || recordingCash) return;
-
-      setRecordingCash(true);
-      setSettleError(null);
-      try {
-        await settlePayment(tenant, token, target.id, {
-          method,
-          amount,
-          whishTransactionRef,
-          collectedById,
-          note,
-        });
-        setSettling(null);
-        const how =
-          method === 'WHISH_MONEY'
-            ? 'تحويلاً'
-            : method === 'COLLECTOR'
-              ? 'عبر المحصّل'
-              : 'نقداً';
-        if (amount < target.remaining) {
-          toast.warning('دفعة جزئية', {
-            description: `${lbp(amount)} ${how} — متبقٍ ${lbp(target.remaining - amount)}.`,
-          });
-        } else {
-          toast.success('تم تسجيل الدفعة بالكامل', { description: how });
-        }
-        await load();
-        // Straight into the receipt, so the citizen leaves the counter with
-        // one. It is opened after `load()` so the figures on it are the
-        // committed ones rather than an optimistic guess.
-        await openReceipt(target.citizenId, target.id, amount);
-      } catch (caught) {
-        logApiError(caught);
-        setSettleError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.',
-        );
-      } finally {
-        setRecordingCash(false);
-      }
-    },
-    // `openReceipt` belongs here even though its own deps are a subset of
-    // these: leaving it out is the kind of omission that stays harmless until
-    // someone widens its dependencies and the receipt starts opening against
-    // a stale token.
-    [tenant, token, load, settling, recordingCash, openReceipt],
   );
 
   /**
@@ -970,26 +903,18 @@ export default function FeesPage({
                                   payment.paymentStatus}
                               </Badge>
                               {canManage && !paid ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  // `recordingCash`, not `busyPaymentId`: that
-                                  // one belongs to the review queue below, and
-                                  // sharing it made confirming a transfer grey
-                                  // out an unrelated invoice's «تسجيل دفعة».
-                                  disabled={recordingCash && settling?.id === payment.id}
-                                  onClick={() => {
-                                    setSettleError(null);
-                                    setSettling(payment);
-                                  }}
+                                // Navigates to تسجيل دفعة's own page rather than
+                                // opening a dialog over this table — see that
+                                // page's own note for why. Load falls through
+                                // to it via `getPaymentById`, so nothing needs
+                                // to be threaded through the link beyond the id.
+                                <Link
+                                  href={`${base}/fees/payments/${payment.id}/settle`}
+                                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
                                 >
-                                  {recordingCash && settling?.id === payment.id ? (
-                                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                                  ) : (
-                                    <Banknote className="size-4" aria-hidden />
-                                  )}
+                                  <Banknote className="size-4" aria-hidden />
                                   تسجيل دفعة
-                                </Button>
+                                </Link>
                               ) : null}
 
                               {/* Any invoice that has received money can be
@@ -1165,18 +1090,6 @@ export default function FeesPage({
           officeWhatsapp={settings?.whatsappNumber}
         />
       ) : null}
-
-      <SettlePaymentDialog
-        open={settling !== null}
-        onOpenChange={(next) => {
-          if (!next) setSettling(null);
-        }}
-        payment={settling}
-        submitting={recordingCash}
-        error={settleError}
-        collectors={staff}
-        onSubmit={(values) => void recordCash(values)}
-      />
 
       <ChargeCitizenDialog
         open={chargeOpen}

@@ -1273,6 +1273,19 @@ export function getAllPayments(
   }>(tenant, `/fees/payments${suffix}`, { token });
 }
 
+/**
+ * One invoice, loaded directly by id.
+ *
+ * What تسجيل دفعة reads when it is its own page rather than a dialog opened
+ * from an already-loaded row: a refresh, a bookmark, or a link from a receipt
+ * arrives with nothing but this id.
+ */
+export function getPaymentById(tenant: string, token: string, id: string) {
+  return apiFetch<AdminPaymentItem>(tenant, `/fees/payments/${encodeURIComponent(id)}`, {
+    token,
+  });
+}
+
 /** A one-off charge against a single citizen — no notice, no recurrence. */
 export function chargeCitizen(
   tenant: string,
