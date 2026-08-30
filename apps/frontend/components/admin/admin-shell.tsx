@@ -97,7 +97,7 @@ export function AdminShell({
   const role = session?.user.role;
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden">
+    <div className="flex h-screen h-[100dvh] w-full overflow-hidden bg-background">
       <AdminSidebar tenant={tenant} locale={locale} adminPath={adminPath} role={role} />
 
       {/* Drawer. Mounted only while open so its links are not in the tab order
@@ -149,7 +149,7 @@ export function AdminShell({
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <AdminHeader
           tenant={tenant}
           locale={locale}
@@ -159,11 +159,10 @@ export function AdminShell({
           onOpenDrawer={() => setDrawerOpen(true)}
           onOpenSearch={() => setPaletteOpen(true)}
         />
-        {/* `min-w-0` on both this and the flex column above it: without it a
-            wide table's intrinsic width wins the flex negotiation and pushes
-            the whole column past the viewport, which is how a page ends up
-            scrolling horizontally as a whole instead of inside its table. */}
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        {/* `min-w-0` and `min-h-0` on both this and the flex column above it: without it a
+            flex child doesn't constrain its content height, allowing the container
+            to stretch and create a void scroll area below the page. */}
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">{children}</main>
       </div>
 
       <CommandPalette

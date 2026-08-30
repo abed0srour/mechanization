@@ -139,7 +139,7 @@ export function AdminSidebar({
   return (
     <aside
       className={cn(
-        'hidden h-screen shrink-0 flex-col border-e bg-card transition-[width] duration-200 lg:flex',
+        'hidden h-full max-h-full shrink-0 flex-col border-e bg-card transition-[width] duration-200 lg:flex',
         collapsed ? 'w-[72px]' : 'w-64',
       )}
     >
