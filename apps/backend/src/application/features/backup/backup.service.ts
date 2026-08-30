@@ -253,15 +253,29 @@ export class BackupService {
       throw new ValidationError(`جداول غير معروفة في النسخة: ${unknownTables.join('، ')}.`);
     }
 
+const MUTABLE_TABLES: readonly TableName[] = [
+  'user',
+  'otpChallenge',
+  'parcel',
+  'zone',
+  'systemSettings',
+  'registration',
+  'propertyEntry',
+  'buildingUnit',
+  'document',
+  'feeNotice',
+  'citizenPayment',
+];
+
     if (options.dryRun) {
       const deleted: Record<string, number> = {};
-      for (const table of TABLE_ORDER) deleted[table] = await this.delegate(table).count();
+      for (const table of MUTABLE_TABLES) deleted[table] = await this.delegate(table).count();
       return {
         dryRun: true,
         manifest,
         deleted,
         written: Object.fromEntries(
-          TABLE_ORDER.map((table) => [table, snapshot.tables[table]?.length ?? 0]),
+          MUTABLE_TABLES.map((table) => [table, snapshot.tables[table]?.length ?? 0]),
         ),
       };
     }
@@ -286,12 +300,12 @@ export class BackupService {
         };
 
         // Backwards: a child's rows go before the parent they point at.
-        for (const table of [...TABLE_ORDER].reverse()) {
+        for (const table of [...MUTABLE_TABLES].reverse()) {
           const result = await scoped(table).deleteMany({});
           deleted[table] = result.count;
         }
 
-        for (const table of TABLE_ORDER) {
+        for (const table of MUTABLE_TABLES) {
           const rows = snapshot.tables[table] ?? [];
           if (rows.length === 0) {
             written[table] = 0;

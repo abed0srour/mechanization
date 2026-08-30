@@ -916,75 +916,96 @@ export function BackupSection({
                 {report ? (
                   <div
                     className={cn(
-                      'space-y-3 rounded-lg border p-4',
+                      'space-y-4 rounded-xl border p-4 sm:p-5 shadow-sm',
                       report.dryRun
-                        ? 'border-primary/25 bg-background'
+                        ? 'border-primary/20 bg-card'
                         : 'border-success/30 bg-success/5',
                     )}
                   >
-                    <p className="text-sm font-semibold">
-                      {report.dryRun ? copy.backup.dryRunResult : copy.backup.restoreDone}
-                    </p>
-                    <ScrollableTable minWidth="24rem">
+                    <div className="flex items-center justify-between gap-2 border-b pb-3">
+                      <p className="text-sm font-semibold flex items-center gap-2">
+                        <span className="size-2 rounded-full bg-primary animate-pulse" />
+                        {report.dryRun ? copy.backup.dryRunResult : copy.backup.restoreDone}
+                      </p>
+                      <Badge variant="soft-muted" className="text-xs font-mono">
+                        {Object.keys(report.written).length} جداول
+                      </Badge>
+                    </div>
+
+                    <div className="overflow-hidden rounded-lg border bg-background">
                       <Table>
-                        <TableHeader>
+                        <TableHeader className="bg-muted/40">
                           <TableRow>
-                            <TableHead>{copy.backup.colTable}</TableHead>
-                            <TableHead>{copy.backup.colRemoved}</TableHead>
-                            <TableHead>{copy.backup.colWritten}</TableHead>
+                            <TableHead className="text-start font-semibold">{copy.backup.colTable}</TableHead>
+                            <TableHead className="text-center font-semibold text-destructive">{copy.backup.colRemoved}</TableHead>
+                            <TableHead className="text-center font-semibold text-success">{copy.backup.colWritten}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {Object.keys(report.written).map((name) => (
-                            <TableRow key={name}>
-                              <TableCell className="font-medium">
-                                {copy.backup.tables[name] ?? name}
+                            <TableRow key={name} className="hover:bg-muted/30 transition-colors">
+                              <TableCell className="text-start font-medium">
+                                <div className="flex items-center gap-2">
+                                  <span>{copy.backup.tables[name] ?? name}</span>
+                                  {copy.backup.tables[name] ? (
+                                    <span className="text-[11px] text-muted-foreground font-mono">({name})</span>
+                                  ) : null}
+                                </div>
                               </TableCell>
-                              <TableCell className="tabular-nums text-destructive" dir="ltr">
-                                {(report.deleted[name] ?? 0).toLocaleString('en-US')}
+                              <TableCell className="text-center tabular-nums">
+                                <Badge variant={(report.deleted[name] ?? 0) > 0 ? "soft-destructive" : "soft-muted"} className="font-mono">
+                                  {(report.deleted[name] ?? 0).toLocaleString('en-US')}
+                                </Badge>
                               </TableCell>
-                              <TableCell className="tabular-nums" dir="ltr">
-                                {report.written[name].toLocaleString('en-US')}
+                              <TableCell className="text-center tabular-nums">
+                                <Badge variant={report.written[name] > 0 ? "soft-success" : "soft-muted"} className="font-mono">
+                                  {report.written[name].toLocaleString('en-US')}
+                                </Badge>
                               </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
                       </Table>
-                    </ScrollableTable>
+                    </div>
                   </div>
                 ) : null}
 
                 {report?.dryRun ? (
-                  <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-                    <p className="flex items-start gap-2 text-sm leading-relaxed">
-                      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-                      <span>
-                        <span className="font-semibold text-destructive">
+                  <div className="space-y-4 rounded-xl border-2 border-destructive/40 bg-destructive/5 p-4 sm:p-5 shadow-sm animate-in fade-in duration-200">
+                    <div className="flex items-start gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
+                        <TriangleAlert className="size-5" aria-hidden />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-semibold text-sm text-destructive">
                           {copy.backup.restoreWarning}
-                        </span>
-                        <span className="mt-0.5 block text-muted-foreground">
+                        </p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                           {copy.backup.restoreWarningWhy.replace('{tenant}', tenant)}
-                        </span>
-                      </span>
-                    </p>
-                    <div className="flex flex-wrap items-end gap-3">
-                      <div className="w-full max-w-[16rem]">
-                        <SettingsField
-                          label={copy.backup.typeTenant.replace('{tenant}', tenant)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-destructive/20 pt-4 flex flex-col sm:flex-row sm:items-end gap-3.5">
+                      <div className="flex-1 max-w-sm">
+                        <label
                           htmlFor="confirm-tenant"
+                          className="block text-xs font-medium text-foreground mb-1.5"
                         >
-                          <Input
-                            id="confirm-tenant"
-                            dir="ltr"
-                            className="text-start font-mono bg-background"
-                            value={confirmSlug}
-                            placeholder={tenant}
-                            onChange={(e) => setConfirmSlug(e.target.value)}
-                          />
-                        </SettingsField>
+                          {copy.backup.typeTenant.replace('{tenant}', tenant)}
+                        </label>
+                        <Input
+                          id="confirm-tenant"
+                          dir="ltr"
+                          className="text-start font-mono bg-background border-destructive/30 focus-visible:ring-destructive"
+                          value={confirmSlug}
+                          placeholder={tenant}
+                          onChange={(e) => setConfirmSlug(e.target.value)}
+                        />
                       </div>
                       <Button
                         variant="destructive"
+                        className="gap-2 font-medium"
                         disabled={restoreBusy || confirmSlug.trim() !== tenant}
                         onClick={() => void runRestore(false)}
                       >
