@@ -9,7 +9,9 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
+  Filter,
   Loader2,
+  MessageCircle,
   Plus,
   Receipt,
   RefreshCw,
@@ -22,6 +24,7 @@ import {
   chargeCitizen,
   getAllPayments,
   getCitizenProfile,
+  getFeeNotices,
   getFeeSummary,
   getMunicipalitySettings,
   getTenantConfig,
@@ -35,17 +38,26 @@ import type {
   CitizenListItem,
   CitizenProfile,
   CitizenProfilePayment,
+  FeeNoticeSummary,
   FeeSummary,
   MunicipalitySettings,
 } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { formatDate } from '@/lib/dates';
+import { buildWhatsAppReceiptUrl, getReceiptNumber } from '@/lib/whatsapp';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { ChargeCitizenDialog, type ChargeValues } from '@/components/admin/charge-citizen-dialog';
@@ -110,7 +122,9 @@ export default function FeesPage({
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<FeeSummary | null>(null);
   const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
+  const [feeNotices, setFeeNotices] = useState<FeeNoticeSummary[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [feeTypeFilter, setFeeTypeFilter] = useState<string>('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
 
@@ -151,10 +165,11 @@ export default function FeesPage({
       setError(null);
 
       try {
-        const [paymentsRes, summaryRes, settingsRes, configRes, citizensRes] =
+        const [paymentsRes, summaryRes, settingsRes, configRes, citizensRes, noticesRes] =
           await Promise.allSettled([
             getAllPayments(tenant, token, {
               status: statusFilter || undefined,
+              feeType: feeTypeFilter || undefined,
               search: appliedSearch || undefined,
               limit: pagination.pageSize,
               offset: pagination.pageIndex * pagination.pageSize,
@@ -163,6 +178,7 @@ export default function FeesPage({
             getMunicipalitySettings(tenant, token),
             getTenantConfig(tenant),
             listCitizens(tenant, token, { limit: 200 }),
+            getFeeNotices(tenant, token),
           ]);
 
         if (paymentsRes.status === 'fulfilled') {
@@ -188,6 +204,10 @@ export default function FeesPage({
         if (citizensRes.status === 'fulfilled') {
           setCitizens(citizensRes.value.items);
         }
+
+        if (noticesRes.status === 'fulfilled') {
+          setFeeNotices(noticesRes.value.items);
+        }
       } catch (caught) {
         logApiError(caught);
         if (caught instanceof ApiRequestError && caught.status === 401) {
@@ -201,7 +221,7 @@ export default function FeesPage({
         setRefreshing(false);
       }
     },
-    [tenant, token, base, router, statusFilter, appliedSearch, pagination],
+    [tenant, token, base, router, statusFilter, feeTypeFilter, appliedSearch, pagination],
   );
 
   useEffect(() => {
@@ -211,7 +231,14 @@ export default function FeesPage({
   // Reset page index on search or filter change
   useEffect(() => {
     setPagination((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
-  }, [statusFilter, appliedSearch]);
+  }, [statusFilter, feeTypeFilter, appliedSearch]);
+
+  const availableFeeTypes = useMemo(() => {
+    const defaults = ['نفايات', 'رخصة بناء', 'قيمة تأجيرية', 'صيانة وأرصفة', 'إشغال أملاك عامة'];
+    const fromNotices = feeNotices.map((n) => n.title.trim());
+    const fromItems = items.map((i) => i.title.trim());
+    return Array.from(new Set([...defaults, ...fromNotices, ...fromItems].filter(Boolean)));
+  }, [feeNotices, items]);
 
   const openReceipt = useCallback(
     async (citizenId: string, paymentId: string, receivedAmount: number) => {
@@ -512,12 +539,46 @@ export default function FeesPage({
                   وصل القبض
                 </Button>
               ) : null}
+
+              {/* WhatsApp Receipt Direct Trigger */}
+              {payment.paidAmount > 0 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs font-medium text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-800 dark:hover:text-emerald-300"
+                  disabled={isBusy}
+                  title="إرسال إشعار الدفع عبر واتساب"
+                  onClick={() => {
+                    const phone = payment.citizenPhone;
+                    if (!phone) {
+                      toast.error('لا يوجد رقم هاتف مسجّل لهذا المواطن.');
+                      return;
+                    }
+                    const waUrl = buildWhatsAppReceiptUrl({
+                      phone,
+                      citizenName: payment.citizenName,
+                      feeType: payment.title,
+                      amount: payment.paidAmount || payment.amount,
+                      receiptNumber: getReceiptNumber(payment.id),
+                      paymentDate: payment.paidAt || payment.updatedAt,
+                    });
+                    if (waUrl) {
+                      window.open(waUrl, '_blank', 'noopener,noreferrer');
+                    } else {
+                      toast.error('رقم الهاتف غير صالح للإرسال عبر واتساب.');
+                    }
+                  }}
+                >
+                  <MessageCircle className="size-3.5 rtl:ml-1.5 ltr:mr-1.5 text-emerald-600 dark:text-emerald-400 fill-emerald-600/20" />
+                  واتساب
+                </Button>
+              ) : null}
             </div>
           );
         },
       },
     ],
-    [base, canManage, busyPaymentId, openReceipt],
+    [base, canManage, busyPaymentId, openReceipt, toast],
   );
 
   if (!token) return null;
@@ -605,29 +666,52 @@ export default function FeesPage({
       {/* Main Table Card */}
       <Card className="overflow-hidden">
         <CardHeader className="border-b pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base font-bold">
               <Receipt className="size-5 text-primary" />
               سجل الرسوم والمطالبات
             </CardTitle>
 
-            {/* Status Tabs Filter */}
-            <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
-              {STATUS_FILTERS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.id)}
-                  className={cn(
-                    'rounded-lg px-3 py-1 text-xs font-semibold transition-all',
-                    statusFilter === tab.id
-                      ? 'bg-card text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Fee Type Dropdown Filter */}
+              <div className="w-full sm:w-[200px]">
+                <Select
+                  value={feeTypeFilter || 'ALL'}
+                  onValueChange={(val) => setFeeTypeFilter(val === 'ALL' ? '' : val)}
                 >
-                  {tab.label}
-                </button>
-              ))}
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <Filter className="size-3.5 rtl:ml-1.5 ltr:mr-1.5 text-muted-foreground" />
+                    <SelectValue placeholder="نوع الرسم: الكل" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">جميع أنواع الرسوم</SelectItem>
+                    {availableFeeTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Status Tabs Filter */}
+              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
+                {STATUS_FILTERS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStatusFilter(tab.id)}
+                    className={cn(
+                      'rounded-lg px-3 py-1 text-xs font-semibold transition-all',
+                      statusFilter === tab.id
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </CardHeader>

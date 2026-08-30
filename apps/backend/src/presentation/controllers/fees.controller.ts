@@ -156,6 +156,7 @@ export class FeesController {
     @Query('search') search?: string,
     /** Narrows the ledger to one citizen — the «عرض» drill-down. */
     @Query('citizenId') citizenId?: string,
+    @Query('feeType') feeType?: string,
     @Query('method') method?: string,
     @Query('transactionsOnly') transactionsOnly?: string,
     @Query('limit') limit?: string,
@@ -167,6 +168,7 @@ export class FeesController {
       status,
       search,
       citizenId,
+      feeType,
       method,
       transactionsOnly: transactionsOnly === 'true',
       limit: limit ? Number(limit) : undefined,

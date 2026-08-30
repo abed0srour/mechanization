@@ -831,6 +831,7 @@ export class FeesService {
       status?: string;
       search?: string;
       citizenId?: string;
+      feeType?: string;
       /** CASH | WHISH_MONEY. */
       method?: string;
       /**
@@ -846,6 +847,7 @@ export class FeesService {
     } = {},
   ) {
     const search = filter.search?.trim();
+    const feeType = filter.feeType?.trim();
 
     /**
      * The page, and the ceiling on it.
@@ -862,6 +864,7 @@ export class FeesService {
       ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
       ...(filter.status ? { paymentStatus: filter.status as never } : {}),
       ...(filter.method ? { paymentMethod: filter.method as never } : {}),
+      ...(feeType ? { title: { contains: feeType, mode: 'insensitive' as const } } : {}),
       // PENDING_REVIEW belongs here despite `paidAmount` still being zero:
       // the citizen has declared a transfer, so there is a claimed
       // transaction with a method and a reference to show — it is simply

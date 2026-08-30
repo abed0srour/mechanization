@@ -1305,6 +1305,7 @@ export function getAllPayments(
     status?: string;
     search?: string;
     citizenId?: string;
+    feeType?: string;
     method?: string;
     transactionsOnly?: boolean;
     limit?: number;
@@ -1315,6 +1316,7 @@ export function getAllPayments(
   if (filter.status) query.set('status', filter.status);
   if (filter.search) query.set('search', filter.search);
   if (filter.citizenId) query.set('citizenId', filter.citizenId);
+  if (filter.feeType) query.set('feeType', filter.feeType);
   if (filter.method) query.set('method', filter.method);
   if (filter.transactionsOnly) query.set('transactionsOnly', 'true');
   if (filter.limit !== undefined) query.set('limit', String(filter.limit));

@@ -11,6 +11,7 @@ import {
   Copy,
   CreditCard,
   Loader2,
+  MessageCircle,
   Receipt,
   Search,
   UserCheck,
@@ -33,6 +34,7 @@ import type {
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { formatDateTime, formatRelative } from '@/lib/dates';
+import { buildWhatsAppReceiptUrl, getReceiptNumber } from '@/lib/whatsapp';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -40,6 +42,7 @@ import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { ActionTooltip } from '@/components/ui/tooltip';
+import { useToast } from '@/components/ui/toast';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
 import { cn } from '@/lib/utils';
 
@@ -114,6 +117,7 @@ export default function PaymentsPage({
   const [items, setItems] = useState<AdminPaymentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const [method, setMethod] = useState<string>('');
   /**
    * `search` is what the box shows; `appliedSearch` is what the server was
@@ -417,25 +421,51 @@ export default function PaymentsPage({
             );
           }
           return (
-            // `ghost`, not `outline`: on the dark palette an outline button is
-            // a filled near-black block, which made this the heaviest element
-            // in the row — louder than the amount it belongs to. A tinted text
-            // action reads as a link into the row rather than as the row's
-            // headline.
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 text-primary hover:bg-primary/10 hover:text-primary"
-              disabled={receiptBusyId === payment.id}
-              onClick={() => void openReceipt(payment)}
-            >
-              {receiptBusyId === payment.id ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              ) : (
-                <Receipt className="size-3.5" aria-hidden />
-              )}
-              إصدار الوصل
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-primary hover:bg-primary/10 hover:text-primary"
+                disabled={receiptBusyId === payment.id}
+                onClick={() => void openReceipt(payment)}
+              >
+                {receiptBusyId === payment.id ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Receipt className="size-3.5" aria-hidden />
+                )}
+                إصدار الوصل
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+                title="إرسال إشعار الدفع عبر واتساب"
+                onClick={() => {
+                  const phone = payment.citizenPhone;
+                  if (!phone) {
+                    toast.error('لا يوجد رقم هاتف مسجّل لهذا المواطن.');
+                    return;
+                  }
+                  const waUrl = buildWhatsAppReceiptUrl({
+                    phone,
+                    citizenName: payment.citizenName,
+                    feeType: payment.title,
+                    amount: payment.paidAmount || payment.amount,
+                    receiptNumber: getReceiptNumber(payment.id),
+                    paymentDate: payment.paidAt || payment.updatedAt,
+                  });
+                  if (waUrl) {
+                    window.open(waUrl, '_blank', 'noopener,noreferrer');
+                  } else {
+                    toast.error('رقم الهاتف غير صالح للإرسال عبر واتساب.');
+                  }
+                }}
+              >
+                <MessageCircle className="size-3.5 fill-emerald-600/20" aria-hidden />
+                واتساب
+              </Button>
+            </div>
           );
         },
       },
@@ -480,7 +510,7 @@ export default function PaymentsPage({
         },
       },
     ],
-    [copiedId, copyId, openReceipt, receiptBusyId],
+    [copiedId, copyId, openReceipt, receiptBusyId, toast],
   );
 
   if (!token) return null;

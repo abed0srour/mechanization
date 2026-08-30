@@ -9,6 +9,11 @@ import { formatDate } from '@/lib/dates';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { downloadFile, renderReceiptPdf, shareFile } from '@/lib/receipt-pdf';
+import {
+  buildWhatsAppReceiptMessage,
+  buildWhatsAppReceiptUrl,
+  getReceiptNumber,
+} from '@/lib/whatsapp';
 
 /**
  * A receipt number that is stable for a given payment.
@@ -111,28 +116,21 @@ export function PaymentReceipt({
   );
 
   const tenantProperty = properties.find((p) => p.occupancyType === 'TENANT');
-  const wa = whatsappNumber(citizen.whatsapp ?? citizen.phone);
-
-  const message = [
-    `بلدية ${municipalityName}`,
-    `وصل قبض رقم ${receiptNumber(payment)}`,
-    '',
-    `المكلّف: ${citizen.fullName}`,
-    citizen.referenceNumber ? `الرقم المرجعي: ${citizen.referenceNumber}` : null,
-    `البند: ${payment.title}`,
-    `المبلغ المقبوض: ${formatLbp(amount)}`,
-    payment.remaining > 0
-      ? `الرصيد المتبقي: ${formatLbp(payment.remaining)}`
-      : 'تم تسديد كامل المبلغ. شكراً لكم.',
-    '',
-    `التاريخ: ${formatDate(new Date())}`,
-    contactPhone ? `للاستفسار: ${contactPhone}` : null,
-    officeWhatsapp ? `واتساب البلدية: ${officeWhatsapp}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  const waHref = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(message)}` : null;
+  const message = buildWhatsAppReceiptMessage({
+    citizenName: citizen.fullName,
+    feeType: payment.title,
+    amount,
+    receiptNumber: getReceiptNumber(payment.id),
+    paymentDate: payment.paidAt || new Date(),
+  });
+  const waHref = buildWhatsAppReceiptUrl({
+    phone: citizen.whatsapp ?? citizen.phone,
+    citizenName: citizen.fullName,
+    feeType: payment.title,
+    amount,
+    receiptNumber: getReceiptNumber(payment.id),
+    paymentDate: payment.paidAt || new Date(),
+  });
 
   const handlePdf = async (mode: 'share' | 'download') => {
     const node = printRef.current;
@@ -379,7 +377,7 @@ export function PaymentReceipt({
               <Button
                 size="sm"
                 onClick={() => void handlePdf('share')}
-                disabled={busy !== null || !wa}
+                disabled={busy !== null || !waHref}
               >
                 {busy === 'share' ? (
                   <Loader2 className="size-4 animate-spin rtl:ml-1.5 ltr:mr-1.5" />
