@@ -273,9 +273,11 @@ export interface DashboardAnalytics {
   monthly: MonthlyFees[];
 }
 
-/** The analytics dashboard's whole dataset. Cached server-side. */
+/** The analytics dashboard's whole dataset. Cached server-side and client-side. */
 export function getDashboardAnalytics(tenant: string, token: string) {
-  return apiFetch<DashboardAnalytics>(tenant, '/dashboard/analytics', { token });
+  return cachedRequest(`dashboard-analytics:${tenant}`, 30 * 1000, () =>
+    apiFetch<DashboardAnalytics>(tenant, '/dashboard/analytics', { token }),
+  );
 }
 
 /** One citizen registered against a parcel, as the map drawer lists them. */
@@ -310,7 +312,9 @@ export interface RegisteredParcel {
  * marker per cadastral number, with everyone registered on it.
  */
 export function getRegisteredParcels(tenant: string, token: string) {
-  return apiFetch<{ parcels: RegisteredParcel[] }>(tenant, '/dashboard/map/parcels', { token });
+  return cachedRequest(`map-parcels:${tenant}`, 60 * 1000, () =>
+    apiFetch<{ parcels: RegisteredParcel[] }>(tenant, '/dashboard/map/parcels', { token }),
+  );
 }
 
 // ───────────────────────────  Zones (القطاعات)  ───────────────────────────
@@ -602,12 +606,14 @@ export function listCitizens(
   query.set('limit', String(filter.limit ?? 200));
   query.set('offset', String(filter.offset ?? 0));
 
-  return apiFetch<{
-    items: CitizenListItem[];
-    total: number;
-    /** Computed over every matching citizen, not the returned page. */
-    totals: { outstanding: number; overdue: number; inArrears: number };
-  }>(tenant, `/citizens?${query}`, { token });
+  return cachedRequest(`citizens:${tenant}:${query}`, 20 * 1000, () =>
+    apiFetch<{
+      items: CitizenListItem[];
+      total: number;
+      /** Computed over every matching citizen, not the returned page. */
+      totals: { outstanding: number; overdue: number; inArrears: number };
+    }>(tenant, `/citizens?${query}`, { token }),
+  );
 }
 
 /**
@@ -701,17 +707,24 @@ export async function importCitizens(
     input.onProgress?.(Math.min(offset + batch.length, input.rows.length), input.rows.length);
   }
 
+  invalidateRequests(`citizens:${tenant}`);
+  invalidateRequests(`dashboard-counters:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
   return merged;
 }
 
 /** Files a citizen and their first registration. Lands as PENDING, like any claim. */
-export function createCitizen(tenant: string, token: string, input: CitizenWriteInput) {
-  return apiFetch<{
+export async function createCitizen(tenant: string, token: string, input: CitizenWriteInput) {
+  const result = await apiFetch<{
     citizenId: string;
     registrationId: string;
     referenceNumber: string;
     propertyCount: number;
   }>(tenant, '/citizens', { token, method: 'POST', body: JSON.stringify(input) });
+  invalidateRequests(`citizens:${tenant}`);
+  invalidateRequests(`dashboard-counters:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  return result;
 }
 
 /**
@@ -719,43 +732,55 @@ export function createCitizen(tenant: string, token: string, input: CitizenWrite
  * registration: an entry with an `id` is updated, one without is created, and
  * a stored entry absent from the payload is deleted along with its documents.
  */
-export function updateCitizen(
+export async function updateCitizen(
   tenant: string,
   token: string,
   citizenId: string,
   input: CitizenWriteInput,
 ) {
-  return apiFetch<{ updated: boolean; citizenId: string }>(
+  const result = await apiFetch<{ updated: boolean; citizenId: string }>(
     tenant,
     `/citizens/${encodeURIComponent(citizenId)}`,
     { token, method: 'PATCH', body: JSON.stringify(input) },
   );
+  invalidateRequests(`citizens:${tenant}`);
+  invalidateRequests(`dashboard-counters:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  return result;
 }
 
 /** Soft delete and its undo — a deactivated citizen is skipped by the biller. */
-export function setCitizenActive(
+export async function setCitizenActive(
   tenant: string,
   token: string,
   citizenId: string,
   isActive: boolean,
 ) {
-  return apiFetch<{ isActive: boolean }>(
+  const result = await apiFetch<{ isActive: boolean }>(
     tenant,
     `/citizens/${encodeURIComponent(citizenId)}/active`,
     { token, method: 'PATCH', body: JSON.stringify({ isActive }) },
   );
+  invalidateRequests(`citizens:${tenant}`);
+  invalidateRequests(`dashboard-counters:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  return result;
 }
 
 /**
  * Permanent, cascading to registrations, properties, documents and invoices.
  * SUPER_ADMIN only, and the server refuses it for anyone with a settled payment.
  */
-export function deleteCitizen(tenant: string, token: string, citizenId: string) {
-  return apiFetch<{ deleted: boolean }>(
+export async function deleteCitizen(tenant: string, token: string, citizenId: string) {
+  const result = await apiFetch<{ deleted: boolean }>(
     tenant,
     `/citizens/${encodeURIComponent(citizenId)}`,
     { token, method: 'DELETE' },
   );
+  invalidateRequests(`citizens:${tenant}`);
+  invalidateRequests(`dashboard-counters:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  return result;
 }
 
 /** Opens the signed URL in a new tab; the backend records who viewed what. */
@@ -785,14 +810,16 @@ export interface StaffSummary {
 
 /** Every staff account with the history count that gates a permanent delete. */
 export function getStaff(tenant: string, token: string) {
-  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token });
+  return cachedRequest(`staff:${tenant}`, 30 * 1000, () =>
+    apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token }),
+  );
 }
 
 /**
  * Creates an account. `confirmPassword` is deliberately not sent — it is a
  * typo guard for whoever is typing, not something the server can verify.
  */
-export function createStaff(
+export async function createStaff(
   tenant: string,
   token: string,
   input: {
@@ -803,15 +830,17 @@ export function createStaff(
     role: string;
   },
 ) {
-  return apiFetch<{ id: string }>(tenant, '/staff', {
+  const result = await apiFetch<{ id: string }>(tenant, '/staff', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`staff:${tenant}`);
+  return result;
 }
 
 /** Partial update. An omitted `password` leaves the current one alone. */
-export function updateStaff(
+export async function updateStaff(
   tenant: string,
   token: string,
   id: string,
@@ -823,28 +852,34 @@ export function updateStaff(
     role?: string;
   },
 ) {
-  return apiFetch<{ updated: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
+  const result = await apiFetch<{ updated: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
     token,
     method: 'PATCH',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`staff:${tenant}`);
+  return result;
 }
 
 /** Soft delete and its undo. */
-export function setStaffActive(tenant: string, token: string, id: string, isActive: boolean) {
-  return apiFetch<{ isActive: boolean }>(tenant, `/staff/${encodeURIComponent(id)}/active`, {
+export async function setStaffActive(tenant: string, token: string, id: string, isActive: boolean) {
+  const result = await apiFetch<{ isActive: boolean }>(tenant, `/staff/${encodeURIComponent(id)}/active`, {
     token,
     method: 'PATCH',
     body: JSON.stringify({ isActive }),
   });
+  invalidateRequests(`staff:${tenant}`);
+  return result;
 }
 
 /** Permanent — the server refuses it for any account that has already acted. */
-export function deleteStaff(tenant: string, token: string, id: string) {
-  return apiFetch<{ deleted: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
+export async function deleteStaff(tenant: string, token: string, id: string) {
+  const result = await apiFetch<{ deleted: boolean }>(tenant, `/staff/${encodeURIComponent(id)}`, {
     token,
     method: 'DELETE',
   });
+  invalidateRequests(`staff:${tenant}`);
+  return result;
 }
 
 export interface AuditEntry {
@@ -1065,7 +1100,9 @@ export interface FeeNoticeSummary {
 }
 
 export function getFeeNotices(tenant: string, token: string) {
-  return apiFetch<{ items: FeeNoticeSummary[] }>(tenant, '/fees/notices', { token });
+  return cachedRequest(`fee-notices:${tenant}`, 30 * 1000, () =>
+    apiFetch<{ items: FeeNoticeSummary[] }>(tenant, '/fees/notices', { token }),
+  );
 }
 
 /** Writes the rule and bills every matching citizen in one transaction. */
@@ -1088,7 +1125,11 @@ export async function issueFeeNotice(
     method: 'POST',
     body: JSON.stringify(input),
   });
+  invalidateRequests(`fee-notices:${tenant}`);
   invalidateRequests(`fee-summary:${tenant}`);
+  invalidateRequests(`payments:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  invalidateRequests(`citizens:${tenant}`);
   return result;
 }
 
@@ -1137,6 +1178,8 @@ export async function reviewPayment(
     { token, method: 'PATCH', body: JSON.stringify(input) },
   );
   invalidateRequests(`fee-summary:${tenant}`);
+  invalidateRequests(`payments:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
   return result;
 }
 
@@ -1277,18 +1320,20 @@ export function getAllPayments(
   if (filter.limit !== undefined) query.set('limit', String(filter.limit));
   if (filter.offset !== undefined) query.set('offset', String(filter.offset));
   const suffix = query.toString() ? `?${query}` : '';
-  return apiFetch<{
-    items: AdminPaymentItem[];
-    total: number;
-    /** Computed over every matching row, not the returned page. */
-    totals: {
-      collected: number;
-      cash: number;
-      whish: number;
-      collector: number;
-      awaiting: number;
-    };
-  }>(tenant, `/fees/payments${suffix}`, { token });
+  return cachedRequest(`payments:${tenant}:${suffix}`, 20 * 1000, () =>
+    apiFetch<{
+      items: AdminPaymentItem[];
+      total: number;
+      /** Computed over every matching row, not the returned page. */
+      totals: {
+        collected: number;
+        cash: number;
+        whish: number;
+        collector: number;
+        awaiting: number;
+      };
+    }>(tenant, `/fees/payments${suffix}`, { token }),
+  );
 }
 
 /**
@@ -1316,6 +1361,9 @@ export async function chargeCitizen(
     body: JSON.stringify(input),
   });
   invalidateRequests(`fee-summary:${tenant}`);
+  invalidateRequests(`payments:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  invalidateRequests(`citizens:${tenant}`);
   return result;
 }
 
@@ -1345,6 +1393,9 @@ export async function settlePayment(
     { token, method: 'PATCH', body: JSON.stringify({ method: 'CASH', ...input }) },
   );
   invalidateRequests(`fee-summary:${tenant}`);
+  invalidateRequests(`payments:${tenant}`);
+  invalidateRequests(`dashboard-analytics:${tenant}`);
+  invalidateRequests(`citizens:${tenant}`);
   return result;
 }
 

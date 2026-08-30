@@ -189,7 +189,7 @@ function deploy(project, label) {
 
   let output;
   try {
-    output = execFileSync('npx', args, { cwd: REPO, env, encoding: 'utf8', stdio: 'pipe' });
+    output = execFileSync('npx', args, { cwd: REPO, env, encoding: 'utf8', stdio: 'pipe', shell: true });
   } catch (error) {
     const detail = `${error.stdout ?? ''}${error.stderr ?? ''}`.trim();
     die(`Deploy of ${label} failed:\n\n${detail}`);
@@ -267,9 +267,11 @@ async function pushEnv() {
     NODE_ENV: 'development',
     // Meaningless on a platform that assigns the port.
     PORT: undefined,
-    // A redis:// pointing at localhost cannot resolve from a function; the
-    // cache degrades to an in-process map, which is correct, just per-instance.
-    REDIS_URL: undefined,
+    // Only drop localhost Redis; allow cloud/serverless Redis (e.g. Upstash rediss://).
+    REDIS_URL:
+      backend.REDIS_URL && !backend.REDIS_URL.includes('localhost') && !backend.REDIS_URL.includes('127.0.0.1')
+        ? backend.REDIS_URL
+        : undefined,
     CORS_ORIGINS: webUrl,
     PUBLIC_API_URL: `${apiUrl}/api/v1`,
     PUBLIC_PORTAL_URL: webUrl,

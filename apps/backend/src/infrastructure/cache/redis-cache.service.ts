@@ -28,7 +28,13 @@ export class RedisCacheService implements OnModuleDestroy {
       this.logger.log('REDIS_URL not set — using high-performance in-memory cache');
       this.client = null;
     } else {
-      this.client = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1 });
+      this.client = new Redis(url, {
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        connectTimeout: 5000,
+        enableReadyCheck: false,
+        tls: url.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+      });
       this.client.on('error', (error) => this.logger.error(`Redis error: ${error.message}`));
       this.client.connect().catch((error: Error) => {
         this.logger.error(`Redis connection failed: ${error.message}`);
