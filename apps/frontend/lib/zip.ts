@@ -54,11 +54,11 @@ function dosDateTime(date: Date): { time: number; date: number } {
 export interface ZipEntry {
   /** Path inside the archive. Forward slashes make folders. */
   name: string;
-  content: string;
+  content: string | Uint8Array;
 }
 
 /**
- * Bundles UTF-8 text entries into one archive.
+ * Bundles UTF-8 text or binary entries into one archive.
  *
  * Entry names are written with the UTF-8 flag (bit 11) set, which is what lets
  * an Arabic filename survive the round trip through Explorer rather than
@@ -76,7 +76,10 @@ export function createZip(entries: ZipEntry[], now: Date = new Date()): Blob {
     const nameBytes = encoder.encode(entry.name);
     // Copied into a fresh array: `encode` returns Uint8Array<ArrayBufferLike>,
     // which TS 5.7+ will not accept as a BlobPart (it could be shared memory).
-    const dataBytes = new Uint8Array(encoder.encode(entry.content));
+    const dataBytes =
+      entry.content instanceof Uint8Array
+        ? new Uint8Array(entry.content)
+        : new Uint8Array(encoder.encode(entry.content));
     const crc = crc32(dataBytes);
 
     const local = new Uint8Array(30 + nameBytes.length);
@@ -186,6 +189,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
 export interface ZipReadEntry {
   name: string;
   text: string;
+  raw: Uint8Array;
 }
 
 /** Offsets from the end where the end-of-central-directory record may start. */
@@ -193,7 +197,7 @@ const EOCD_SIGNATURE = 0x06054b50;
 const MAX_EOCD_SCAN = 22 + 0xffff;
 
 /**
- * Reads a ZIP back into its text entries.
+ * Reads a ZIP back into its text and binary entries.
  *
  * The counterpart to `createZip`, and deliberately more tolerant than it: this
  * one has to accept archives it did not write. It reads the central directory
@@ -252,25 +256,37 @@ export async function readZip(blob: Blob): Promise<ZipReadEntry[]> {
     const localNameLength = view.getUint16(localOffset + 26, true);
     const localExtraLength = view.getUint16(localOffset + 28, true);
     const dataStart = localOffset + 30 + localNameLength + localExtraLength;
-    const raw = bytes.subarray(dataStart, dataStart + compressedSize);
+    const rawData = bytes.subarray(dataStart, dataStart + compressedSize);
 
     // Directories are entries too, and have no content worth decoding.
     if (!name.endsWith('/')) {
-      let text: string;
+      let decompressed = rawData;
+      let text = '';
       if (method === 0) {
-        text = decoder.decode(raw);
+        decompressed = rawData;
+        try {
+          text = decoder.decode(rawData);
+        } catch {
+          text = '';
+        }
       } else if (method === 8) {
         // `deflate-raw`: a ZIP member carries a bare deflate stream with no
         // zlib header, so `deflate` would fail on the first byte.
-        const stream = new Blob([raw]).stream().pipeThrough(
+        const stream = new Blob([rawData]).stream().pipeThrough(
           new DecompressionStream('deflate-raw'),
         );
-        text = decoder.decode(await new Response(stream).arrayBuffer());
+        const arrayBuf = await new Response(stream).arrayBuffer();
+        decompressed = new Uint8Array(arrayBuf);
+        try {
+          text = decoder.decode(decompressed);
+        } catch {
+          text = '';
+        }
       } else {
         throw new Error('UNSUPPORTED_COMPRESSION');
       }
       // The BOM `toCsv` writes for Excel is not part of the data.
-      entries.push({ name, text: text.replace(/^﻿/, '') });
+      entries.push({ name, text: text.replace(/^﻿/, ''), raw: decompressed });
     }
 
     cursor += 46 + nameLength + extraLength + commentLength;
