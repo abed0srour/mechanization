@@ -36,6 +36,8 @@ export interface NavItem {
 export interface NavGroup {
   /** Shown as a small caps heading; hidden when the rail is folded. */
   label: string;
+  /** Omitted = every staff role can see it. */
+  roles?: string[];
   items: NavItem[];
 }
 
@@ -94,21 +96,26 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'النظام',
+    roles: ['SUPER_ADMIN'],
     items: [
-      { path: '/appearance', label: 'المظهر', icon: Palette, keywords: ['ألوان', 'سمة', 'داكن'] },
+      {
+        path: '/appearance',
+        label: 'المظهر',
+        icon: Palette,
+        roles: ['SUPER_ADMIN'],
+        keywords: ['ألوان', 'سمة', 'داكن'],
+      },
       {
         path: '/audit',
         label: 'سجل النشاطات',
         icon: ShieldCheck,
-        roles: ['SUPER_ADMIN', 'AUDITOR'],
+        roles: ['SUPER_ADMIN'],
         keywords: ['تدقيق', 'تاريخ', 'تغييرات'],
       },
       {
         path: '/settings',
         label: 'إعدادات البلدية',
         icon: Settings,
-        // Every /fees/settings write is SUPER_ADMIN-guarded server-side; this
-        // keeps a page that can only refuse an auditor out of their sidebar.
         roles: ['SUPER_ADMIN'],
         keywords: ['ويش', 'واتساب', 'عنوان', 'دوام'],
       },
@@ -116,8 +123,6 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/staff',
         label: 'الموظفون',
         icon: UsersRound,
-        // Creating accounts is the privilege-escalation path in this system —
-        // every /staff route is SUPER_ADMIN-guarded server-side too.
         roles: ['SUPER_ADMIN'],
         keywords: ['موظف', 'صلاحيات', 'حساب'],
       },
@@ -127,10 +132,13 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /** The groups this role may see, with empty groups dropped entirely. */
 export function visibleGroups(role: string | undefined): NavGroup[] {
-  return NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => !item.roles || (role && item.roles.includes(role))),
-  })).filter((group) => group.items.length > 0);
+  return NAV_GROUPS
+    .filter((group) => !group.roles || (role && group.roles.includes(role)))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.roles || (role && item.roles.includes(role))),
+    }))
+    .filter((group) => group.items.length > 0);
 }
 
 /**
