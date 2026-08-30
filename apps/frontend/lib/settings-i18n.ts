@@ -351,22 +351,30 @@ export interface SettingsCopy {
 /**
  * The municipal roles this portal names, and how each maps onto the backend.
  *
- * `SUPER_ADMIN`, `AUDITOR` and `FIELD_INSPECTOR` are the only values the
- * `StaffRole` enum accepts today (see the tenant Prisma schema), so accountant
- * and clerk are named here but not assignable — adding them means a Postgres
- * enum migration *and* a decision about what each may do at every `@Roles()`
- * guard, which is a permissions question rather than a settings one. Listing
- * them as unavailable is what makes that gap visible instead of leaving an
- * administrator to guess which of three roles an accountant is supposed to get.
+ * Every key here now maps to a real `StaffRole` value. Accountant, collector
+ * and clerk spent a while named but unassignable, because naming a role is
+ * cheap and the two things that make it real are not: a Postgres enum
+ * migration, and a decision about what it may do at every `@Roles()` guard.
+ * Both have since landed, so the `null` case is gone — but the type keeps its
+ * `| null` so that the next role someone wants to name can be listed here as
+ * unavailable rather than silently offered before its permissions exist.
  */
-export const ROLE_KEYS = ['admin', 'accountant', 'inspector', 'clerk', 'auditor'] as const;
+export const ROLE_KEYS = [
+  'admin',
+  'collector',
+  'accountant',
+  'inspector',
+  'clerk',
+  'auditor',
+] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export const ROLE_BACKEND_VALUE: Record<RoleKey, string | null> = {
   admin: 'SUPER_ADMIN',
-  accountant: null,
+  collector: 'COLLECTOR',
+  accountant: 'ACCOUNTANT',
   inspector: 'FIELD_INSPECTOR',
-  clerk: null,
+  clerk: 'ADMINISTRATIVE_OFFICER',
   auditor: 'AUDITOR',
 };
 
@@ -728,6 +736,7 @@ const AR: SettingsCopy = {
       'هذا الدور غير موجود في قاعدة البيانات بعد — إضافته تحتاج ترحيلاً وتحديد صلاحياته على الخادم.',
     roleNames: {
       admin: 'مدير النظام',
+      collector: 'جابي',
       accountant: 'محاسب',
       inspector: 'مفتّش ميداني',
       clerk: 'موظف إداري',
@@ -735,6 +744,7 @@ const AR: SettingsCopy = {
     },
     roleDuties: {
       admin: 'صلاحية كاملة: الموافقة النهائية، الإعدادات، وإدارة الحسابات.',
+      collector: 'جباية الرسوم وتسجيل المقبوضات، دون تعديل سجل المواطنين.',
       accountant: 'إصدار الرسوم وتأكيد الدفعات ومتابعة التحصيل.',
       inspector: 'مراجعة الطلبات ميدانياً، دون الاطلاع على سجل النشاطات.',
       clerk: 'إدخال بيانات المواطنين وتحديثها، دون البتّ في الطلبات.',
@@ -1091,6 +1101,7 @@ const EN: SettingsCopy = {
       'This role does not exist in the database yet — adding it needs a migration and a decision about its permissions on the server.',
     roleNames: {
       admin: 'Administrator',
+      collector: 'Collector',
       accountant: 'Accountant',
       inspector: 'Field inspector',
       clerk: 'Clerk',
@@ -1098,6 +1109,7 @@ const EN: SettingsCopy = {
     },
     roleDuties: {
       admin: 'Full access: final approval, settings, and account management.',
+      collector: 'Collects fees and registers payments, without editing the register.',
       accountant: 'Issues fees, confirms payments, and follows up on collection.',
       inspector: 'Reviews claims in the field, without access to the activity log.',
       clerk: 'Enters and updates citizen records, without deciding claims.',

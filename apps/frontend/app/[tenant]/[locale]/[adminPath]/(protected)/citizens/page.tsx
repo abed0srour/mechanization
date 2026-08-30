@@ -47,7 +47,7 @@ import { formatDate } from '@/lib/dates';
 import { ar } from '@mechanization/shared-schemas';
 
 /** Roles allowed to write. Mirrors the server; the server is the enforcement. */
-const CAN_WRITE = ['SUPER_ADMIN', 'FIELD_INSPECTOR'];
+const CAN_WRITE = ['SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER'];
 
 const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في المواطنين',

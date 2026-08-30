@@ -115,7 +115,11 @@ export function CitizenEditor({
     }
     // Read-only roles are bounced rather than shown a form every save would
     // refuse. The server is the enforcement; this keeps it out of their way.
-    if (session.user.role !== 'SUPER_ADMIN' && session.user.role !== 'FIELD_INSPECTOR') {
+    if (
+      session.user.role !== 'SUPER_ADMIN' &&
+      session.user.role !== 'FIELD_INSPECTOR' &&
+      session.user.role !== 'ADMINISTRATIVE_OFFICER'
+    ) {
       router.replace(`${base}/citizens`);
       return;
     }

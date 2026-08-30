@@ -18,7 +18,7 @@ export class TenantController {
     return this.tenants.getPublicConfig(tenantSlug);
   }
 
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('admin-config')
   async getAdminConfig(@Param('tenantSlug') tenantSlug: string) {
     return this.tenants.getAdminConfig(tenantSlug);

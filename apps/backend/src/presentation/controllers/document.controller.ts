@@ -8,7 +8,7 @@ import type { SessionClaims } from '../../application/features/identity/identity
 export class DocumentController {
   constructor(private readonly documents: DocumentService) {}
 
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('registration/:registrationId')
   async listForRegistration(@Param('registrationId') registrationId: string) {
     const documents = await this.documents.listForRegistration(registrationId);
@@ -32,7 +32,7 @@ export class DocumentController {
    * of someone's national ID is exactly the staff action an audit trail exists
    * to capture.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get(':id/url')
   async getViewUrl(
     @Param('tenantSlug') tenantSlug: string,
