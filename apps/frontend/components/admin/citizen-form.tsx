@@ -453,11 +453,9 @@ export function CitizenForm({
       </FormSection>
 
       {/*
-        Sticky, because this page is long enough that the save button would
-        otherwise be several screens below whatever is being typed — and a
-        clerk with someone waiting should never have to hunt for it.
+        Action buttons placed at the bottom of the form page.
       */}
-      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6">
+      <div className="border-t pt-6">
         {error ? (
           <p
             role="alert"
