@@ -320,10 +320,22 @@ export class BackupService {
           const executeRaw = (query: string) =>
             (client['$executeRawUnsafe'] as (q: string) => Promise<number>)(query);
 
-          // Temporarily disable user-defined append-only triggers for the duration of the full restore
-          await executeRaw(`ALTER TABLE "payment_transactions" DISABLE TRIGGER USER;`);
-          await executeRaw(`ALTER TABLE "audit_log_entries" DISABLE TRIGGER USER;`);
-          await executeRaw(`DELETE FROM "payment_transactions";`);
+          const schema = scope.schemaName;
+
+          // Set search path and temporarily disable append-only triggers for the duration of restore
+          await executeRaw(`SET search_path TO "${schema}", public;`);
+          await executeRaw(`
+            DO $$
+            BEGIN
+              IF EXISTS (SELECT FROM pg_tables WHERE schemaname = '${schema}' AND tablename = 'payment_transactions') THEN
+                EXECUTE 'ALTER TABLE "${schema}"."payment_transactions" DISABLE TRIGGER USER;';
+                EXECUTE 'DELETE FROM "${schema}"."payment_transactions";';
+              END IF;
+              IF EXISTS (SELECT FROM pg_tables WHERE schemaname = '${schema}' AND tablename = 'audit_log_entries') THEN
+                EXECUTE 'ALTER TABLE "${schema}"."audit_log_entries" DISABLE TRIGGER USER;';
+              END IF;
+            END $$;
+          `);
 
           const scoped = (table: TableName) => {
             return client[table] as ReturnType<BackupService['delegate']>;
@@ -370,8 +382,17 @@ export class BackupService {
           }
 
           // Re-enable triggers once all tables are restored
-          await executeRaw(`ALTER TABLE "payment_transactions" ENABLE TRIGGER USER;`);
-          await executeRaw(`ALTER TABLE "audit_log_entries" ENABLE TRIGGER USER;`);
+          await executeRaw(`
+            DO $$
+            BEGIN
+              IF EXISTS (SELECT FROM pg_tables WHERE schemaname = '${schema}' AND tablename = 'payment_transactions') THEN
+                EXECUTE 'ALTER TABLE "${schema}"."payment_transactions" ENABLE TRIGGER USER;';
+              END IF;
+              IF EXISTS (SELECT FROM pg_tables WHERE schemaname = '${schema}' AND tablename = 'audit_log_entries') THEN
+                EXECUTE 'ALTER TABLE "${schema}"."audit_log_entries" ENABLE TRIGGER USER;';
+              END IF;
+            END $$;
+          `);
         },
         { timeout: 120_000, maxWait: 15_000 },
       );
