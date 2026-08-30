@@ -56,7 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/dashboard',
         label: 'لوحة التحكم',
         icon: LayoutDashboard,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['مؤشرات', 'تحليلات', 'إحصاءات'],
       },
       // Directly under the dashboard: the dashboard reports on the register,
@@ -65,7 +65,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/citizens',
         label: 'المواطنون',
         icon: Users,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['سجل', 'مواطن', 'عقار', 'استيراد'],
       },
       // Next to the registry rather than under settings: a fee is issued
@@ -74,7 +74,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/fees',
         label: 'الرسوم والمدفوعات',
         icon: Receipt,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['رسم', 'مطالبة', 'فاتورة', 'دفع'],
       },
       // Read-only: the ledger above answers "who owes what", this answers
@@ -83,7 +83,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/payments',
         label: 'سجل العمليات',
         icon: ArrowLeftRight,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'COLLECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT'],
         keywords: ['قبض', 'إيصال', 'محصّل', 'نقد'],
       },
     ],
@@ -95,14 +95,14 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/map',
         label: 'الخريطة',
         icon: MapIcon,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['عقارات', 'مواقع', 'مسح'],
       },
       {
         path: '/zones',
         label: 'القطاعات',
         icon: Layers,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['قطاع', 'منطقة', 'حدود'],
       },
     ],
@@ -114,14 +114,14 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/appearance',
         label: 'المظهر',
         icon: Palette,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['ألوان', 'سمة', 'داكن'],
       },
       {
         path: '/audit',
         label: 'سجل النشاطات',
         icon: ShieldCheck,
-        roles: ['SUPER_ADMIN', 'AUDITOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT'],
         keywords: ['تدقيق', 'تاريخ', 'تغييرات'],
       },
       {
@@ -130,7 +130,7 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Settings,
         // Every /fees/settings write is SUPER_ADMIN-guarded server-side; this
         // keeps a page that can only refuse an auditor out of their sidebar.
-        roles: ['SUPER_ADMIN'],
+        roles: ['SUPER_ADMIN', 'ACCOUNTANT'],
         keywords: ['ويش', 'واتساب', 'عنوان', 'دوام'],
       },
       {

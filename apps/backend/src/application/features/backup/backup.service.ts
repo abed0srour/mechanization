@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { ValidationError } from '../../common/exceptions';
+import { Prisma } from '../../../generated/tenant-client';
 
 /**
  * The snapshot format's own version.
@@ -174,9 +175,18 @@ export class BackupService {
       throw new ValidationError('الملف ليس نسخة احتياطية صالحة (تعذّر فك الضغط).');
     }
 
+    const ISO_DATE_REGEX =
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/;
+
     let snapshot: Snapshot;
     try {
-      snapshot = JSON.parse(text) as Snapshot;
+      snapshot = JSON.parse(text, (_key, value) => {
+        if (typeof value === 'string' && ISO_DATE_REGEX.test(value)) {
+          const date = new Date(value);
+          if (!isNaN(date.getTime())) return date;
+        }
+        return value;
+      }) as Snapshot;
     } catch {
       throw new ValidationError('محتوى النسخة الاحتياطية غير صالح.');
     }
@@ -253,19 +263,19 @@ export class BackupService {
       throw new ValidationError(`جداول غير معروفة في النسخة: ${unknownTables.join('، ')}.`);
     }
 
-const MUTABLE_TABLES: readonly TableName[] = [
-  'user',
-  'otpChallenge',
-  'parcel',
-  'zone',
-  'systemSettings',
-  'registration',
-  'propertyEntry',
-  'buildingUnit',
-  'document',
-  'feeNotice',
-  'citizenPayment',
-];
+    const MUTABLE_TABLES: readonly TableName[] = [
+      'user',
+      'otpChallenge',
+      'parcel',
+      'zone',
+      'systemSettings',
+      'registration',
+      'propertyEntry',
+      'buildingUnit',
+      'document',
+      'feeNotice',
+      'citizenPayment',
+    ];
 
     if (options.dryRun) {
       const deleted: Record<string, number> = {};
@@ -283,6 +293,17 @@ const MUTABLE_TABLES: readonly TableName[] = [
     const deleted: Record<string, number> = {};
     const written: Record<string, number> = {};
 
+    const DECIMAL_FIELDS: Record<string, string[]> = {
+      propertyEntry: ['unitArea'],
+      buildingUnit: ['unitArea'],
+      systemSettings: ['defaultRatePercent', 'exchangeRate'],
+      feeNotice: ['amount', 'paidAmount'],
+      citizenPayment: ['amount'],
+    };
+
+    const ISO_DATE_REGEX =
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/;
+
     /*
      * One interactive transaction for the whole thing.
      *
@@ -292,34 +313,62 @@ const MUTABLE_TABLES: readonly TableName[] = [
      * this system where taking too long is preferable to giving up midway; the
      * transaction still rolls back cleanly if it is exceeded.
      */
-    await this.db.$transaction(
-      async (tx) => {
-        const scoped = (table: TableName) => {
-          const client = tx as unknown as Record<string, unknown>;
-          return client[table] as ReturnType<BackupService['delegate']>;
-        };
+    try {
+      await this.db.$transaction(
+        async (tx) => {
+          const scoped = (table: TableName) => {
+            const client = tx as unknown as Record<string, unknown>;
+            return client[table] as ReturnType<BackupService['delegate']>;
+          };
 
-        // Backwards: a child's rows go before the parent they point at.
-        for (const table of [...MUTABLE_TABLES].reverse()) {
-          const result = await scoped(table).deleteMany({});
-          deleted[table] = result.count;
-        }
-
-        for (const table of MUTABLE_TABLES) {
-          const rows = snapshot.tables[table] ?? [];
-          if (rows.length === 0) {
-            written[table] = 0;
-            continue;
+          // Backwards: a child's rows go before the parent they point at.
+          for (const table of [...MUTABLE_TABLES].reverse()) {
+            const result = await scoped(table).deleteMany({});
+            deleted[table] = result.count;
           }
-          // `createMany` in one call per table rather than a row at a time:
-          // a register of ten thousand citizens is ten thousand round trips
-          // otherwise, inside a transaction holding locks the whole while.
-          const result = await scoped(table).createMany({ data: rows });
-          written[table] = result.count;
-        }
-      },
-      { timeout: 120_000, maxWait: 15_000 },
-    );
+
+          for (const table of MUTABLE_TABLES) {
+            const rawRows = (snapshot.tables[table] ?? []) as Array<Record<string, unknown>>;
+            if (rawRows.length === 0) {
+              written[table] = 0;
+              continue;
+            }
+
+            const decimalCols = DECIMAL_FIELDS[table] || [];
+            const sanitizedRows = rawRows.map((row) => {
+              const clean: Record<string, unknown> = {};
+              for (const [k, v] of Object.entries(row)) {
+                if (v === null || v === undefined) {
+                  clean[k] = v;
+                } else if (
+                  decimalCols.includes(k) &&
+                  (typeof v === 'string' || typeof v === 'number')
+                ) {
+                  clean[k] = new Prisma.Decimal(v);
+                } else if (typeof v === 'string' && ISO_DATE_REGEX.test(v)) {
+                  clean[k] = new Date(v);
+                } else {
+                  clean[k] = v;
+                }
+              }
+              return clean;
+            });
+
+            // `createMany` in one call per table rather than a row at a time:
+            // a register of ten thousand citizens is ten thousand round trips
+            // otherwise, inside a transaction holding locks the whole while.
+            const result = await scoped(table).createMany({ data: sanitizedRows });
+            written[table] = result.count;
+          }
+        },
+        { timeout: 120_000, maxWait: 15_000 },
+      );
+    } catch (txError: unknown) {
+      this.logger.error('Restore transaction failed: ', txError);
+      throw new ValidationError(
+        txError instanceof Error ? `فشلت الاستعادة: ${txError.message}` : 'تعذّرت استعادة البيانات.',
+      );
+    }
 
     this.logger.warn(
       `Restored ${scope.tenantSlug} from snapshot of ${manifest.createdAt} by ${actor.id}`,

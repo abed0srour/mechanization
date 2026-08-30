@@ -23,14 +23,23 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-const ROLES = ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR'] as const;
+const ROLES = [
+  'SUPER_ADMIN',
+  'AUDITOR',
+  'FIELD_INSPECTOR',
+  'COLLECTOR',
+  'ACCOUNTANT',
+  'ADMINISTRATIVE_OFFICER',
+] as const;
 
 /** What each role may actually do, so the choice is not made from its name. */
 const ROLE_HINT: Record<string, string> = {
   SUPER_ADMIN: 'صلاحية كاملة: الموافقة النهائية وإدارة حسابات الموظفين.',
   AUDITOR: 'الاطلاع والمراجعة وتصدير البيانات، دون الموافقة النهائية.',
-  FIELD_INSPECTOR: 'مراجعة الطلبات ميدانياً، دون الاطلاع على سجل النشاطات.',
+  FIELD_INSPECTOR: 'مراجعة الطلبات وتعديل ملفات المواطنين ميدانياً.',
   COLLECTOR: 'جباية الرسوم وتسجيل المقبوضات وإصدار الفواتير فقط.',
+  ACCOUNTANT: 'إدارة الرسوم والمقبوضات والفواتير والتقارير المالية والتحصيل.',
+  ADMINISTRATIVE_OFFICER: 'إدارة السجل المدني والعقارات والقطاعات وطلبات المواطنين.',
 };
 
 export interface StaffFormValues {

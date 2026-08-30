@@ -24,7 +24,7 @@ export class ZonesController {
    * Every sector with its parcel count. Reading sectors is part of reading
    * the map, so every staff role may.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get()
   async list() {
     return { zones: await this.zones.list() };
@@ -39,25 +39,23 @@ export class ZonesController {
    * sector expects to see it on the map immediately, and the expensive part
    * (dissolving member parcels) is already memoised per zone in the service.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('geojson')
   @Header('Cache-Control', 'no-store')
   async geojson(@Param('tenantSlug') tenantSlug: string) {
     return this.zones.buildGeoJson(tenantSlug);
   }
 
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get(':id')
   async get(@Param('id') id: string) {
     return this.zones.get(id);
   }
 
   /**
-   * SUPER_ADMIN only for every write below: sectors decide which inspector is
-   * accountable for which parcels and how coverage is reported, so redrawing
-   * them is an administrative act rather than day-to-day case work.
+   * SUPER_ADMIN and ADMINISTRATIVE_OFFICER for zone editing.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMINISTRATIVE_OFFICER')
   @Post()
   async create(
     @Param('tenantSlug') tenantSlug: string,
@@ -67,7 +65,7 @@ export class ZonesController {
     return this.zones.create(tenantSlug, body, { id: user.sub, role: user.role ?? '' });
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMINISTRATIVE_OFFICER')
   @Put(':id')
   async update(
     @Param('tenantSlug') tenantSlug: string,

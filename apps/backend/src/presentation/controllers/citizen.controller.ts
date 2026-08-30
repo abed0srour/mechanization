@@ -70,7 +70,7 @@ export class CitizenController {
    * their fee standing. `search` matches name, phone, رقم مرجعي or document
    * number — the four things a clerk has in front of them.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get()
   async list(
     @Query('search') search?: string,
@@ -142,10 +142,9 @@ export class CitizenController {
   }
 
   /**
-   * FIELD_INSPECTOR and COLLECTOR are included: an inspector standing at the property
-   * or a collector at the counter needs to view citizen fee balances and details.
+   * FIELD_INSPECTOR, COLLECTOR, ACCOUNTANT, ADMINISTRATIVE_OFFICER are included.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get(':id')
   async getById(@Param('id') id: string) {
     const citizen = await this.reporting.getCitizenProfile(id);
@@ -158,14 +157,14 @@ export class CitizenController {
    * three sections `PATCH` expects, so the edit page loads and posts the same
    * object rather than mapping between two shapes.
    */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
   @Get(':id/form')
   async getEditable(@Param('id') id: string) {
     return this.citizens.getEditable(id);
   }
 
   /** A clerk filing a citizen and their first registration, from paper. */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
   @Post()
   async create(
     @Param('tenantSlug') tenantSlug: string,
@@ -190,7 +189,7 @@ export class CitizenController {
    * it is matched as a literal: registered after a `:id` route, Nest would read
    * `import` as an id and this would never be reached.
    */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
   @Post('import')
   async import(
     @Param('tenantSlug') tenantSlug: string,
@@ -207,7 +206,7 @@ export class CitizenController {
   }
 
   /** A clerk correcting a citizen already on file. */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
   @Patch(':id')
   async update(
     @Param('tenantSlug') tenantSlug: string,
@@ -228,7 +227,7 @@ export class CitizenController {
    * and is simply skipped by the fee biller — which is what an inspector
    * wants for someone who has moved away, as against erasing them.
    */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
   @Patch(':id/active')
   async setActive(
     @Param('tenantSlug') tenantSlug: string,

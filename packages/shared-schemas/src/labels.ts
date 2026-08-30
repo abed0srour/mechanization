@@ -61,6 +61,8 @@ export const ar = {
     AUDITOR: 'مدقّق',
     FIELD_INSPECTOR: 'مفتّش ميداني',
     COLLECTOR: 'جابي',
+    ACCOUNTANT: 'محاسب',
+    ADMINISTRATIVE_OFFICER: 'موظف إداري',
   } satisfies Record<StaffRole, string>,
 
   residentStatus: {

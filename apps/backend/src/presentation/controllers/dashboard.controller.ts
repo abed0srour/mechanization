@@ -8,7 +8,7 @@ import type { SessionClaims } from '../../application/features/identity/identity
 export class DashboardController {
   constructor(private readonly reporting: ReportingService) {}
 
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('counters')
   async counters() {
     return this.reporting.getDashboardCounters();
@@ -21,14 +21,14 @@ export class DashboardController {
    * the charts have to agree, and separately-cached fetches guarantee a window
    * where a rate computed from one response contradicts a total from another.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('analytics')
   async analytics() {
     return this.reporting.getAnalytics();
   }
 
   /** Marker coordinates for the MapLibre panel. */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('map')
   async spatial() {
     return { features: await this.reporting.getSpatialData() };
@@ -42,18 +42,16 @@ export class DashboardController {
    * places an interactive marker only on what this returns — so a dot always
    * means there is a citizen record behind it.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('map/parcels')
   async registeredParcels() {
     return { parcels: await this.reporting.getRegisteredParcels() };
   }
 
   /**
-   * Bulk export, restricted to SUPER_ADMIN and AUDITOR: this is the one action
-   * that moves every citizen's details out of the audited system and onto
-   * someone's laptop. The export itself is recorded with its row count.
+   * Bulk export, restricted to SUPER_ADMIN, AUDITOR, and ACCOUNTANT.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT')
   @Get('export.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="registrations.csv"')

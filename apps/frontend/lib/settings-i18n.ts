@@ -365,9 +365,9 @@ export type RoleKey = (typeof ROLE_KEYS)[number];
 export const ROLE_BACKEND_VALUE: Record<RoleKey, string | null> = {
   admin: 'SUPER_ADMIN',
   collector: 'COLLECTOR',
-  accountant: null,
+  accountant: 'ACCOUNTANT',
   inspector: 'FIELD_INSPECTOR',
-  clerk: null,
+  clerk: 'ADMINISTRATIVE_OFFICER',
   auditor: 'AUDITOR',
 };
 
