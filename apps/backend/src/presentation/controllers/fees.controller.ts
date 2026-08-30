@@ -79,7 +79,7 @@ export class FeesController {
     return this.fees.getSettings(includeLogo === 'true' && Boolean(user.role));
   }
 
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'ACCOUNTANT')
   @Patch('settings')
   async updateSettings(
     @Body(new ZodValidationPipe(systemSettingsSchema)) body: SystemSettingsInput,
@@ -90,17 +90,18 @@ export class FeesController {
 
   // ──────────────────────────  Fee notices  ──────────────────────────
 
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('notices')
   async listNotices() {
     return { items: await this.fees.listNotices() };
   }
 
   /**
-   * Issuing a fee bills every matching citizen at once, so it is SUPER_ADMIN
-   * only — an AUDITOR reads the municipality's books, it does not add to them.
+   * Issuing a fee bills every matching citizen at once, so it is limited to
+   * the roles that own the municipality's billing — SUPER_ADMIN, ACCOUNTANT
+   * and COLLECTOR. An AUDITOR reads the books, it does not add to them.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'COLLECTOR', 'ACCOUNTANT')
   @Post('notices')
   async issue(
     @Body(new ZodValidationPipe(createFeeNoticeSchema)) body: CreateFeeNotice,
@@ -109,14 +110,14 @@ export class FeesController {
     return this.fees.issue(body, { id: user.sub, role: user.role ?? '' });
   }
 
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('summary')
   async summary() {
     return this.fees.summary();
   }
 
   /** Stops or resumes the recurring biller for one notice. */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'ACCOUNTANT')
   @Patch('notices/:id/active')
   async setNoticeActive(
     @Param('id') id: string,
@@ -133,7 +134,7 @@ export class FeesController {
    * round of bills. Runs across every municipality, same as the schedule —
    * this is the platform-level job, not a per-tenant one.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'ACCOUNTANT')
   @Post('recurring/run')
   async runRecurring() {
     return this.recurring.runForAllTenants();
@@ -151,7 +152,7 @@ export class FeesController {
    * differ, and a second route would have drifted from this one the first time
    * a field was added.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('payments')
   async listPayments(
     @Query('status') status?: string,
@@ -180,7 +181,7 @@ export class FeesController {
    * Raises a one-off charge against one citizen — the counterpart to issuing a
    * notice, for a debt that has no rule behind it.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'COLLECTOR', 'ACCOUNTANT')
   @Post('payments')
   async charge(
     @Body(new ZodValidationPipe(chargeCitizenSchema)) body: ChargeCitizen,
@@ -198,7 +199,7 @@ export class FeesController {
    * An omitted `amount` settles the whole outstanding balance, which is both
    * the common case and the pre-partial-payment behaviour.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'COLLECTOR', 'ACCOUNTANT')
   @Patch('payments/:id/settle')
   async settle(
     @Param('id') id: string,
@@ -226,7 +227,7 @@ export class FeesController {
    * settlement was the invoice's running total, so a citizen asking for a copy
    * of March's receipt could be told the balance and nothing else.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('payments/:id/transactions')
   async transactions(@Param('id') id: string) {
     return { items: await this.fees.listTransactions(id) };
@@ -256,14 +257,14 @@ export class FeesController {
 
   // ────────────────────  Staff verification queue  ────────────────────
 
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT')
   @Get('payments/pending')
   async pending() {
     return { items: await this.fees.listPendingReview() };
   }
 
-  /** Confirming money arrived is a financial act — SUPER_ADMIN only. */
-  @Roles('SUPER_ADMIN')
+  /** Confirming money arrived is a financial act — SUPER_ADMIN and ACCOUNTANT. */
+  @Roles('SUPER_ADMIN', 'ACCOUNTANT')
   @Patch('payments/:id/review')
   async review(
     @Param('id') id: string,
@@ -310,7 +311,7 @@ export class FeesController {
    * against real HTTP requests catches and a unit test calling the method
    * directly never would.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('payments/:id')
   async getPayment(@Param('id') id: string) {
     return this.fees.getPaymentById(id);

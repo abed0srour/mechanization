@@ -54,10 +54,12 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'السجل',
     items: [
+      // The register's overview, so the register's roles — see DashboardController.
       {
         path: '/dashboard',
         label: 'لوحة التحكم',
         icon: LayoutDashboard,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
         keywords: ['مؤشرات', 'تحليلات', 'إحصاءات'],
       },
       // Directly under the dashboard: the dashboard reports on the register,
@@ -82,7 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/payments',
         label: 'سجل العمليات',
         icon: ArrowLeftRight,
-        roles: ['SUPER_ADMIN', 'AUDITOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT'],
         keywords: ['قبض', 'إيصال', 'محصّل', 'نقد'],
       },
     ],
@@ -90,8 +92,20 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'الأرض',
     items: [
-      { path: '/map', label: 'الخريطة', icon: MapIcon, keywords: ['عقارات', 'مواقع', 'مسح'] },
-      { path: '/zones', label: 'القطاعات', icon: Layers, keywords: ['قطاع', 'منطقة', 'حدود'] },
+      {
+        path: '/map',
+        label: 'الخريطة',
+        icon: MapIcon,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        keywords: ['عقارات', 'مواقع', 'مسح'],
+      },
+      {
+        path: '/zones',
+        label: 'القطاعات',
+        icon: Layers,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
+        keywords: ['قطاع', 'منطقة', 'حدود'],
+      },
     ],
   },
   {

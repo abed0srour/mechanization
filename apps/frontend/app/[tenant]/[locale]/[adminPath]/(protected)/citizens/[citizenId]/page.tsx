@@ -127,10 +127,12 @@ export default function CitizenProfilePage({
   const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
 
   /** Mirrors the server's write roles; the server is the enforcement. */
-  const canEdit = role === 'SUPER_ADMIN' || role === 'FIELD_INSPECTOR';
-  /** Settling a payment is SUPER_ADMIN-only server-side (`@Roles` on the fees
-   *  controller), so offering it to an inspector would only earn a 403. */
-  const canManage = role === 'SUPER_ADMIN';
+  const canEdit =
+    role === 'SUPER_ADMIN' || role === 'FIELD_INSPECTOR' || role === 'ADMINISTRATIVE_OFFICER';
+  /** Settling a payment belongs to the money roles server-side (`@Roles` on the
+   *  fees controller), so offering it to an inspector would only earn a 403. */
+  const canManage =
+    role === 'SUPER_ADMIN' || role === 'COLLECTOR' || role === 'ACCOUNTANT';
 
   const reload = useCallback(async () => {
     if (!token) return;

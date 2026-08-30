@@ -4,6 +4,16 @@ import { CurrentUser } from '../decorators/current-user.decorator';
 import { Roles } from '../decorators/roles.decorator';
 import type { SessionClaims } from '../../application/features/identity/identity.service';
 
+/**
+ * The register's overview, and only for the roles accountable for the register.
+ *
+ * Every figure below counts registrations, properties and their locations —
+ * none of it is financial. So COLLECTOR, ACCOUNTANT and ADMINISTRATIVE_OFFICER
+ * are deliberately absent rather than accidentally omitted: the accountant's
+ * numbers are `fees/summary` and the collector's work is a citizen at a time,
+ * and neither job is improved by a municipality-wide view of who is on the
+ * register. A role that cannot act on a total does not need to be shown it.
+ */
 @Controller('t/:tenantSlug/dashboard')
 export class DashboardController {
   constructor(private readonly reporting: ReportingService) {}

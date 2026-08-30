@@ -28,8 +28,21 @@ import { PrismaClient as RegistryPrismaClient } from '../generated/registry-clie
 import { PrismaClient as TenantPrismaClient } from '../generated/tenant-client';
 import { TenantSlug } from '../domain/value-objects/tenant-slug.vo';
 
-type Role = 'SUPER_ADMIN' | 'AUDITOR' | 'FIELD_INSPECTOR';
-const ROLES: readonly Role[] = ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'];
+type Role =
+  | 'SUPER_ADMIN'
+  | 'AUDITOR'
+  | 'FIELD_INSPECTOR'
+  | 'COLLECTOR'
+  | 'ACCOUNTANT'
+  | 'ADMINISTRATIVE_OFFICER';
+const ROLES: readonly Role[] = [
+  'SUPER_ADMIN',
+  'AUDITOR',
+  'FIELD_INSPECTOR',
+  'COLLECTOR',
+  'ACCOUNTANT',
+  'ADMINISTRATIVE_OFFICER',
+];
 
 interface Args {
   slug: string;
@@ -56,7 +69,7 @@ function parseArgs(argv: string[]): Args {
     throw new Error(
       'Usage: staff:create --slug <slug> --email <email> ' +
         '[--password <password> --first-name <name> --last-name <name>] ' +
-        '[--role SUPER_ADMIN|AUDITOR|FIELD_INSPECTOR] [--reset-totp]',
+        `[--role ${ROLES.join('|')}] [--reset-totp]`,
     );
   }
   if (!ROLES.includes(role)) {
