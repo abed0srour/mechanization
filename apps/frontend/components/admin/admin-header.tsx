@@ -200,6 +200,21 @@ export function AdminHeader({
           that is never about the municipality's records. */}
       <NotificationsBell tenant={tenant} token={session?.accessToken} role={role} base={base} />
 
+      {/* Language Switcher Button on Navbar */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={switchLanguage}
+        className="h-9 shrink-0 gap-1.5 px-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+        title={locale === 'ar' ? 'التحويل إلى اللغة الإنجليزية' : 'Switch language to Arabic'}
+        aria-label={locale === 'ar' ? 'English' : 'عربي'}
+      >
+        <Languages className="size-4 text-primary shrink-0 transition-transform group-hover:scale-110" aria-hidden />
+        <span className="font-medium tracking-wide">
+          {locale === 'ar' ? 'English' : 'عربي'}
+        </span>
+      </Button>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="shrink-0 gap-2 px-2" aria-label="حسابي">

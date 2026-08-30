@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { PublicTenantConfig } from '@/lib/api-client';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { LanguageToggle } from '@/components/language-toggle';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -33,7 +34,7 @@ export default async function CitizenLayout({
   children: React.ReactNode;
   params: Promise<{ tenant: string; locale: string }>;
 }) {
-  const { tenant } = await params;
+  const { tenant, locale } = await params;
   const config = await getTenant(tenant);
   if (!config) notFound();
 
@@ -59,10 +60,10 @@ export default async function CitizenLayout({
             <p className="text-sm text-muted-foreground">تسجيل العقارات والوحدات السكنية</p>
           </div>
 
-          {/* `ms-auto` rather than `justify-between` on the row: the header has
-              three children at some widths and only the toggle should be
-              pushed to the far edge. */}
-          <ThemeToggle className="ms-auto shrink-0" />
+          <div className="ms-auto flex items-center gap-2 shrink-0">
+            <LanguageToggle locale={locale} />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
