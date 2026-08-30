@@ -25,8 +25,27 @@ export const envSchema = z
      * systems precisely so there is one verification path to get right.
      */
     JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-    JWT_STAFF_TTL: z.string().default('12h'),
-    /** Issued instead of JWT_STAFF_TTL when a staff member checks "تذكّرني على هذا الجهاز". */
+    /**
+     * Shortened from 12h once `tokenVersion` made a session revocable.
+     *
+     * The two settings trade against each other: while nothing could revoke a
+     * token, its lifetime *was* the security boundary, and 12h was already
+     * generous for a credential that opens every citizen record in the
+     * municipality. Now that a dismissal or a demotion takes effect within
+     * seconds, expiry is about limiting a stolen token rather than about
+     * revocation — and 8h is a municipal working day, so a clerk still signs in
+     * once each morning.
+     */
+    JWT_STAFF_TTL: z.string().default('8h'),
+    /**
+     * Issued instead of JWT_STAFF_TTL when a staff member checks
+     * "تذكّرني على هذا الجهاز".
+     *
+     * Still long, and now defensible: a 30-day token that could not be revoked
+     * meant a dismissed staff member kept access for a month. It is revocable
+     * now, so the remaining exposure is a device left signed in — which is what
+     * the `sessionStorage` default and this being an explicit opt-in address.
+     */
     JWT_STAFF_REMEMBER_TTL: z.string().default('30d'),
     JWT_CITIZEN_TTL: z.string().default('7d'),
 

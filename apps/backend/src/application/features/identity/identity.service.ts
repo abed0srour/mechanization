@@ -17,7 +17,7 @@ import {
   CitizenChoice,
   UserRepository,
 } from '../../../domain/interfaces/user-repository.interface';
-import { StaffRole } from '../../../domain/entities/user.entity';
+import { StaffRole, User } from '../../../domain/entities/user.entity';
 import { NotFoundError, UnauthorizedError } from '../../common/exceptions';
 import { OtpService } from './otp.service';
 
@@ -27,6 +27,19 @@ export interface SessionClaims {
   tenantSlug: string;
   kind: 'STAFF' | 'CITIZEN';
   role?: StaffRole;
+  /**
+   * The account's `tokenVersion` when this token was minted.
+   *
+   * `JwtAuthGuard` compares it against the row on every request, which is what
+   * makes a session revocable at all — role travels in this token and is
+   * authorised from here, so without the comparison a dismissal or a demotion
+   * waited for expiry.
+   *
+   * Optional on the type because tokens minted before the column existed do
+   * not carry it; `SessionRevocationService` reads a missing value as 0, which
+   * is every account's starting version.
+   */
+  tokenVersion?: number;
 }
 
 export interface SessionResult {
@@ -41,6 +54,18 @@ export interface DisambiguationRequired {
   status: 'CHOOSE_PROFILE';
   phone: string;
   choices: CitizenChoice[];
+}
+
+/**
+ * The password was right and a second factor is still owed.
+ *
+ * Carries nothing else on purpose. Returning the account's name, role or
+ * enrolment state here would hand a correct-password-wrong-device caller a
+ * confirmation they had found a real administrator, which is most of what the
+ * generic login error exists to withhold.
+ */
+export interface TotpChallengeRequired {
+  status: 'TOTP_REQUIRED';
 }
 
 @Injectable()
@@ -69,38 +94,33 @@ export class IdentityService {
     /** "تذكّرني على هذا الجهاز" — issues JWT_STAFF_REMEMBER_TTL instead of JWT_STAFF_TTL. */
     remember?: boolean;
     context: { ip?: string; userAgent?: string };
-  }): Promise<SessionResult> {
+  }): Promise<SessionResult | TotpChallengeRequired> {
     // 1. Authenticate with Supabase Auth (throws UnauthorizedError if invalid credentials)
     const supabaseResult = await this.supabaseAuth.authenticateStaff(input.email, input.password);
 
-    // 2. Resolve staff profile in tenant database
-    let user = await this.users.findStaffByEmail(input.email.toLowerCase());
+    /**
+     * 2. Resolve the staff profile that must already exist in this schema.
+     *
+     * A missing profile is a refusal, never a provisioning trigger. This block
+     * used to create the row on the spot, taking the role and the municipality
+     * from `supabaseResult.user.userMetadata` and defaulting them to
+     * `SUPER_ADMIN` and *the slug in the request URL* — which meant any account
+     * in the shared Supabase project could sign in at any municipality it had
+     * no row in and be created as its administrator. `user_metadata` is
+     * writable by the account holder through `auth.updateUser()`, so it is not
+     * a claim this service may act on; and a fallback that compares the request
+     * URL's slug to itself is not a tenant check.
+     *
+     * Staff accounts are created deliberately, in one of two places: a
+     * SUPER_ADMIN inviting a colleague through `StaffService.create`, or
+     * `pnpm staff:create` for the first account in a freshly provisioned
+     * municipality. Both record who did it.
+     */
+    const user = await this.users.findStaffByEmail(input.email.toLowerCase());
 
     if (!user) {
-      // User is verified in Supabase Auth — provision their profile in this municipality
-      const metadata = supabaseResult.user.userMetadata || {};
-      const userTenant = (metadata.tenantSlug as string) || input.tenantSlug;
-      const role = (metadata.role as StaffRole) || 'SUPER_ADMIN';
-      const firstName = (metadata.firstName as string) || 'مدير';
-      const lastName = (metadata.lastName as string) || 'النظام';
-
-      if (userTenant !== input.tenantSlug) {
-        throw new UnauthorizedError('هذا الحساب غير مسجّل في هذه البلدية');
-      }
-
-      const id = await this.users.createStaff({
-        tenantSlug: input.tenantSlug,
-        email: input.email.toLowerCase(),
-        passwordHash: '',
-        firstName,
-        lastName,
-        role,
-      });
-
-      user = await this.users.findById(id);
-    }
-
-    if (!user) {
+      // Same sentence as a wrong password, deliberately: distinguishing them
+      // turns this route into a way to enumerate which emails hold accounts.
       throw new UnauthorizedError('بيانات الدخول غير صحيحة');
     }
 
@@ -112,6 +132,17 @@ export class IdentityService {
       // factory handed out the wrong client. Refuse rather than proceed.
       throw new UnauthorizedError('بيانات الدخول غير صحيحة');
     }
+
+    /**
+     * The second factor, before any session exists.
+     *
+     * Returns a challenge rather than a session when a code is owed, which is
+     * the contract `staffLoginResponseSchema` has always described and the
+     * server has never honoured — `totpToken` arrived here and was dropped,
+     * so enrolling an authenticator bought exactly nothing.
+     */
+    const challenge = await this.challengeTotp(user, input.totpToken);
+    if (challenge) return challenge;
 
     await this.users.markLoggedIn(user.id);
     user.recordLogin(input.context);
@@ -125,7 +156,72 @@ export class IdentityService {
       tenantSlug: input.tenantSlug,
       remember: input.remember,
       supabaseAccessToken: supabaseResult.accessToken,
+      tokenVersion: user.tokenVersion,
     });
+  }
+
+  /**
+   * Decides what the second factor owes this login, and enforces it.
+   *
+   * Returns a challenge when a code is required and none was sent, `null` when
+   * the login may proceed, and throws when a code was sent and is wrong. The
+   * three outcomes are deliberately distinct: a challenge is not a failure, and
+   * answering it with the same `UnauthorizedError` a wrong code gets would
+   * leave the client unable to tell "ask for a code" from "you got it wrong".
+   *
+   * Enforcement follows enrolment rather than role for everyone except
+   * SUPER_ADMIN. An AUDITOR who has set up an authenticator is asked for it —
+   * having enrolled, being able to sign in without it is precisely the defect
+   * this closes.
+   */
+  private async challengeTotp(
+    user: User,
+    token?: string,
+  ): Promise<TotpChallengeRequired | null> {
+    const secret = user.totpSecret;
+
+    if (!user.hasConfirmedTotp || !secret) {
+      /**
+       * A SUPER_ADMIN reads every citizen's national ID number, residency
+       * status and scanned documents, and can export the register or restore
+       * over it. Enrolment for that role is a precondition of holding the
+       * account, not a setting inside it — so an incomplete one is refused
+       * here rather than waved through with a warning.
+       *
+       * The account is not stranded: `pnpm staff:create` enrols the first
+       * administrator of a municipality at creation time, and
+       * `StaffService.create` returns an enrolment URI for every SUPER_ADMIN
+       * invited afterwards.
+       */
+      if (user.requiresTotp) {
+        throw new UnauthorizedError(
+          'هذا الحساب يتطلّب التحقق بخطوتين، ولم يكتمل تسجيل تطبيق المصادقة. يرجى مراجعة مدير النظام.',
+        );
+      }
+      return null;
+    }
+
+    if (!token) return { status: 'TOTP_REQUIRED' };
+
+    if (!this.totp.verify(token, secret)) {
+      throw new UnauthorizedError('رمز التحقق غير صحيح');
+    }
+
+    /**
+     * Verified is not yet accepted: the code must also be one this account has
+     * not already used.
+     *
+     * `otplib` runs with a one-step window, so a given six digits verify for
+     * roughly ninety seconds. That window is exactly long enough for a code
+     * observed over a shoulder, relayed through a phishing page, or left on a
+     * shared municipal screen to be replayed. Burning the step closes it.
+     *
+     * The write is conditional inside the repository, so two logins racing
+     * with the same code cannot both win; the loser lands here as a replay.
+     */
+    await this.users.recordTotpStep(user.id, this.totp.currentStep());
+
+    return null;
   }
 
   /** Enrolment: hands back the otpauth:// URI for the authenticator app. */
@@ -231,6 +327,7 @@ export class IdentityService {
       name: citizen.fullName,
       kind: 'CITIZEN',
       tenantSlug: input.tenantSlug,
+      tokenVersion: citizen.tokenVersion,
     });
   }
 
@@ -270,6 +367,7 @@ export class IdentityService {
       name: citizen.fullName,
       kind: 'CITIZEN',
       tenantSlug: input.tenantSlug,
+      tokenVersion: citizen.tokenVersion,
     });
   }
 
@@ -326,6 +424,7 @@ export class IdentityService {
       name: user.fullName,
       kind: 'CITIZEN',
       tenantSlug: input.tenantSlug,
+      tokenVersion: user.tokenVersion,
     });
   }
 
@@ -344,19 +443,22 @@ export class IdentityService {
     /** STAFF only — see loginStaff. */
     remember?: boolean;
     supabaseAccessToken?: string;
+    /** Stamped into the token and compared on every request thereafter. */
+    tokenVersion: number;
   }): SessionResult {
     const claims: SessionClaims = {
       sub: input.id,
       tenantSlug: input.tenantSlug,
       kind: input.kind,
       ...(input.role ? { role: input.role } : {}),
+      tokenVersion: input.tokenVersion,
     };
 
     const expiresIn =
       input.kind === 'STAFF'
         ? this.config.get<string>(
             input.remember ? 'JWT_STAFF_REMEMBER_TTL' : 'JWT_STAFF_TTL',
-            input.remember ? '30d' : '12h',
+            input.remember ? '30d' : '8h',
           )
         : this.config.get<string>('JWT_CITIZEN_TTL', '7d');
 
@@ -374,12 +476,6 @@ export class IdentityService {
     }
   }
 }
-
-/**
- * A real bcrypt hash of a value nothing can match, used to keep the timing of
- * "no such account" close to "wrong password".
- */
-const DUMMY_HASH = '$2b$12$C6UzMDM.H6dfI/f/IKcEe.eS3.eXwuNfMmZLbTfjA.9YMK1XwK1Wu';
 
 /**
  * Strips formatting so `03 123456`, `+96103123456` and `0096103123456` all

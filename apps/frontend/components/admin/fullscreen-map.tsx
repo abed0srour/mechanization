@@ -691,7 +691,7 @@ export function FullscreenMap({
     };
     // Runs once the map exists and a target is known; not re-run on later
     // renders of the same target.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [focusLat, focusLng]);
 
   // Upgrade path: once `parcels` has loaded and the citizen's property turns

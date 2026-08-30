@@ -36,8 +36,6 @@ const STEPS = [
   { id: 'result', step: '٣', title: 'النتيجة', icon: CheckCircle2 },
 ] as const;
 
-type StepId = (typeof STEPS)[number]['id'];
-
 /**
  * استيراد المواطنين من ملف — the municipality's existing register, in one go.
  *

@@ -50,6 +50,9 @@ export interface UserRepository {
 
   /** Stamps `lastLoginAt`, which the staff list surfaces as dormancy. */
   markLoggedIn(userId: string): Promise<void>;
+
+  /** Burns a TOTP step so the same code cannot be presented twice. */
+  recordTotpStep(userId: string, step: number): Promise<void>;
   /** Stores an unconfirmed secret; `confirmTotp` is what activates it. */
   saveTotpSecret(userId: string, secret: string): Promise<void>;
   /** Marks enrolment complete once the admin has proved the app works. */

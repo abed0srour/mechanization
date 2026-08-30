@@ -300,6 +300,39 @@ export class AuditService {
     });
   }
 
+  /**
+   * A municipality's register replaced wholesale.
+   *
+   * `BackupService` has always emitted this and nothing has ever subscribed to
+   * it, so the single most destructive action in the system — every citizen,
+   * property and payment row deleted and rewritten from a file — left no trace
+   * at all. The trail survives a restore by construction (it is excluded from
+   * the snapshot and from the tables restore empties), which is what makes this
+   * entry meaningful: it is written *into* the log that outlives the operation
+   * it describes.
+   */
+  @OnEvent('backup.restored')
+  async onRegisterRestored(payload: {
+    actorId: string;
+    actorRole: string;
+    snapshotCreatedAt: string;
+    written: Record<string, number>;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: 'REGISTER_RESTORED',
+      entityType: 'Tenant',
+      after: {
+        // Which snapshot, and what landed — enough to reconcile the register
+        // against the file afterwards without having kept the file.
+        snapshotCreatedAt: payload.snapshotCreatedAt,
+        written: payload.written,
+      },
+    });
+  }
+
   @OnEvent('report.exported')
   async onExport(payload: {
     actorId: string;

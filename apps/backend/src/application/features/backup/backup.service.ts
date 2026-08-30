@@ -12,7 +12,23 @@ import { ValidationError } from '../../common/exceptions';
  * prevents — a snapshot half-restored before the mismatch is noticed — is not
  * one a municipality can undo.
  */
-const SNAPSHOT_VERSION = 1;
+const SNAPSHOT_VERSION = 2;
+
+/**
+ * Ceiling on the *decompressed* snapshot, enforced by `gunzipSync`.
+ *
+ * `BackupController` caps the upload at 64 MB as bytes arrive, which bounds
+ * what is read but not what is allocated: gzip reaches roughly 1000:1 on
+ * repetitive input, so an accepted 64 MB upload could ask for tens of
+ * gigabytes of heap in one synchronous call, inside a function with 1 GB. That
+ * is a decompression bomb, and the upload limit does nothing about it.
+ *
+ * 512 MB is far above any real municipality — the largest plausible register
+ * is a few tens of megabytes of JSON — and far below what would exhaust the
+ * process. `gunzipSync` throws once the limit is passed, which lands in the
+ * existing catch and surfaces as "not a valid backup" rather than as an OOM.
+ */
+const MAX_SNAPSHOT_INFLATED_BYTES = 512 * 1024 * 1024;
 
 /**
  * Every table in a tenant schema, in the order rows may be inserted.
@@ -20,20 +36,39 @@ const SNAPSHOT_VERSION = 1;
  * Derived from the foreign keys in the tenant Prisma schema, not guessed:
  * `Registration` points at `User`, `PropertyEntry` at `Registration`,
  * `BuildingUnit` and `Document` at `PropertyEntry`, `CitizenPayment` at both
- * `User` and `FeeNotice`. `Parcel`, `Zone`, `OtpChallenge`, `AuditLogEntry` and
- * `SystemSettings` carry no outbound relation and can go anywhere; they are
- * placed early so a failure surfaces on cheap tables first.
+ * `User` and `FeeNotice`. `Parcel`, `Zone`, `OtpChallenge` and `SystemSettings`
+ * carry no outbound relation and can go anywhere; they are placed early so a
+ * failure surfaces on cheap tables first.
  *
  * Deletion walks this list backwards. Getting the order wrong is not a subtle
  * bug — it is a foreign-key violation that aborts the transaction, which is the
  * safe direction for this to fail in.
+ *
+ * ── Why `auditLogEntry` is not here ────────────────────────────────────────
+ *
+ * It was, and it made restore impossible. `0001_init` installs a
+ * `BEFORE DELETE` trigger that raises on `audit_log_entries`, on purpose: a
+ * trail a compromised administrator can rewrite proves nothing. Restore empties
+ * every table in this list, so it hit that trigger and aborted the transaction
+ * for any municipality that had ever recorded an action — which is all of them,
+ * since a staff login writes one.
+ *
+ * The failure mode was the worst available: `dryRun` only counts rows, so the
+ * rehearsal reported success and the real run failed. A municipality would have
+ * discovered its backups do not restore at the exact moment it needed them to.
+ *
+ * Excluding the trail is the resolution rather than disabling the trigger,
+ * because it is the honest reading of what a restore *means*: the trail is
+ * history — a record of things that were actually done — and rolling the
+ * register back to Tuesday does not make Wednesday's actions un-happen. So the
+ * data returns to its snapshot state and the trail keeps accumulating across
+ * it, including a `REGISTER_RESTORED` entry recording the restore itself.
  */
 const TABLE_ORDER = [
   'user',
   'otpChallenge',
   'parcel',
   'zone',
-  'auditLogEntry',
   'systemSettings',
   'registration',
   'propertyEntry',
@@ -44,6 +79,16 @@ const TABLE_ORDER = [
 ] as const;
 
 type TableName = (typeof TABLE_ORDER)[number];
+
+/**
+ * Tables a snapshot may legitimately contain but restore must never write.
+ *
+ * `auditLogEntry` appears in every v1 snapshot. Those are rejected outright by
+ * the version check, so this exists for the other direction: a v2 snapshot hand-
+ * edited to carry one, which should be refused as an unknown table rather than
+ * silently ignored.
+ */
+const NEVER_RESTORED = new Set(['auditLogEntry']);
 
 export interface SnapshotManifest {
   version: number;
@@ -169,7 +214,9 @@ export class BackupService {
   private parse(gzipped: Buffer): Snapshot {
     let text: string;
     try {
-      text = gunzipSync(gzipped).toString('utf8');
+      text = gunzipSync(gzipped, { maxOutputLength: MAX_SNAPSHOT_INFLATED_BYTES }).toString(
+        'utf8',
+      );
     } catch {
       throw new ValidationError('الملف ليس نسخة احتياطية صالحة (تعذّر فك الضغط).');
     }
@@ -246,8 +293,15 @@ export class BackupService {
       );
     }
 
+    /**
+     * A table this restore does not know how to write is refused rather than
+     * skipped. Silently ignoring one would mean a snapshot appearing to restore
+     * completely while a table's worth of rows never arrived — which is exactly
+     * the "state the municipality never had" that the all-or-nothing
+     * transaction below exists to prevent.
+     */
     const unknownTables = Object.keys(snapshot.tables).filter(
-      (name) => !TABLE_ORDER.includes(name as TableName),
+      (name) => !TABLE_ORDER.includes(name as TableName) || NEVER_RESTORED.has(name),
     );
     if (unknownTables.length > 0) {
       throw new ValidationError(`جداول غير معروفة في النسخة: ${unknownTables.join('، ')}.`);

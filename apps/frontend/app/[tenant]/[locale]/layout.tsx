@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import type { PublicTenantConfig } from '@/lib/api-client';
 import { ACCENT_INIT_SCRIPT } from '@/lib/accents';
@@ -75,6 +76,17 @@ export default async function TenantLayout({
   const isRtl = locale === 'ar';
   const brandPrimary = safeHslTriple(config.branding.primaryColor);
 
+  /**
+   * The request's CSP nonce, set by `middleware.ts`.
+   *
+   * Both inline tags below are blocked without it — the accent script would not
+   * run (the portal paints in the default palette and snaps to the chosen one a
+   * frame later, which is the exact flash the script exists to prevent) and the
+   * brand colour would not apply. Next stamps its own inline scripts
+   * automatically; these two are ours, so they are stamped here.
+   */
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
+
   return (
     /*
       `suppressHydrationWarning` is required by `next-themes` and applies to
@@ -103,7 +115,11 @@ export default async function TenantLayout({
           the same reason — without it the portal paints in the default palette
           and snaps to the chosen one a frame later.
         */}
-        <script dangerouslySetInnerHTML={{ __html: ACCENT_INIT_SCRIPT }} />
+        <script
+          suppressHydrationWarning
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: ACCENT_INIT_SCRIPT }}
+        />
 
         {/*
           The municipality's own brand colour, when it configured one.
@@ -123,6 +139,8 @@ export default async function TenantLayout({
         */}
         {brandPrimary ? (
           <style
+            suppressHydrationWarning
+            nonce={nonce}
             dangerouslySetInnerHTML={{ __html: `:root{--brand-primary:${brandPrimary}}` }}
           />
         ) : null}

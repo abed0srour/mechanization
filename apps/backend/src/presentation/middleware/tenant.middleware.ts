@@ -36,6 +36,15 @@ export class TenantMiddleware implements NestMiddleware {
       const tenant = await this.tenants.resolve(slug);
       const prisma = this.clients.forSchema(tenant.schemaName);
 
+      /**
+       * `require-atomic-updates` reads this as a value assigned after an await
+       * from state read before it. That is the shape it warns about, and here
+       * it is not a race: `req` belongs to exactly one in-flight request and no
+       * other execution can reach this object. The rule cannot see that, and
+       * the alternative — restructuring the assignment to satisfy it — would
+       * make the middleware harder to read for no safety gained.
+       */
+      // eslint-disable-next-line require-atomic-updates
       req.tenant = {
         id: tenant.id,
         slug: tenant.slug,

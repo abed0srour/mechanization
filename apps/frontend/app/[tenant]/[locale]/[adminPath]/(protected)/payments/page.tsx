@@ -12,7 +12,6 @@ import {
   CreditCard,
   Loader2,
   Receipt,
-  Search,
   UserCheck,
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
@@ -37,7 +36,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
-import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';

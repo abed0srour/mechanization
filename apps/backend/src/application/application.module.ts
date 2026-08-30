@@ -10,10 +10,12 @@ import { CitizensService } from './features/citizens/citizens.service';
 import { DocumentService } from './features/documents/document.service';
 import { IdentityService } from './features/identity/identity.service';
 import { OtpService } from './features/identity/otp.service';
+import { SessionRevocationService } from './features/identity/session-revocation.service';
 import { RegistrationService } from './features/registration/registration.service';
 import { ReportingService } from './features/reporting/reporting.service';
 import { TenantService } from './features/tenant/tenant.service';
 import { FeesService } from './features/fees/fees.service';
+import { PaymentLedgerService } from './features/fees/payment-ledger.service';
 import { StaffService } from './features/staff/staff.service';
 import { ZonesService } from './features/zones/zones.service';
 
@@ -37,6 +39,7 @@ import { ZonesService } from './features/zones/zones.service';
     TenantService,
     IdentityService,
     OtpService,
+    SessionRevocationService,
     RegistrationService,
     DocumentService,
     AuditService,
@@ -44,6 +47,7 @@ import { ZonesService } from './features/zones/zones.service';
     CadastreImportService,
     CitizensService,
     FeesService,
+    PaymentLedgerService,
     StaffService,
     ZonesService,
     BackupService,
@@ -54,6 +58,7 @@ import { ZonesService } from './features/zones/zones.service';
     TenantService,
     IdentityService,
     OtpService,
+    SessionRevocationService,
     RegistrationService,
     DocumentService,
     AuditService,
@@ -61,6 +66,7 @@ import { ZonesService } from './features/zones/zones.service';
     CadastreImportService,
     CitizensService,
     FeesService,
+    PaymentLedgerService,
     StaffService,
     ZonesService,
     BackupService,

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@9.12.0",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node scripts/start.mjs",
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
@@ -11,6 +13,31 @@
     "db:generate": "pnpm --filter @mechanization/backend prisma:generate",
     "db:migrate": "pnpm --filter @mechanization/backend prisma:migrate",
     "db:seed": "pnpm --filter @mechanization/backend seed",
-    "lint": "pnpm -r lint"
+    "staff:create": "pnpm --filter @mechanization/backend staff:create",
+    "tenant:provision": "pnpm --filter @mechanization/backend tenant:provision",
+    "lint": "eslint .",
+    "typecheck": "pnpm --filter @mechanization/backend exec tsc --noEmit"
+  },
+  "pnpm": {
+    "overrides": {
+      "multer": "^2.3.0",
+      "postcss": "^8.5.26",
+      "brace-expansion@1": "^1.1.18",
+      "brace-expansion@2": "^2.0.3",
+      "nanoid@3": "^3.3.18",
+      "body-parser@1": "^1.20.6",
+      "lodash": "^4.18.1",
+      "sharp": "^0.35.4",
+      "qs@6": "^6.15.2",
+      "uuid@11": "^11.1.1"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "@next/eslint-plugin-next": "^16.3.3",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
+    "globals": "^17.11.0",
+    "typescript-eslint": "^8"
   }
 }

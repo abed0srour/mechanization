@@ -9,7 +9,6 @@ import {
   SubmitRegistrationResult,
 } from '../../domain/interfaces/registration-repository.interface';
 import { TenantContextService } from '../context/tenant-context.service';
-import { withConnectionRetry } from '../prisma/with-connection-retry';
 
 @Injectable()
 export class PrismaRegistrationRepository implements RegistrationRepository {

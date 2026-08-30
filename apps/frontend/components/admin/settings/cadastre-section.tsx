@@ -10,7 +10,6 @@ import {
 } from '@/lib/api-client';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { Notice, SettingsCard, StatusTile } from './settings-ui';
 import { cn } from '@/lib/utils';

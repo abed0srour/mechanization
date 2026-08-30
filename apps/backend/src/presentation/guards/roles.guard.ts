@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { StaffRole } from '../../domain/entities/user.entity';
 import { ForbiddenError } from '../../application/common/exceptions';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 /**
  * Staff-only route protection. Runs after JwtAuthGuard, so the token is already
@@ -18,10 +19,18 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic === true) return true;
+
     const required = this.reflector.getAllAndOverride<StaffRole[]>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
+
+    if (!required || required.length === 0) return true;
 
     const request = context.switchToHttp().getRequest<Request>();
     const user = request.user;
@@ -30,10 +39,8 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenError('This action is restricted to municipality staff');
     }
 
-    if (required && required.length > 0) {
-      if (!user.role || !required.includes(user.role)) {
-        throw new ForbiddenError('You do not have permission to perform this action');
-      }
+    if (!user.role || !required.includes(user.role)) {
+      throw new ForbiddenError('You do not have permission to perform this action');
     }
 
     return true;
