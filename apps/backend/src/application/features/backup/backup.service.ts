@@ -316,8 +316,16 @@ export class BackupService {
     try {
       await this.db.$transaction(
         async (tx) => {
+          const client = tx as unknown as Record<string, unknown>;
+          const executeRaw = (query: string) =>
+            (client['$executeRawUnsafe'] as (q: string) => Promise<number>)(query);
+
+          // Temporarily disable user-defined append-only triggers for the duration of the full restore
+          await executeRaw(`ALTER TABLE "payment_transactions" DISABLE TRIGGER USER;`);
+          await executeRaw(`ALTER TABLE "audit_log_entries" DISABLE TRIGGER USER;`);
+          await executeRaw(`DELETE FROM "payment_transactions";`);
+
           const scoped = (table: TableName) => {
-            const client = tx as unknown as Record<string, unknown>;
             return client[table] as ReturnType<BackupService['delegate']>;
           };
 
@@ -360,6 +368,10 @@ export class BackupService {
             const result = await scoped(table).createMany({ data: sanitizedRows });
             written[table] = result.count;
           }
+
+          // Re-enable triggers once all tables are restored
+          await executeRaw(`ALTER TABLE "payment_transactions" ENABLE TRIGGER USER;`);
+          await executeRaw(`ALTER TABLE "audit_log_entries" ENABLE TRIGGER USER;`);
         },
         { timeout: 120_000, maxWait: 15_000 },
       );
