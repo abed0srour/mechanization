@@ -34,6 +34,8 @@ export class PrismaUserRepository implements UserRepository {
       firstName: row.firstName,
       lastName: row.lastName,
       isActive: row.isActive,
+      tokenVersion: row.tokenVersion,
+      lastTotpStep: row.lastTotpStep,
       totpSecret: row.totpSecret,
       totpConfirmedAt: row.totpConfirmedAt,
     });
@@ -54,6 +56,8 @@ export class PrismaUserRepository implements UserRepository {
         firstName: row.firstName,
         lastName: row.lastName,
         isActive: row.isActive,
+        tokenVersion: row.tokenVersion,
+        lastTotpStep: row.lastTotpStep,
         totpSecret: row.totpSecret,
         totpConfirmedAt: row.totpConfirmedAt,
       });
@@ -71,6 +75,7 @@ export class PrismaUserRepository implements UserRepository {
       identityDocType: row.identityDocType!,
       identityDocNumber: row.identityDocNumber!,
       isActive: row.isActive,
+      tokenVersion: row.tokenVersion,
     });
   }
 
@@ -96,6 +101,7 @@ export class PrismaUserRepository implements UserRepository {
       identityDocType: row.identityDocType!,
       identityDocNumber: row.identityDocNumber!,
       isActive: row.isActive,
+      tokenVersion: row.tokenVersion,
     });
   }
 
@@ -182,6 +188,28 @@ export class PrismaUserRepository implements UserRepository {
       where: { id: userId },
       data: { lastLoginAt: new Date() },
     });
+  }
+
+  /**
+   * Burns a TOTP step.
+   *
+   * Guarded in the `where` rather than checked first: two logins racing with
+   * the same code both read `lastTotpStep` as the older value, and only a
+   * conditional write lets exactly one of them win. The caller treats "no row
+   * updated" as a replay.
+   */
+  async recordTotpStep(userId: string, step: number): Promise<void> {
+    const { count } = await this.db.user.updateMany({
+      where: {
+        id: userId,
+        OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: BigInt(step) } }],
+      },
+      data: { lastTotpStep: BigInt(step) },
+    });
+
+    if (count === 0) {
+      throw new ConflictError('تم استخدام هذا الرمز بالفعل');
+    }
   }
 
   /** Writes an unconfirmed secret. Sessions stay blocked until confirmed. */
@@ -299,6 +327,21 @@ export class PrismaUserRepository implements UserRepository {
       }
     }
 
+    /**
+     * A role or password change revokes every session this account holds.
+     *
+     * Role travels in the JWT and `RolesGuard` authorises from the claim, so a
+     * demoted SUPER_ADMIN would otherwise keep administering the municipality
+     * until their token expired — thirty days with "تذكّرني على هذا الجهاز".
+     * A password change revokes for the ordinary reason: it is what someone
+     * does when they believe the old one is known.
+     *
+     * A rename does not bump. It changes nothing about what the session may
+     * reach, and signing a colleague out because their surname was corrected
+     * is the kind of friction that gets a security control removed.
+     */
+    const revokes = Boolean(patch.role || patch.passwordHash);
+
     await this.db.user.update({
       where: { id },
       data: {
@@ -307,6 +350,7 @@ export class PrismaUserRepository implements UserRepository {
         ...(patch.firstName ? { firstName: patch.firstName } : {}),
         ...(patch.lastName ? { lastName: patch.lastName } : {}),
         ...(patch.role ? { role: patch.role as never } : {}),
+        ...(revokes ? { tokenVersion: { increment: 1 } } : {}),
       },
     });
   }
@@ -316,7 +360,19 @@ export class PrismaUserRepository implements UserRepository {
    * registration this account reviewed keep a name attached.
    */
   async setStaffActive(id: string, isActive: boolean): Promise<void> {
-    await this.db.user.update({ where: { id }, data: { isActive } });
+    /**
+     * Bumped in both directions.
+     *
+     * Deactivating is the obvious one — it is the dismissal case, and until
+     * this column existed the dismissed account kept full access for the life
+     * of its token. Reactivating bumps too: an account is usually switched off
+     * because something was wrong with it, and any session still outstanding
+     * from before that decision should not come back with it.
+     */
+    await this.db.user.update({
+      where: { id },
+      data: { isActive, tokenVersion: { increment: 1 } },
+    });
   }
 
   /**
@@ -332,11 +388,17 @@ export class PrismaUserRepository implements UserRepository {
    * safe to erase outright.
    */
   async countStaffHistory(id: string): Promise<number> {
-    const [reviewed, audited] = await Promise.all([
+    const [reviewed, audited, recorded, collected] = await Promise.all([
       this.db.registration.count({ where: { reviewedById: id } }),
       this.db.auditLogEntry.count({ where: { actorId: id } }),
+      // Ledger rows are history in the strongest sense the system has: money
+      // this person recorded or held. The foreign keys are RESTRICT, so
+      // counting them here is what turns an unerasable account into a
+      // sentence about deactivating it instead of a raw constraint violation.
+      this.db.paymentTransaction.count({ where: { recordedById: id } }),
+      this.db.paymentTransaction.count({ where: { collectedById: id } }),
     ]);
-    return reviewed + audited;
+    return reviewed + audited + recorded + collected;
   }
 
   /** Prisma error codes stop here — no layer above this one sees them. */

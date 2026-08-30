@@ -4,15 +4,17 @@ import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertCircle,
+  ArrowRight,
   Eye,
   EyeOff,
   History,
+  KeyRound,
   Loader2,
   Lock,
   Mail,
   ShieldCheck,
 } from 'lucide-react';
-import { ApiRequestError, loginStaff, logApiError } from '@/lib/api-client';
+import { ApiRequestError, isTotpRequired, loginStaff, logApiError } from '@/lib/api-client';
 import { saveSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -72,6 +74,17 @@ export default function StaffLogin({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * The second factor, as a second step rather than a third field.
+   *
+   * Showing a code box alongside the password would ask every staff member to
+   * ignore it, and would leak which accounts have an authenticator to anyone
+   * who typed an email. The server decides: it answers a correct password with
+   * either a session or `TOTP_REQUIRED`, and only then does this appear.
+   */
+  const [totpToken, setTotpToken] = useState('');
+  const [totpStage, setTotpStage] = useState(false);
+
   async function submit() {
     setBusy(true);
     setError(null);
@@ -81,7 +94,16 @@ export default function StaffLogin({
         email,
         password,
         remember: rememberMe,
+        // Sent only once the server has asked, so a stale value from an
+        // abandoned attempt is never replayed into a fresh one.
+        ...(totpStage && totpToken ? { totpToken } : {}),
       });
+
+      if (isTotpRequired(result)) {
+        setTotpStage(true);
+        setTotpToken('');
+        return;
+      }
 
       saveSession(tenant, result, rememberMe);
       router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
@@ -90,6 +112,12 @@ export default function StaffLogin({
       setError(
         caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدخول.',
       );
+      // A rejected code is retried on its own; a rejected password sends the
+      // form back to the start rather than leaving a code box above a
+      // credential the server has already refused.
+      if (caught instanceof ApiRequestError && caught.status === 401 && !totpStage) {
+        setTotpStage(false);
+      }
     } finally {
       setBusy(false);
     }
@@ -177,9 +205,13 @@ export default function StaffLogin({
             >
               <ShieldCheck className="size-6" />
             </div>
-            <h1 className="font-display text-3xl font-bold tracking-tight">دخول الموظفين</h1>
+            <h1 className="font-display text-3xl font-bold tracking-tight">
+              {totpStage ? 'التحقق بخطوتين' : 'دخول الموظفين'}
+            </h1>
             <p className="text-muted-foreground">
-              أدخل بيانات حسابك للمتابعة إلى لوحة الإدارة.
+              {totpStage
+                ? 'أدخل الرمز المكوّن من ستة أرقام من تطبيق المصادقة.'
+                : 'أدخل بيانات حسابك للمتابعة إلى لوحة الإدارة.'}
             </p>
           </div>
 
@@ -202,9 +234,78 @@ export default function StaffLogin({
             className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
-              if (!busy && email && password) void submit();
+              if (busy) return;
+              if (totpStage) {
+                if (totpToken.length === 6) void submit();
+                return;
+              }
+              if (email && password) void submit();
             }}
           >
+            {totpStage ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="totp">رمز التحقق</Label>
+                  <div className="relative">
+                    <KeyRound
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 start-3.5 my-auto size-4 text-muted-foreground"
+                    />
+                    <Input
+                      id="totp"
+                      dir="ltr"
+                      inputMode="numeric"
+                      /**
+                       * `one-time-code` is what lets a password manager or the
+                       * OS offer the code it can already see. Without it the
+                       * staff member retypes six digits from another device on
+                       * every sign-in, which is the step people abandon 2FA
+                       * over.
+                       */
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      autoFocus
+                      required
+                      className="ps-10 text-center font-mono text-lg tracking-[0.4em]"
+                      value={totpToken}
+                      onChange={(e) =>
+                        setTotpToken(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="h-12 w-full rounded-lg text-base font-semibold shadow-sm"
+                  disabled={busy || totpToken.length !== 6}
+                >
+                  {busy ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      جارٍ التحقق…
+                    </>
+                  ) : (
+                    'تأكيد'
+                  )}
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTotpStage(false);
+                    setTotpToken('');
+                    setPassword('');
+                    setError(null);
+                  }}
+                  className="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ArrowRight className="size-4" aria-hidden />
+                  الرجوع إلى تسجيل الدخول
+                </button>
+              </>
+            ) : (
+              <>
             <div className="space-y-2">
               <Label htmlFor="email">البريد الإلكتروني</Label>
               <div className="relative">
@@ -282,6 +383,8 @@ export default function StaffLogin({
                 'دخول'
               )}
             </Button>
+              </>
+            )}
           </form>
 
           {/**

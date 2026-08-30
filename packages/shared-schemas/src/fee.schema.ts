@@ -416,6 +416,20 @@ export const reviewPaymentSchema = z
 export type ReviewPayment = z.infer<typeof reviewPaymentSchema>;
 
 /**
+ * Reversing one recorded movement in the payment ledger.
+ *
+ * The note is required, unlike on most corrections here: a reversal takes money
+ * back off a citizen's record after a receipt has been issued for it, and
+ * "why" is the first thing anyone reading the ledger afterwards will ask. The
+ * ledger is append-only, so this note is the only place that answer can live.
+ */
+export const reverseTransactionSchema = z.object({
+  note: z.string().trim().min(3, 'اذكر سبب عكس الحركة').max(500),
+});
+
+export type ReverseTransaction = z.infer<typeof reverseTransactionSchema>;
+
+/**
  * Citizen sign-in by رقم مرجعي.
  *
  * The phone is required alongside it, not optional. A reference number is

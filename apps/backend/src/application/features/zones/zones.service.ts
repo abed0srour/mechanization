@@ -288,23 +288,50 @@ export class ZonesService {
       // Pairwise rather than a single n-way union: turf unions two features at a
       // time, and halving the set each round keeps a 500-parcel sector at ~9
       // rounds instead of 500 sequential merges over a steadily larger polygon.
-      let round = members;
+      let round: Feature<Polygon | MultiPolygon>[] = members;
       while (round.length > 1) {
         const next: Feature<Polygon | MultiPolygon>[] = [];
+        let mergedAny = false;
+
         for (let i = 0; i < round.length; i += 2) {
           if (i + 1 >= round.length) {
             next.push(round[i]);
             continue;
           }
           const merged = turf.union(turf.featureCollection([round[i], round[i + 1]] as never));
-          // Two parcels that do not touch cannot merge; keeping both preserves
-          // the sector's full extent instead of dropping half of it.
-          if (merged) next.push(merged as Feature<Polygon | MultiPolygon>);
-          else next.push(round[i], round[i + 1]);
+          if (merged) {
+            next.push(merged as Feature<Polygon | MultiPolygon>);
+            mergedAny = true;
+          } else {
+            // Two parcels that do not touch cannot merge directly
+            next.push(round[i], round[i + 1]);
+          }
         }
-        round = next as Feature<Polygon>[];
+
+        // If no merges happened during this round, the remaining features are
+        // disjoint clusters. Collect their polygon coordinates into a MultiPolygon.
+        if (!mergedAny || next.length === round.length) {
+          const coordinates: Polygon['coordinates'][] = [];
+          for (const feat of next) {
+            if (feat.geometry.type === 'Polygon') {
+              coordinates.push(feat.geometry.coordinates);
+            } else if (feat.geometry.type === 'MultiPolygon') {
+              coordinates.push(...feat.geometry.coordinates);
+            }
+          }
+          geometry = {
+            type: 'MultiPolygon',
+            coordinates,
+          };
+          break;
+        }
+
+        round = next;
       }
-      geometry = round[0]?.geometry ?? null;
+
+      if (!geometry && round[0]) {
+        geometry = round[0].geometry;
+      }
     }
 
     this.outlineCache.set(zone.id, { key: cacheKey, geometry });

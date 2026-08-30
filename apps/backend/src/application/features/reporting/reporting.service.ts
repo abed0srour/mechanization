@@ -838,34 +838,6 @@ export class ReportingService {
     tenantSlug: string;
     actor: { id: string; role: string; email?: string };
   }): Promise<string> {
-    const rows = await this.db.registration.findMany({
-      include: {
-        citizen: {
-          select: {
-            firstName: true,
-            middleName: true,
-            lastName: true,
-            phone: true,
-            residentStatus: true,
-            familySize: true,
-          },
-        },
-        properties: {
-          select: {
-            propertyNumber: true,
-            propertyType: true,
-            occupancyType: true,
-            unitArea: true,
-            buildingName: true,
-            units: {
-              select: { unitType: true, floor: true, unitArea: true },
-            },
-          },
-        },
-      },
-      orderBy: { submittedAt: 'desc' },
-    });
-
     const header = [
       'reference_number',
       'submitted_at',
@@ -883,49 +855,90 @@ export class ReportingService {
     ];
 
     const lines = [header.join(',')];
+    const BATCH_SIZE = 500;
+    let offset = 0;
+    let totalProcessed = 0;
 
-    for (const row of rows) {
-      const name = [row.citizen.firstName, row.citizen.middleName, row.citizen.lastName]
-        .filter(Boolean)
-        .join(' ');
+    while (true) {
+      const rows = await this.db.registration.findMany({
+        skip: offset,
+        take: BATCH_SIZE,
+        include: {
+          citizen: {
+            select: {
+              firstName: true,
+              middleName: true,
+              lastName: true,
+              phone: true,
+              residentStatus: true,
+              familySize: true,
+            },
+          },
+          properties: {
+            select: {
+              propertyNumber: true,
+              propertyType: true,
+              occupancyType: true,
+              unitArea: true,
+              buildingName: true,
+              units: {
+                select: { unitType: true, floor: true, unitArea: true },
+              },
+            },
+          },
+        },
+        orderBy: { submittedAt: 'desc' },
+      });
 
-      // One line per property, so a citizen with three properties produces three
-      // rows — municipality staff filter by property, not by person. A building
-      // goes one further and emits a line per unit: the whole point of owning
-      // one is that it holds several, and a single row would report the parcel
-      // while hiding everything inside it.
-      const properties = row.properties.length > 0 ? row.properties : [null];
+      if (rows.length === 0) break;
+      totalProcessed += rows.length;
 
-      for (const property of properties) {
-        const units =
-          property && property.units.length > 0
-            ? property.units
-            : [null];
+      for (const row of rows) {
+        const name = [row.citizen.firstName, row.citizen.middleName, row.citizen.lastName]
+          .filter(Boolean)
+          .join(' ');
 
-        for (const unit of units) {
-          lines.push(
-            [
-              row.referenceNumber,
-              row.submittedAt.toISOString(),
-              name,
-              row.citizen.phone ?? '',
-              row.citizen.residentStatus ?? '',
-              row.citizen.familySize ?? '',
-              property?.propertyNumber ?? '',
-              property?.propertyType ?? '',
-              property?.occupancyType ?? '',
-              property?.buildingName ?? '',
-              unit?.unitType ?? '',
-              unit?.floor ?? '',
-              // The area lives on the unit for a building and on the property
-              // itself for everything else.
-              (unit?.unitArea ?? property?.unitArea)?.toString() ?? '',
-            ]
-              .map(csvCell)
-              .join(','),
-          );
+        // One line per property, so a citizen with three properties produces three
+        // rows — municipality staff filter by property, not by person. A building
+        // goes one further and emits a line per unit: the whole point of owning
+        // one is that it holds several, and a single row would report the parcel
+        // while hiding everything inside it.
+        const properties = row.properties.length > 0 ? row.properties : [null];
+
+        for (const property of properties) {
+          const units =
+            property && property.units.length > 0
+              ? property.units
+              : [null];
+
+          for (const unit of units) {
+            lines.push(
+              [
+                row.referenceNumber,
+                row.submittedAt.toISOString(),
+                name,
+                row.citizen.phone ?? '',
+                row.citizen.residentStatus ?? '',
+                row.citizen.familySize ?? '',
+                property?.propertyNumber ?? '',
+                property?.propertyType ?? '',
+                property?.occupancyType ?? '',
+                property?.buildingName ?? '',
+                unit?.unitType ?? '',
+                unit?.floor ?? '',
+                // The area lives on the unit for a building and on the property
+                // itself for everything else.
+                (unit?.unitArea ?? property?.unitArea)?.toString() ?? '',
+              ]
+                .map(csvCell)
+                .join(','),
+            );
+          }
         }
       }
+
+      offset += rows.length;
+      if (rows.length < BATCH_SIZE) break;
     }
 
     this.events.emit('report.exported', {
@@ -933,7 +946,7 @@ export class ReportingService {
       actorId: input.actor.id,
       actorRole: input.actor.role,
       actorEmail: input.actor.email,
-      rowCount: rows.length,
+      rowCount: totalProcessed,
     });
 
     return lines.join('\n');

@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { SessionClaims } from '../../application/features/identity/identity.service';
+import { SessionRevocationService } from '../../application/features/identity/session-revocation.service';
 import {
   TenantMismatchError,
   UnauthorizedError,
@@ -23,9 +24,10 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
     private readonly reflector: Reflector,
+    private readonly revocation: SessionRevocationService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -57,6 +59,25 @@ export class JwtAuthGuard implements CanActivate {
     const urlTenant = request.tenant?.slug;
     if (!urlTenant || claims.tenantSlug !== urlTenant) {
       throw new TenantMismatchError();
+    }
+
+    /**
+     * A valid signature is not the same thing as a live session.
+     *
+     * Everything above this point was true of a dismissed staff member's token
+     * too: it is correctly signed, unexpired, and names the right municipality.
+     * `role` travels inside it and `RolesGuard` authorises from that claim, so
+     * without this comparison a demotion or a dismissal took effect only when
+     * the token expired — up to thirty days for "تذكّرني على هذا الجهاز".
+     *
+     * The lookup is cached for a short window; see `SessionRevocationService`
+     * for why that bound is the one to argue about rather than the check
+     * itself.
+     */
+    if (!(await this.revocation.isCurrent(claims.sub, claims.tokenVersion))) {
+      // Same sentence an expired token gets. From the caller's side that is
+      // exactly what has happened — the session is over.
+      throw new UnauthorizedError('Invalid or expired session');
     }
 
     request.user = claims;

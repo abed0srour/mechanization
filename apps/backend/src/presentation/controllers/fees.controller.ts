@@ -16,6 +16,7 @@ import {
   createFeeNoticeSchema,
   declarePaymentSchema,
   noticeActiveSchema,
+  reverseTransactionSchema,
   reviewPaymentSchema,
   settlePaymentSchema,
   systemSettingsSchema,
@@ -210,6 +211,44 @@ export class FeesController {
       method: body.method,
       whishTransactionRef: body.whishTransactionRef,
       collectedById: body.collectedById,
+      note: body.note,
+      actor: { id: user.sub, role: user.role ?? '' },
+    });
+  }
+
+  /**
+   * The receipt history for one invoice.
+   *
+   * Registered before the `payments/:id/...` routes that follow it for the
+   * same reason `payments/pending` is: Nest matches in registration order.
+   *
+   * This is what the ledger bought. Until it existed the only record of a
+   * settlement was the invoice's running total, so a citizen asking for a copy
+   * of March's receipt could be told the balance and nothing else.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Get('payments/:id/transactions')
+  async transactions(@Param('id') id: string) {
+    return { items: await this.fees.listTransactions(id) };
+  }
+
+  /**
+   * Reverses one recorded movement.
+   *
+   * SUPER_ADMIN only, and deliberately not a delete: it appends an opposing
+   * entry, so the original stays on the record with the correction beside it.
+   * The ledger refuses updates and deletes at the database, so there is no
+   * other shape this could take.
+   */
+  @Roles('SUPER_ADMIN')
+  @Post('transactions/:transactionId/reverse')
+  async reverseTransaction(
+    @Param('transactionId') transactionId: string,
+    @Body(new ZodValidationPipe(reverseTransactionSchema)) body: { note: string },
+    @CurrentUser() user: SessionClaims,
+  ) {
+    return this.fees.reverseTransaction({
+      transactionId,
       note: body.note,
       actor: { id: user.sub, role: user.role ?? '' },
     });

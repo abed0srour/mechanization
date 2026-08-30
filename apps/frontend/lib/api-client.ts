@@ -192,7 +192,21 @@ export function verifyOtp(
   });
 }
 
-export type StaffLoginResponse = Session;
+/**
+ * A session, or the second factor still owed.
+ *
+ * `status` is the discriminant, matching `verifyOtpResponseSchema`'s shape on
+ * the citizen side. The server returns the challenge only after the password
+ * has already been accepted, so reaching it means the credentials were right.
+ */
+export type StaffLoginResponse = Session | { status: 'TOTP_REQUIRED' };
+
+/** Narrows the union above — a session has a token, a challenge does not. */
+export function isTotpRequired(
+  response: StaffLoginResponse,
+): response is { status: 'TOTP_REQUIRED' } {
+  return 'status' in response && response.status === 'TOTP_REQUIRED';
+}
 
 /**
  * Staff sign-in.
@@ -803,7 +817,7 @@ export function createStaff(
     role: string;
   },
 ) {
-  return apiFetch<{ id: string }>(tenant, '/staff', {
+  return apiFetch<{ id: string; totp?: { secret: string; keyUri: string } }>(tenant, '/staff', {
     token,
     method: 'POST',
     body: JSON.stringify(input),

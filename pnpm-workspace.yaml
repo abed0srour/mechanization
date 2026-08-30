@@ -1,3 +1,32 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# ── Security overrides ──────────────────────────────────────────────────────
+#
+# Mirrored from the `pnpm.overrides` block in package.json, deliberately.
+# pnpm 9 (the version this repository pins in `packageManager`) reads the
+# package.json block; pnpm 10 reads this file and *ignores* that block with only
+# a warning. Keeping one copy would mean a resolver upgrade silently reverting
+# every pin below — which for security overrides is the worst possible failure
+# mode, because nothing breaks and the advisories quietly come back.
+#
+# The audit job in CI is the backstop that would catch it. This is the belt.
+# Keep the two lists identical.
+overrides:
+  # Reached through @nestjs/platform-express, and the only one here an attacker
+  # can touch directly: FileInterceptor on the cadastre import.
+  multer: ^2.3.0
+  postcss: ^8.5.26
+  # Held on their existing major lines: 1.x and 2.x are what the trees below
+  # them expect, and the fixes were backported.
+  brace-expansion@1: ^1.1.18
+  brace-expansion@2: ^2.0.3
+  nanoid@3: ^3.3.18
+  body-parser@1: ^1.20.6
+  qs@6: ^6.15.2
+  uuid@11: ^11.1.1
+  lodash: ^4.18.1
+  # Next's optional image-optimisation dependency; inherits libvips CVEs below
+  # 0.35.0.
+  sharp: ^0.35.4

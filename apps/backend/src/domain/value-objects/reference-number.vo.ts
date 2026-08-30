@@ -1,3 +1,4 @@
+import { randomInt as cryptoRandomInt } from 'node:crypto';
 import { ValidationError } from '../errors/domain-error';
 
 /**
@@ -8,6 +9,11 @@ import { ValidationError } from '../errors/domain-error';
  * The alphabet deliberately excludes I, O, 0 and 1 so the code survives being
  * read aloud over the phone or copied by hand from an SMS by an elderly user —
  * the exact population this system exists to serve.
+ *
+ * **This is a credential.** `POST /auth/citizen/reference/open` accepts it
+ * alone and returns a session over the holder's national ID number, civil
+ * record number, residency status and fee ledger — so the suffix is the whole
+ * secret, and it must be unguessable rather than merely unique.
  */
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PATTERN = /^[A-Z]{3}-\d{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
@@ -15,10 +21,22 @@ const PATTERN = /^[A-Z]{3}-\d{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/;
 export class ReferenceNumber {
   private constructor(readonly value: string) {}
 
+  /**
+   * @param randomInt injectable only so tests can make a reference
+   *   deterministic. The default is `crypto.randomInt`, and it must stay a
+   *   CSPRNG: this used to default to `Math.floor(Math.random() * max)`, which
+   *   is V8's xorshift128+ — an algorithm whose internal state is recoverable
+   *   from a handful of observed outputs, after which every other value it has
+   *   produced or will produce is computable. Reference numbers are printed on
+   *   every وصل جباية and read aloud at the counter, so outputs are public by
+   *   design; and the bulk citizen import draws them in a tight loop from one
+   *   PRNG state, which made a single leaked receipt enough to derive the rest
+   *   of its import batch.
+   */
   static generate(
     tenantPrefix: string,
     now: Date = new Date(),
-    randomInt: (max: number) => number = (max) => Math.floor(Math.random() * max),
+    randomInt: (max: number) => number = (max) => cryptoRandomInt(max),
   ): ReferenceNumber {
     const prefix = tenantPrefix
       .toUpperCase()

@@ -70,7 +70,7 @@ export const updateZoneSchema = z
     description: z.string().trim().max(500, 'الوصف طويل جداً').nullable().optional(),
     parcelNumbers: parcelNumbersField.optional(),
   })
-  .refine((value) => Object.keys(value).length > 0, {
+  .refine((value) => Object.values(value).some((v) => v !== undefined), {
     message: 'لا يوجد أي تغيير لحفظه',
   });
 

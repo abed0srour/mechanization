@@ -11,8 +11,8 @@
 // scale and a reason to revisit only in the hundreds.
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../../../generated/tenant-client"
+  provider      = "prisma-client-js"
+  output        = "../../../generated/tenant-client"
   /// "native" is the local dev machine; "rhel-openssl-3.0.x" is Vercel's
   /// Amazon Linux 2023 runtime. The query engine is a platform-specific binary,
   /// so a client generated without the deployment target loads fine at build
@@ -80,11 +80,11 @@ model User {
   tenantSlug String
 
   // ── Staff-only ──
-  email        String?
-  passwordHash String?
-  role         StaffRole?
+  email           String?
+  passwordHash    String?
+  role            StaffRole?
   /// Base32 TOTP secret. Mandatory for SUPER_ADMIN before any session is issued.
-  totpSecret     String?
+  totpSecret      String?
   totpConfirmedAt DateTime?
 
   // ── Citizen-only ──
@@ -111,16 +111,36 @@ model User {
 
   isActive    Boolean   @default(true)
   lastLoginAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+
+  /// Bumped to revoke every session this account holds, at once.
+  ///
+  /// Stamped into the JWT and compared on every authenticated request. Without
+  /// it there was no revocation at all: role travels in the token and
+  /// `RolesGuard` reads it from there, so a dismissal or a demotion took effect
+  /// only when the token expired — up to 30 days for "تذكّرني على هذا الجهاز".
+  /// Deactivation, reactivation, a role change and a password change all bump
+  /// this.
+  tokenVersion Int @default(0)
+
+  /// The TOTP step a code was last accepted at, making each code single-use.
+  ///
+  /// `otplib` runs with `window: 1`, so the same six digits verify for about
+  /// ninety seconds — long enough for an observed code to be replayed. A login
+  /// presenting a step at or below this one is refused whatever the digits say.
+  lastTotpStep BigInt?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   registrations         Registration[]
-  reviewedRegistrations Registration[] @relation("ReviewedBy")
+  reviewedRegistrations Registration[]       @relation("ReviewedBy")
   payments              CitizenPayment[]
-  reviewedPayments      CitizenPayment[] @relation("PaymentReviewedBy")
-  collectedPayments     CitizenPayment[] @relation("PaymentCollectedBy")
-  targetedFeeNotices    FeeNotice[]      @relation("FeeTargetCitizen")
-  issuedFeeNotices      FeeNotice[]      @relation("FeeIssuedBy")
+  reviewedPayments      CitizenPayment[]     @relation("PaymentReviewedBy")
+  collectedPayments     CitizenPayment[]     @relation("PaymentCollectedBy")
+  collectedTransactions PaymentTransaction[] @relation("TransactionCollectedBy")
+  recordedTransactions  PaymentTransaction[] @relation("TransactionRecordedBy")
+  targetedFeeNotices    FeeNotice[]          @relation("FeeTargetCitizen")
+  issuedFeeNotices      FeeNotice[]          @relation("FeeIssuedBy")
 
   /// Staff email is unique within the municipality (i.e. within this schema).
   @@unique([email])
@@ -136,17 +156,17 @@ model User {
 /// Short-lived phone-OTP challenges. Rows are disposable; a cleanup job prunes
 /// expired ones so a stale code can never be replayed.
 model OtpChallenge {
-  id           String   @id @default(uuid()) @db.Uuid
-  phone        String
+  id         String    @id @default(uuid()) @db.Uuid
+  phone      String
   /// bcrypt hash — a leaked table must not hand out live login codes.
-  codeHash     String
+  codeHash   String
   /// Which delivery route issued it, so a failing provider is visible in data
   /// rather than only in logs. See the OTP fallback requirement in Section 10.
-  channel      String   @default("PRIMARY")
-  attempts     Int      @default(0)
-  expiresAt    DateTime
-  consumedAt   DateTime?
-  createdAt    DateTime @default(now())
+  channel    String    @default("PRIMARY")
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([phone, createdAt])
   @@map("otp_challenges")
@@ -181,7 +201,7 @@ model Registration {
   /// is read as one blob (render the applicant's form) and written as one
   /// blob (the reviewer submits the whole set at once) — a row per flag would
   /// buy queryability nothing here asks for.
-  rejectedFields  String[] @default([])
+  rejectedFields String[] @default([])
 
   /// Whether the citizen may fix the flagged fields themselves.
   ///
@@ -262,8 +282,8 @@ model PropertyEntry {
   floor          String?
   side           String?
   tentLocation   String?
-  unitArea       Decimal?      @db.Decimal(12, 2)
-  sharedRights   String[]      @default([])
+  unitArea       Decimal?     @db.Decimal(12, 2)
+  sharedRights   String[]     @default([])
 
   latitude  Float?
   longitude Float?
@@ -606,7 +626,7 @@ model FeeNotice {
   targetCitizenId String? @db.Uuid
   targetCitizen   User?   @relation("FeeTargetCitizen", fields: [targetCitizenId], references: [id])
 
-  dueDate DateTime
+  dueDate      DateTime
   /// Shown to the citizen above the payment options.
   instructions String?
 
@@ -638,9 +658,9 @@ model CitizenPayment {
   feeNoticeId String?    @db.Uuid
   feeNotice   FeeNotice? @relation(fields: [feeNoticeId], references: [id], onDelete: SetNull)
 
-  title    String
+  title      String
   /// What the invoice was raised for. Never mutated on receipt — see paidAmount.
-  amount   Decimal  @db.Decimal(14, 2)
+  amount     Decimal  @db.Decimal(14, 2)
   /// What has actually been received against it.
   ///
   /// Separate from `amount` so a partial payment is representable at all: a
@@ -649,9 +669,9 @@ model CitizenPayment {
   /// marking a debt settled that is not. Reducing `amount` instead would erase
   /// what was originally owed and quietly change the answer of every report
   /// that sums it.
-  paidAmount Decimal @default(0) @db.Decimal(14, 2)
-  currency String   @default("LBP")
-  dueDate  DateTime
+  paidAmount Decimal  @default(0) @db.Decimal(14, 2)
+  currency   String   @default("LBP")
+  dueDate    DateTime
 
   paymentStatus PaymentStatus  @default(UNPAID)
   paymentMethod PaymentMethod?
@@ -675,7 +695,7 @@ model CitizenPayment {
   collectedById String? @db.Uuid
   collectedBy   User?   @relation("PaymentCollectedBy", fields: [collectedById], references: [id])
   /// Why a clerk sent a claimed payment back to UNPAID.
-  reviewNote String?
+  reviewNote    String?
 
   /// Which billing period this invoice covers: `2026-07`, `2026-H2`, `2026`,
   /// or `ONCE`. Written rather than derived so the uniqueness below is a
@@ -686,13 +706,88 @@ model CitizenPayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// The portal's main read: this citizen's outstanding balance.
-  @@index([citizenId, paymentStatus])
-  /// The admin queue: what is awaiting verification, oldest first.
-  @@index([paymentStatus, dueDate])
+  /// Every movement of money against this invoice, oldest first.
+  transactions PaymentTransaction[]
+
   /// One invoice per citizen, per notice, **per period**. Re-running July's
   /// billing is a no-op; August's is a new row. Without the period the
   /// monthly fee could only ever be charged once.
   @@unique([citizenId, feeNoticeId, periodKey])
+  /// The portal's main read: this citizen's outstanding balance.
+  @@index([citizenId, paymentStatus])
+  /// The Whish callback matches on this; without an index it was a sequential
+  /// scan over every payment in the municipality, on every webhook.
+  @@index([whishTransactionRef])
+  /// The admin queue: what is awaiting verification, oldest first.
+  @@index([paymentStatus, dueDate])
   @@map("citizen_payments")
+}
+
+/// One movement of money against one invoice. Append-only.
+///
+/// The ledger `CitizenPayment` used to lack. That row keeps a *balance*:
+/// `paidAmount` is a running total, `paymentMethod` is overwritten by each
+/// settlement, and `whishTransactionRef` / `collectedById` are cleared when the
+/// method changes. All of that is right for a balance and useless for a
+/// history — a citizen who pays in three instalments leaves three receipts and
+/// one row that remembers only the sum, so the second receipt cannot be
+/// reprinted, a collector's day cannot be reconciled, and a refused transfer
+/// takes its own reference with it.
+///
+/// `citizen_payments.paidAmount` is now a cache of SUM(amount) over these rows.
+/// The rows are the truth; the column is what the ledger screens read without a
+/// join.
+///
+/// Enforced append-only by trigger, exactly like `AuditLogEntry` and for the
+/// same reason: a financial record the application can rewrite is worth only as
+/// much as the application's good behaviour, which an auditor cannot verify.
+model PaymentTransaction {
+  id        String         @id @default(uuid()) @db.Uuid
+  paymentId String         @db.Uuid
+  payment   CitizenPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  /// Signed: positive is money received, negative reverses an earlier entry.
+  /// A correction is a new opposing row, never an edit — what happened stays on
+  /// the record, and the correction is its own act with its own actor and time.
+  amount   Decimal       @db.Decimal(14, 2)
+  currency String        @default("LBP")
+  method   PaymentMethod
+
+  /// Printed on the receipt. Drawn from a Postgres sequence, so two clerks
+  /// settling in the same moment cannot be handed the same number.
+  receiptNumber String @unique
+
+  /// The provider's handle, when the money came through Whish. Per transaction
+  /// rather than per invoice, which is what makes a part-Whish, part-cash
+  /// invoice describable at all.
+  externalRef String?
+
+  /// The collector holding the money, when `method` is COLLECTOR.
+  collectedById String? @db.Uuid
+  collectedBy   User?   @relation("TransactionCollectedBy", fields: [collectedById], references: [id], onDelete: Restrict)
+  /// The staff member who entered the row — usually a clerk recording what a
+  /// collector handed in at the end of a round.
+  recordedById  String? @db.Uuid
+  recordedBy    User?   @relation("TransactionRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  /// Set when this row reverses an earlier one. Unique, so an entry can be
+  /// reversed at most once — twice would credit the citizen twice.
+  reversalOfId String?             @unique @db.Uuid
+  reversalOf   PaymentTransaction? @relation("Reversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy   PaymentTransaction? @relation("Reversal")
+
+  note String?
+
+  /// When the money moved, which is not always when the row was written: a
+  /// collector's round is entered at the end of the day.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  /// The receipt history for one invoice.
+  @@index([paymentId, occurredAt])
+  /// End-of-day reconciliation: what did this collector take, and when.
+  @@index([collectedById, occurredAt])
+  /// What the municipality took today, across every collector and clerk.
+  @@index([occurredAt])
+  @@map("payment_transactions")
 }

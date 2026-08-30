@@ -58,10 +58,14 @@ export class PrismaParcelRepository implements ParcelRepository {
     const anchor = Number(digits.slice(0, 9));
 
     const rows = await this.db.$queryRawUnsafe<Array<{ parcelNumber: string }>>(
-      `SELECT "parcelNumber" FROM "parcels"
-        WHERE "parcelNumber" ~ '^[0-9]+$'
-        ORDER BY abs("parcelNumber"::bigint - $1::bigint), "parcelNumber"::bigint
-        LIMIT $2`,
+      `SELECT "parcelNumber" FROM (
+        SELECT "parcelNumber",
+               CAST(split_part(split_part("parcelNumber", '/', 1), '-', 1) AS bigint) AS root_num
+        FROM "parcels"
+        WHERE split_part(split_part("parcelNumber", '/', 1), '-', 1) ~ '^[0-9]+$'
+      ) AS num_parcels
+      ORDER BY abs(root_num - $1::bigint), root_num, "parcelNumber"
+      LIMIT $2`,
       anchor,
       limit,
     );

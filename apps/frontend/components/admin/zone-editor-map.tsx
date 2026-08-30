@@ -145,9 +145,10 @@ export function ZoneEditorMap({
   const attachLayers = useCallback(
     async (map: mapboxgl.Map, force = false) => {
       const base = `/tenants/${encodeURIComponent(tenant)}`;
+      const apiBase = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/t/${encodeURIComponent(tenant)}/cadastre/assets`;
       const [polygons, labels] = await Promise.all([
-        fetchGeoJson(`${base}/parcel-polygons.geojson`),
-        fetchGeoJson(`${base}/parcels.geojson`),
+        fetchGeoJson(`${base}/parcel-polygons.geojson`, `${apiBase}/parcel-polygons.geojson`),
+        fetchGeoJson(`${base}/parcels.geojson`, `${apiBase}/parcels.geojson`),
       ]);
 
       if (!mapRef.current || mapRef.current !== map) return;
@@ -575,12 +576,23 @@ export function ZoneEditorMap({
 }
 
 /** A 404 means this municipality has no cadastre imported yet, not a failure. */
-async function fetchGeoJson(url: string): Promise<FeatureCollection | null> {
+async function fetchGeoJson(url: string, fallbackUrl?: string): Promise<FeatureCollection | null> {
   try {
-    const response = await fetch(url);
+    let response = await fetch(url);
+    if (!response.ok && fallbackUrl) {
+      response = await fetch(fallbackUrl);
+    }
     if (!response.ok) return null;
     return (await response.json()) as FeatureCollection;
   } catch {
+    if (fallbackUrl) {
+      try {
+        const response = await fetch(fallbackUrl);
+        if (response.ok) return (await response.json()) as FeatureCollection;
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }

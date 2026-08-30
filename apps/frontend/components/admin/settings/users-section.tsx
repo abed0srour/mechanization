@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ban, Loader2, Lock, RotateCcw, Search, ShieldCheck, UserPlus, UsersRound } from 'lucide-react';
+import { Ban, Check, Copy, KeyRound, Loader2, Lock, RotateCcw, Search, ShieldCheck, UserPlus, UsersRound } from 'lucide-react';
 import {
   ApiRequestError,
   createStaff,
@@ -160,7 +160,16 @@ export function UsersSection({
     [tenant, token, toast, copy],
   );
 
+  const [createdTotp, setCreatedTotp] = useState<{
+    email: string;
+    name: string;
+    secret: string;
+    keyUri: string;
+  } | null>(null);
+  const [copiedSecret, setCopiedSecret] = useState(false);
+
   const submit = useCallback(async () => {
+    if (!token) return;
     const backendRole = ROLE_BACKEND_VALUE[draft.role];
     if (
       !draft.firstName.trim() ||
@@ -175,13 +184,23 @@ export function UsersSection({
 
     setCreating(true);
     try {
-      await createStaff(tenant, token, {
+      const result = await createStaff(tenant, token, {
         email: draft.email.trim(),
         password: draft.password,
         firstName: draft.firstName.trim(),
         lastName: draft.lastName.trim(),
         role: backendRole,
       });
+
+      if (result.totp) {
+        setCreatedTotp({
+          email: draft.email.trim(),
+          name: `${draft.firstName.trim()} ${draft.lastName.trim()}`,
+          secret: result.totp.secret,
+          keyUri: result.totp.keyUri,
+        });
+      }
+
       toast.success(copy.users.created);
       setDialogOpen(false);
       setDraft(EMPTY_ACCOUNT);
@@ -444,6 +463,87 @@ export function UsersSection({
               ) : (
                 copy.users.create
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createdTotp !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCreatedTotp(null);
+            setCopiedSecret(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20">
+              <KeyRound className="size-6" />
+            </div>
+            <DialogTitle className="text-center text-xl font-bold">
+              رمز التحقق بخطوتين (2FA)
+            </DialogTitle>
+            <DialogDescription className="text-center text-sm leading-relaxed">
+              تم إنشاء حساب المسؤول <span className="font-semibold text-foreground">{createdTotp?.name}</span> بنجاح.
+              سلّم هذا المفتاح للمسؤول لإدخاله في تطبيق المصادقة (Google Authenticator).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-xl border border-border/80 bg-muted/40 p-4 space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>مفتاح الإعداد (Setup Key):</span>
+                <span className="font-mono">{createdTotp?.email}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded-lg border bg-background px-3 py-2.5 text-center font-mono text-base font-bold tracking-widest text-primary selection:bg-primary/20">
+                  {createdTotp?.secret}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="default"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => {
+                    if (createdTotp) {
+                      void navigator.clipboard.writeText(createdTotp.secret);
+                      setCopiedSecret(true);
+                      setTimeout(() => setCopiedSecret(false), 2000);
+                    }
+                  }}
+                >
+                  {copiedSecret ? (
+                    <>
+                      <Check className="size-4 text-emerald-600" />
+                      <span className="text-xs">تم النسخ</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="size-4" />
+                      <span className="text-xs">نسخ</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-amber-500/5 p-3 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+              ⚠️ <strong>تنبيه:</strong> هذا المفتاح يُعرض <strong>لمرة واحدة فقط</strong> الآن ولن يمكن استرجاعه لاحقاً من الموقع. في حال فقدانه يمكن إعادة تعيينه عبر موجه الأوامر (CLI).
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                setCreatedTotp(null);
+                setCopiedSecret(false);
+              }}
+            >
+              تم الحفظ والإغلاق
             </Button>
           </DialogFooter>
         </DialogContent>

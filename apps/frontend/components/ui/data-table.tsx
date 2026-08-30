@@ -504,7 +504,7 @@ export function DataTable<TData, TValue = unknown>({
     changeColumnVisibility(
       Object.fromEntries((initialHiddenColumns ?? []).map((id) => [id, false])),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [changeColumnVisibility, initialHiddenColumns]);
 
   const pagination = controlledPagination ?? internalPagination;

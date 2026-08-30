@@ -2,6 +2,7 @@ import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { SessionRevocationService } from '../../application/features/identity/session-revocation.service';
 import { RolesGuard } from './roles.guard';
 import {
   ForbiddenError,
@@ -45,24 +46,33 @@ function contextFor(options: {
   } as unknown as ExecutionContext;
 }
 
+/**
+ * Every session in these tests is a live one. Revocation has its own suite
+ * (`session-revocation.spec.ts`); here the point is the tenant boundary, and a
+ * stub that always says "current" keeps that the only variable.
+ */
+function liveSessions(): SessionRevocationService {
+  return { isCurrent: jest.fn().mockResolvedValue(true) } as unknown as SessionRevocationService;
+}
+
 describe('JwtAuthGuard — cross-tenant rejection', () => {
   const jwt = new JwtService({ secret: SECRET });
   const reflector = new Reflector();
-  const guard = new JwtAuthGuard(jwt, reflector);
+  const guard = new JwtAuthGuard(jwt, reflector, liveSessions());
 
   const tokenFor = (claims: Partial<SessionClaims>): string =>
     jwt.sign({ sub: 'u1', kind: 'STAFF', tenantSlug: 'albazourieh', ...claims });
 
-  it('admits a token whose tenant matches the URL', () => {
+  it('admits a token whose tenant matches the URL', async () => {
     const context = contextFor({
       authorization: `Bearer ${tokenFor({ tenantSlug: 'albazourieh' })}`,
       tenantSlug: 'albazourieh',
     });
 
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it("rejects tenant A's token on tenant B's URL", () => {
+  it("rejects tenant A's token on tenant B's URL", async () => {
     // The exact scenario the spec names: a perfectly valid, correctly signed,
     // unexpired token — used against another municipality.
     const context = contextFor({
@@ -70,19 +80,19 @@ describe('JwtAuthGuard — cross-tenant rejection', () => {
       tenantSlug: 'zahle',
     });
 
-    expect(() => guard.canActivate(context)).toThrow(TenantMismatchError);
+    await expect(guard.canActivate(context)).rejects.toThrow(TenantMismatchError);
   });
 
-  it('rejects a citizen token across tenants too, not just staff', () => {
+  it('rejects a citizen token across tenants too, not just staff', async () => {
     const context = contextFor({
       authorization: `Bearer ${tokenFor({ kind: 'CITIZEN', tenantSlug: 'zahle' })}`,
       tenantSlug: 'albazourieh',
     });
 
-    expect(() => guard.canActivate(context)).toThrow(TenantMismatchError);
+    await expect(guard.canActivate(context)).rejects.toThrow(TenantMismatchError);
   });
 
-  it('rejects a token when no tenant was resolved from the URL', () => {
+  it('rejects a token when no tenant was resolved from the URL', async () => {
     // Guards against a route being mounted outside TenantMiddleware and
     // therefore skipping the comparison entirely.
     const context = contextFor({
@@ -90,26 +100,26 @@ describe('JwtAuthGuard — cross-tenant rejection', () => {
       tenantSlug: undefined,
     });
 
-    expect(() => guard.canActivate(context)).toThrow(TenantMismatchError);
+    await expect(guard.canActivate(context)).rejects.toThrow(TenantMismatchError);
   });
 
-  it('rejects a token signed with another key', () => {
+  it('rejects a token signed with another key', async () => {
     const foreign = new JwtService({ secret: 'a-completely-different-secret-value-32ch' });
     const context = contextFor({
       authorization: `Bearer ${foreign.sign({ sub: 'u1', kind: 'STAFF', tenantSlug: 'albazourieh' })}`,
       tenantSlug: 'albazourieh',
     });
 
-    expect(() => guard.canActivate(context)).toThrow(UnauthorizedError);
+    await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedError);
   });
 
-  it('rejects a missing or non-bearer authorization header', () => {
-    expect(() => guard.canActivate(contextFor({ tenantSlug: 'albazourieh' }))).toThrow(
-      UnauthorizedError,
-    );
-    expect(() =>
+  it('rejects a missing or non-bearer authorization header', async () => {
+    await expect(
+      guard.canActivate(contextFor({ tenantSlug: 'albazourieh' })),
+    ).rejects.toThrow(UnauthorizedError);
+    await expect(
       guard.canActivate(contextFor({ authorization: 'Basic abc', tenantSlug: 'albazourieh' })),
-    ).toThrow(UnauthorizedError);
+    ).rejects.toThrow(UnauthorizedError);
   });
 });
 
@@ -153,6 +163,34 @@ describe('RolesGuard — citizen tokens cannot reach staff routes', () => {
     const context = contextFor({
       tenantSlug: 'albazourieh',
       user: { sub: 's1', kind: 'STAFF', tenantSlug: 'albazourieh', role: 'AUDITOR' },
+    });
+
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it('admits requests to public routes without authentication', () => {
+    const reflector = new Reflector();
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => {
+      if (key === 'isPublic') return true;
+      return undefined;
+    });
+    const guard = new RolesGuard(reflector);
+
+    const context = contextFor({
+      tenantSlug: 'albazourieh',
+    });
+
+    expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it('admits requests to routes without role restrictions', () => {
+    const reflector = new Reflector();
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(undefined);
+    const guard = new RolesGuard(reflector);
+
+    const context = contextFor({
+      tenantSlug: 'albazourieh',
+      user: { sub: 'c1', kind: 'CITIZEN', tenantSlug: 'albazourieh' },
     });
 
     expect(guard.canActivate(context)).toBe(true);

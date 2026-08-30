@@ -14,8 +14,9 @@ import type {
 } from '@mechanization/shared-schemas';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
-import { ConflictError, NotFoundError, ValidationError } from '../../common/exceptions';
+import { ConflictError, NotFoundError } from '../../common/exceptions';
 import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
+import { PaymentLedgerService } from './payment-ledger.service';
 
 /** Property categories that live on `PropertyEntry.propertyType`. */
 const PROPERTY_TYPE_CATEGORIES = new Set(['BUILDING', 'HOUSE', 'LAND', 'TENT']);
@@ -130,6 +131,7 @@ export class FeesService {
     private readonly events: EventEmitter2,
     @Inject(WHISH_GATEWAY) private readonly whish: WhishGateway,
     private readonly cache: RedisCacheService,
+    private readonly ledger: PaymentLedgerService,
   ) {}
 
   private get db() {
@@ -660,7 +662,14 @@ export class FeesService {
     }));
   }
 
-  /** A clerk confirming the money arrived, or sending the claim back. */
+  /**
+   * A clerk confirming the money arrived, or sending the claim back.
+   *
+   * Confirmation is a *ledger entry*, not a status flip. It used to set
+   * `paidAmount = amount` outright, which quietly overwrote any counter cash
+   * already recorded against the same invoice and left no record of what the
+   * confirmation itself received.
+   */
   async review(input: {
     paymentId: string;
     confirmed: boolean;
@@ -669,7 +678,15 @@ export class FeesService {
   }) {
     const payment = await this.db.citizenPayment.findUnique({
       where: { id: input.paymentId },
-      select: { id: true, paymentStatus: true, citizenId: true, amount: true },
+      select: {
+        id: true,
+        paymentStatus: true,
+        citizenId: true,
+        amount: true,
+        paidAmount: true,
+        paymentMethod: true,
+        whishTransactionRef: true,
+      },
     });
     if (!payment) throw new NotFoundError('Payment', input.paymentId);
 
@@ -677,42 +694,76 @@ export class FeesService {
       throw new ConflictError('لا توجد دفعة معلّقة للمراجعة على هذا السجل');
     }
 
+    if (!input.confirmed) {
+      /**
+       * Back to UNPAID, and the method and reference go with it — they
+       * described a transfer the municipality could not find.
+       *
+       * Nothing is written to the ledger, and `paidAmount` is untouched: a
+       * refused *claim* is not a movement of money, and it says nothing about
+       * cash already taken at the counter on the same invoice. That history now
+       * lives in its own rows, so refusing a claim can no longer disturb it.
+       */
+      await this.db.citizenPayment.update({
+        where: { id: payment.id },
+        data: {
+          paymentStatus: 'UNPAID',
+          paymentMethod: null,
+          whishTransactionRef: null,
+          reviewedById: input.actor.id,
+          reviewNote: input.note ?? null,
+        },
+      });
+
+      this.events.emit('payment.reviewed', {
+        tenantSlug: this.tenantContext.tenantSlug,
+        paymentId: payment.id,
+        citizenId: payment.citizenId,
+        confirmed: false,
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+      });
+
+      return { paymentStatus: 'UNPAID' as const };
+    }
+
+    /**
+     * The citizen declared a transfer for the whole *outstanding* balance —
+     * the portal offers no way to declare part of one — so confirming it
+     * receives exactly that, not the invoice's face value. On an invoice
+     * already carrying counter cash those are different numbers, and using the
+     * face value is what erased the cash.
+     */
+    const outstanding = Number(payment.amount) - Number(payment.paidAmount);
+    if (outstanding <= 0) {
+      throw new ConflictError('لا يوجد رصيد مستحق على هذه المطالبة');
+    }
+
+    const settled = await this.ledger.record({
+      paymentId: payment.id,
+      amount: outstanding,
+      method: (payment.paymentMethod ?? 'WHISH_MONEY') as PaymentMethod,
+      externalRef: payment.whishTransactionRef,
+      recordedById: input.actor.id,
+      note: input.note,
+    });
+
     await this.db.citizenPayment.update({
       where: { id: payment.id },
-      data: input.confirmed
-        ? {
-            paymentStatus: 'PAID',
-            // A citizen declares a transfer for the whole invoice — the portal
-            // offers no way to declare part of one — so confirming it receives
-            // the whole invoice.
-            paidAmount: payment.amount,
-            paidAt: new Date(),
-            reviewedById: input.actor.id,
-            reviewNote: input.note ?? null,
-          }
-        : {
-            // Back to UNPAID, and the method/reference are cleared with it —
-            // they described a transfer the municipality could not find.
-            // `paidAmount` is deliberately untouched: a refused *transfer* says
-            // nothing about cash already taken at the counter on the same row.
-            paymentStatus: 'UNPAID',
-            paymentMethod: null,
-            whishTransactionRef: null,
-            reviewedById: input.actor.id,
-            reviewNote: input.note ?? null,
-          },
+      data: { reviewedById: input.actor.id, reviewNote: input.note ?? null },
     });
 
     this.events.emit('payment.reviewed', {
       tenantSlug: this.tenantContext.tenantSlug,
       paymentId: payment.id,
       citizenId: payment.citizenId,
-      confirmed: input.confirmed,
+      confirmed: true,
       actorId: input.actor.id,
       actorRole: input.actor.role,
+      receiptNumber: settled.receiptNumber,
     });
 
-    return { paymentStatus: input.confirmed ? ('PAID' as const) : ('UNPAID' as const) };
+    return { paymentStatus: settled.paymentStatus };
   }
 
   /**
@@ -1064,16 +1115,24 @@ export class FeesService {
   async settleFromWhishCallback(callback: WhishCallback): Promise<{ applied: boolean }> {
     const payment = await this.db.citizenPayment.findFirst({
       where: { whishTransactionRef: callback.externalRef },
-      select: { id: true, amount: true, paymentStatus: true, citizenId: true },
+      select: { id: true, amount: true, paidAmount: true, paymentStatus: true, citizenId: true },
     });
 
     if (!payment) {
       this.logger.warn(`Whish callback for unknown reference ${callback.externalRef}`);
       return { applied: false };
     }
+    /**
+     * Idempotent by construction: a provider that does not get a 200 retries,
+     * and a retry must not bank the money twice or stamp a second `paidAt`.
+     */
     if (payment.paymentStatus === 'PAID') return { applied: false };
 
     if (!callback.succeeded) {
+      // No money moved, so nothing is written to the ledger. The invoice goes
+      // back to UNPAID and releases the reference so the citizen can start
+      // again rather than being stuck behind a PENDING_REVIEW that will never
+      // resolve.
       await this.db.citizenPayment.update({
         where: { id: payment.id },
         data: { paymentStatus: 'UNPAID', paymentMethod: null, whishTransactionRef: null },
@@ -1081,22 +1140,32 @@ export class FeesService {
       return { applied: true };
     }
 
-    const total = Number(payment.amount);
-    // The provider is the authority on what was taken, but it must not exceed
-    // what was owed — a mismatch is a bug or a tampered payload, and either way
-    // banking more than the invoice would silently create a credit this system
-    // has no way to represent.
-    const received = Math.min(callback.amount, total);
+    /**
+     * The provider is the authority on what it took, but it must not exceed
+     * what was still owed — a mismatch is a bug or a tampered payload, and
+     * banking more than the balance would silently create a credit this system
+     * has no way to represent.
+     *
+     * Capped against the *outstanding* balance rather than the invoice face
+     * value, because `startWhishCheckout` quotes the outstanding figure to the
+     * provider: on a part-settled invoice those two differ, and the face value
+     * is the wrong ceiling.
+     *
+     * The ledger recomputes both under a row lock and refuses an overpayment
+     * itself; this only keeps a legitimate callback from being rejected for
+     * arithmetic the provider did correctly.
+     */
+    const outstanding = Number(payment.amount) - Number(payment.paidAmount);
+    const received = Math.min(callback.amount, outstanding);
 
-    await this.db.citizenPayment.update({
-      where: { id: payment.id },
-      data: {
-        paidAmount: received,
-        paymentStatus: received >= total - 0.5 ? 'PAID' : 'UNPAID',
-        paymentMethod: 'WHISH_MONEY',
-        whishTransactionRef: callback.transactionRef,
-        paidAt: received >= total - 0.5 ? new Date() : null,
-      },
+    if (received <= 0) return { applied: false };
+
+    const settled = await this.ledger.record({
+      paymentId: payment.id,
+      amount: received,
+      method: 'WHISH_MONEY',
+      externalRef: callback.transactionRef,
+      note: 'دفع إلكتروني عبر Whish',
     });
 
     this.events.emit('payment.reviewed', {
@@ -1106,6 +1175,7 @@ export class FeesService {
       confirmed: true,
       actorId: null,
       actorRole: 'WHISH',
+      receiptNumber: settled.receiptNumber,
     });
 
     return { applied: true };
@@ -1139,91 +1209,94 @@ export class FeesService {
     note?: string;
     actor: { id: string; role: string };
   }) {
-    const payment = await this.db.citizenPayment.findUnique({
+    /**
+     * The outstanding balance, read only to default `amount`.
+     *
+     * Deliberately *not* the figure the settlement is computed from: this read
+     * is outside any lock, so it can be stale by the time the write happens.
+     * `PaymentLedgerService.record` re-reads under `SELECT … FOR UPDATE` and
+     * validates against that, which is what makes two clerks settling the same
+     * invoice in the same second safe. This value only answers "how much did
+     * they mean, when they typed nothing?".
+     */
+    const invoice = await this.db.citizenPayment.findUnique({
       where: { id: input.paymentId },
-      select: {
-        id: true,
-        paymentStatus: true,
-        citizenId: true,
-        amount: true,
-        paidAmount: true,
-      },
+      select: { amount: true, paidAmount: true, citizenId: true },
     });
-    if (!payment) throw new NotFoundError('Payment', input.paymentId);
+    if (!invoice) throw new NotFoundError('Payment', input.paymentId);
 
-    if (payment.paymentStatus === 'PAID') {
-      throw new ConflictError('هذه الدفعة مسدّدة بالفعل');
-    }
+    const received =
+      input.amount ?? Number(invoice.amount) - Number(invoice.paidAmount);
 
-    const total = Number(payment.amount);
-    const alreadyPaid = Number(payment.paidAmount);
-    const outstanding = total - alreadyPaid;
-
-    const received = input.amount ?? outstanding;
-
-    if (!Number.isFinite(received) || received <= 0) {
-      throw new ValidationError('المبلغ المستلم يجب أن يكون أكبر من صفر', {
-        amount: String(input.amount ?? ''),
-      });
-    }
-    // LBP is whole pounds in practice, so a half-pound tolerance is enough to
-    // absorb float noise from the Decimal round-trip without ever letting a
-    // real overpayment through.
-    if (received > outstanding + 0.5) {
-      throw new ConflictError(
-        `المبلغ المستلم (${received.toLocaleString('en-US')}) أكبر من الرصيد المستحق (${outstanding.toLocaleString('en-US')})`,
-      );
-    }
-
-    const paidAmount = alreadyPaid + received;
-    const fullySettled = paidAmount >= total - 0.5;
-
-    await this.db.citizenPayment.update({
-      where: { id: payment.id },
-      data: {
-        paidAmount,
-        // Only a fully covered invoice becomes PAID. A partial one stays
-        // UNPAID on purpose: every "what is outstanding" query in this system
-        // keys off that status, and a half-paid row marked PAID would drop out
-        // of the arrears the municipality is chasing.
-        paymentStatus: fullySettled ? 'PAID' : 'UNPAID',
-        paymentMethod: input.method as never,
-        /**
-         * Cleared when the method is cash.
-         *
-         * A row can reach here twice — a citizen declares a transfer, it is
-         * refused, and the money then arrives at the counter in notes. Leaving
-         * the old reference behind would leave a cash payment carrying a Whish
-         * number that describes a transfer the municipality never found, which
-         * the transactions log would then print underneath a «نقداً» badge.
-         */
-        whishTransactionRef:
-          input.method === 'WHISH_MONEY' ? (input.whishTransactionRef ?? null) : null,
-        // Cleared for every other method, for the same reason the Whish
-        // reference is: a row re-settled as counter cash must not keep naming
-        // a collector who is no longer holding anything.
-        collectedById: input.method === 'COLLECTOR' ? (input.collectedById ?? null) : null,
-        paidAt: fullySettled ? new Date() : null,
-        reviewedById: input.actor.id,
-        reviewNote: input.note ?? null,
-      },
+    const settled = await this.ledger.record({
+      paymentId: input.paymentId,
+      amount: received,
+      method: input.method,
+      /**
+       * Carried on the transaction rather than only on the invoice. A row can
+       * reach here twice — a citizen declares a transfer, it is refused, and
+       * the money arrives at the counter in notes — and the ledger keeps both
+       * movements with their own method and reference instead of the second
+       * overwriting the first.
+       */
+      externalRef: input.method === 'WHISH_MONEY' ? (input.whishTransactionRef ?? null) : null,
+      collectedById: input.method === 'COLLECTOR' ? (input.collectedById ?? null) : null,
+      recordedById: input.actor.id,
+      note: input.note,
     });
 
     this.events.emit('payment.reviewed', {
       tenantSlug: this.tenantContext.tenantSlug,
-      paymentId: payment.id,
-      citizenId: payment.citizenId,
+      paymentId: input.paymentId,
+      citizenId: invoice.citizenId,
       confirmed: true,
       actorId: input.actor.id,
       actorRole: input.actor.role,
     });
 
     return {
-      paymentStatus: fullySettled ? ('PAID' as const) : ('UNPAID' as const),
-      received,
-      paidAmount,
-      remaining: Math.max(total - paidAmount, 0),
+      paymentStatus: settled.paymentStatus,
+      received: settled.received,
+      paidAmount: settled.paidAmount,
+      remaining: settled.remaining,
+      /** The citizen's handle on this movement, and what a reprint looks up. */
+      receiptNumber: settled.receiptNumber,
     };
+  }
+
+  /** Every movement of money against one invoice, oldest first. */
+  async listTransactions(paymentId: string) {
+    return this.ledger.listForPayment(paymentId);
+  }
+
+  /**
+   * Reverses one recorded movement, as an opposing ledger row.
+   *
+   * The correction path a mutable `paidAmount` could not offer: a
+   * mis-keyed figure used to be fixed by overwriting the total, which left no
+   * trace that the first entry had ever existed.
+   */
+  async reverseTransaction(input: {
+    transactionId: string;
+    note?: string;
+    actor: { id: string; role: string };
+  }) {
+    const reversed = await this.ledger.reverse({
+      transactionId: input.transactionId,
+      recordedById: input.actor.id,
+      note: input.note,
+    });
+
+    this.events.emit('payment.reversed', {
+      tenantSlug: this.tenantContext.tenantSlug,
+      transactionId: input.transactionId,
+      receiptNumber: reversed.receiptNumber,
+      amount: reversed.received,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+    });
+
+    return reversed;
   }
 
   /** Headline numbers for the admin fee screen. */

@@ -10,6 +10,7 @@ import {
   RESIDENT_STATUS,
   UNIT_TYPE,
 } from './enums';
+import { normalizeDigits } from './primitives';
 
 /**
  * Bulk citizen import — one spreadsheet row per citizen.
@@ -182,12 +183,6 @@ export function normalizeArabic(value: string): string {
     .toLowerCase();
 }
 
-/** Arabic-Indic digits are digits; Zod's number coercion does not know that. */
-export function normalizeDigits(value: string): string {
-  return value.replace(/[٠-٩۰-۹]/g, (digit) =>
-    String(digit.charCodeAt(0) & 0x0f),
-  );
-}
 
 /**
  * Resolves a cell to an enum member, accepting either the Arabic label a clerk

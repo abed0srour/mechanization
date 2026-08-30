@@ -3,15 +3,20 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   PASSWORD_HASHER,
   SUPABASE_AUTH_SERVICE,
+  TOTP_SERVICE,
   USER_REPOSITORY,
 } from '../../../domain/interfaces/base-repository.interface';
-import { PasswordHasher } from '../../../domain/interfaces/otp-repository.interface';
+import {
+  PasswordHasher,
+  TotpService,
+} from '../../../domain/interfaces/otp-repository.interface';
 import { SupabaseAuthService } from '../../../domain/interfaces/supabase-auth.interface';
 import {
   StaffSummary,
   UserRepository,
 } from '../../../domain/interfaces/user-repository.interface';
 import { StaffRole } from '../../../domain/entities/user.entity';
+import { SessionRevocationService } from '../identity/session-revocation.service';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../common/exceptions';
 
 /**
@@ -34,6 +39,8 @@ export class StaffService {
     @Inject(USER_REPOSITORY) private readonly users: UserRepository,
     @Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher,
     @Inject(SUPABASE_AUTH_SERVICE) private readonly supabaseAuth: SupabaseAuthService,
+    @Inject(TOTP_SERVICE) private readonly totp: TotpService,
+    private readonly revocation: SessionRevocationService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -53,7 +60,7 @@ export class StaffService {
     lastName: string;
     role: StaffRole;
     actor: { id: string; role: string };
-  }): Promise<{ id: string }> {
+  }): Promise<{ id: string; totp?: { secret: string; keyUri: string } }> {
     const passwordHash = await this.hasher.hash(input.password);
     const id = await this.users.createStaff({
       tenantSlug: input.tenantSlug,
@@ -63,6 +70,24 @@ export class StaffService {
       lastName: input.lastName,
       role: input.role,
     });
+
+    /**
+     * A SUPER_ADMIN is enrolled at creation, not at first sign-in.
+     *
+     * `IdentityService` refuses a session to that role until enrolment is
+     * complete, so an account created without a secret could never sign in —
+     * and could not reach the enrolment endpoint either, which is itself behind
+     * a session. Issuing the secret here is what keeps that from being a
+     * deadlock: the inviting administrator receives it once, in this response,
+     * and hands it over with the password.
+     *
+     * Confirmed immediately rather than after the invitee proves a code,
+     * because the person who would prove it cannot sign in to do so. That is a
+     * real trade — the secret exists before anyone has scanned it — and the
+     * reason `pnpm staff:create --reset-totp` exists: a secret that never
+     * reached its owner is reissued rather than leaving the account stranded.
+     */
+    const totp = input.role === 'SUPER_ADMIN' ? await this.enrolTotp(id) : undefined;
 
     // Sync to Supabase Auth
     try {
@@ -88,7 +113,28 @@ export class StaffService {
       actorRole: input.actor.role,
     });
 
-    return { id };
+    return { id, ...(totp ? { totp } : {}) };
+  }
+
+  /**
+   * Issues and confirms a second factor for one staff account, returning what
+   * the authenticator app needs. Shared by `create` and the `staff:create
+   * --reset-totp` CLI, so both produce an account in the same state.
+   */
+  async enrolTotp(staffId: string): Promise<{ secret: string; keyUri: string }> {
+    const user = await this.users.findById(staffId);
+    if (!user || user.kind !== 'STAFF') {
+      throw new NotFoundError('Staff user', staffId);
+    }
+
+    const secret = this.totp.generateSecret();
+    await this.users.saveTotpSecret(staffId, secret);
+    await this.users.confirmTotp(staffId);
+
+    return {
+      secret,
+      keyUri: this.totp.keyUri(secret, user.email ?? staffId, `Baladiya ${user.tenantSlug}`),
+    };
   }
 
   async update(input: {
@@ -119,6 +165,12 @@ export class StaffService {
       role: input.role,
       ...(input.password ? { passwordHash: await this.hasher.hash(input.password) } : {}),
     });
+
+    // A role or password change bumps `tokenVersion` in the repository; drop
+    // the cached copy so the sessions it just revoked stop working now.
+    if (input.role || input.password) {
+      await this.revocation.forget(input.id);
+    }
 
     // Sync to Supabase Auth
     try {
@@ -169,6 +221,9 @@ export class StaffService {
     }
 
     await this.users.setStaffActive(input.id, input.isActive);
+    // The repository has bumped `tokenVersion`; this drops the cached copy so
+    // the revocation takes effect now rather than at the end of its TTL.
+    await this.revocation.forget(input.id);
 
     // Sync to Supabase Auth
     try {

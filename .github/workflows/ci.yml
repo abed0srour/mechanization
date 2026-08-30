@@ -1,0 +1,129 @@
+name: CI
+
+# Every push to a branch and every PR into main. The audit job in particular
+# only earns its keep if it runs on the branch, before review — an advisory
+# discovered after merge is a second piece of work, not a gate.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Every Prisma command needs these to be *parseable*, not reachable: the
+  # generators read the datasource block, and `validateEnv` runs at boot rather
+  # than at build. Nothing in CI connects to a database.
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+  DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+
+jobs:
+  verify:
+    name: typecheck · test · build
+    runs-on: ubuntu-latest
+
+    services:
+      # A throwaway Postgres for the integration tests.
+      #
+      # `BackupService`'s round-trip in particular cannot be tested any other
+      # way: the defect it pins lived in a database trigger, and a stubbed
+      # Prisma client has no triggers. Without this service that suite skips,
+      # and a skipped suite is one nobody notices has stopped protecting
+      # anything.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Version comes from the root `packageManager` field, so CI and a
+        # developer's machine cannot drift onto different resolvers — which is
+        # how a lockfile ends up rewritten by whoever installed last.
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        # Frozen: CI must fail on a lockfile that does not match the manifests
+        # rather than quietly resolving something else and testing that.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared schemas
+        # The backend and the frontend both import it as a workspace package;
+        # neither typechecks until it has been built once.
+        run: pnpm --filter @mechanization/shared-schemas build
+
+      - name: Generate Prisma clients
+        run: pnpm --filter @mechanization/backend prisma:generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        env:
+          # Present, so the integration suites run rather than skip.
+          TEST_DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: pnpm --filter @mechanization/backend test
+
+      - name: Build
+        run: pnpm build
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # ── The gate ────────────────────────────────────────────────────────
+      #
+      # `--prod` because a devDependency advisory does not ship: the threat
+      # model for this repository is what runs in the municipality's
+      # deployment, and failing a build over a test helper's transitive
+      # dependency is how a gate gets switched off.
+      #
+      # `high` rather than `moderate`, deliberately, and the reason is written
+      # down here so the next person can re-decide it rather than guess:
+      #
+      #   - `@nestjs/core` — the fix is 11.1.18 and this app is on Nest 10.
+      #     Clearing it is a framework major upgrade, not a version bump.
+      #   - `file-type` (×2) — pulled in by `@nestjs/common`, and the fix is a
+      #     major bump inside a transitive dependency. Both advisories are DoS
+      #     while parsing malformed ASF/ZIP input, reached only through Nest's
+      #     `FileTypeValidator`, which this codebase does not use.
+      #
+      # Neither is ignorable per-advisory in `pnpm audit`, so the threshold is
+      # the only lever. Revisit it when the Nest 11 upgrade lands — at that
+      # point this should drop to `moderate`.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high

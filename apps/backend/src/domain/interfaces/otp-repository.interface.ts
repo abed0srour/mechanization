@@ -49,4 +49,13 @@ export interface TotpService {
   /** otpauth:// URI for the enrolment QR code. */
   keyUri(secret: string, accountName: string, issuer: string): string;
   verify(token: string, secret: string): boolean;
+  /**
+   * The TOTP step the current time falls in.
+   *
+   * Recorded per account so an accepted code cannot be presented twice. With
+   * `window: 1` the same six digits verify for about ninety seconds, which is
+   * long enough for a code read over a shoulder, relayed by a phishing page, or
+   * left on a shared screen to be reused.
+   */
+  currentStep(now?: Date): number;
 }

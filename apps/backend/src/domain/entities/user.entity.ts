@@ -13,6 +13,8 @@ export interface StaffProps {
   firstName: string;
   lastName: string;
   isActive: boolean;
+  tokenVersion?: number;
+  lastTotpStep?: bigint | null;
   totpSecret?: string | null;
   totpConfirmedAt?: Date | null;
 }
@@ -29,6 +31,7 @@ export interface CitizenProps {
   identityDocType: string;
   identityDocNumber: string;
   isActive: boolean;
+  tokenVersion?: number;
 }
 
 /**
@@ -79,6 +82,23 @@ export class User extends AggregateRoot {
     return this.attrs.passwordHash as string | undefined;
   }
 
+  /** Stamped into every token this account is issued. See the schema note. */
+  get tokenVersion(): number {
+    return (this.attrs.tokenVersion as number | undefined) ?? 0;
+  }
+
+  /**
+   * The TOTP step this account last authenticated with, or `null`.
+   *
+   * Compared against the step a submitted code falls in, which is what makes a
+   * code single-use: within `otplib`'s one-step window the same digits verify
+   * for about ninety seconds, so "it verified" is not on its own enough.
+   */
+  get lastTotpStep(): number | null {
+    const raw = this.attrs.lastTotpStep as bigint | number | null | undefined;
+    return raw === null || raw === undefined ? null : Number(raw);
+  }
+
   get totpSecret(): string | undefined {
     return (this.attrs.totpSecret as string | null | undefined) ?? undefined;
   }
@@ -96,7 +116,7 @@ export class User extends AggregateRoot {
    * here so no login path can skip it.
    */
   get requiresTotp(): boolean {
-    return false;
+    return this.kind === 'STAFF' && this.role === 'SUPER_ADMIN';
   }
 
   get hasConfirmedTotp(): boolean {

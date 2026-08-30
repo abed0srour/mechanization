@@ -107,6 +107,7 @@ export default function CitizensPage({
    */
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
   const [total, setTotal] = useState(0);
+  const [totals, setTotals] = useState({ outstanding: 0, overdue: 0, inArrears: 0 });
   /** The committed term — set when the clerk presses Enter, not as they type. */
   const [appliedSearch, setAppliedSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -571,15 +572,6 @@ export default function CitizensPage({
    * round trip would only introduce a moment where the cards and the table
    * below them disagree.
    */
-  /**
-   * The server's figures, over every matching citizen.
-   *
-   * Reduced from `items` until this table was paged, at which point that would
-   * have meant "the twenty-five on screen" — a total that changes with the page
-   * size. `total` is the count; the money comes from window aggregates computed
-   * beside the rows.
-   */
-  const [totals, setTotals] = useState({ outstanding: 0, overdue: 0, inArrears: 0 });
 
   if (!token) return null;
 

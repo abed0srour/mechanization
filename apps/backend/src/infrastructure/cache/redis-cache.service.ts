@@ -98,8 +98,32 @@ export class RedisCacheService implements OnModuleDestroy {
 
     if (!this.client) return;
     try {
-      const keys = await this.client.keys(`${prefix}*`);
-      if (keys.length > 0) await this.client.del(...keys);
+      const stream = this.client.scanStream({ match: `${prefix}*`, count: 100 });
+      const pipeline = this.client.pipeline();
+      let keyCount = 0;
+
+      stream.on('data', (keys: string[]) => {
+        if (keys.length > 0) {
+          for (const key of keys) {
+            pipeline.del(key);
+          }
+          keyCount += keys.length;
+        }
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        stream.on('end', async () => {
+          try {
+            if (keyCount > 0) {
+              await pipeline.exec();
+            }
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+        stream.on('error', reject);
+      });
     } catch (error) {
       this.logger.warn(`Invalidate ${prefix}* failed: ${(error as Error).message}`);
     }
