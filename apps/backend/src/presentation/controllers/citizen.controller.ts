@@ -70,7 +70,7 @@ export class CitizenController {
    * their fee standing. `search` matches name, phone, رقم مرجعي or document
    * number — the four things a clerk has in front of them.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR')
   @Get()
   async list(
     @Query('search') search?: string,
@@ -142,11 +142,10 @@ export class CitizenController {
   }
 
   /**
-   * FIELD_INSPECTOR is included: an inspector standing at the property needs
-   * to know who filed for it. The identity numbers on this response are the
-   * reason the route is role-gated at all.
+   * FIELD_INSPECTOR and COLLECTOR are included: an inspector standing at the property
+   * or a collector at the counter needs to view citizen fee balances and details.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR')
   @Get(':id')
   async getById(@Param('id') id: string) {
     const citizen = await this.reporting.getCitizenProfile(id);

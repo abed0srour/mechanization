@@ -165,6 +165,10 @@ export default function StaffDashboard({
       router.replace(`${base}/login`);
       return;
     }
+    if (session.user.role === 'COLLECTOR') {
+      router.replace(`${base}/fees`);
+      return;
+    }
     setToken(session.accessToken);
     setRole(session.user.role);
   }, [tenant, base, router]);

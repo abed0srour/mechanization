@@ -83,6 +83,10 @@ export default function ZonesPage({
       router.replace(`${base}/login`);
       return;
     }
+    if (existing.user.role === 'COLLECTOR') {
+      router.replace(`${base}/fees`);
+      return;
+    }
     setSession(existing);
   }, [tenant, base, router]);
 

@@ -117,7 +117,7 @@ export default function AuditTrailPage({
     if (existing.user.role !== 'SUPER_ADMIN' && existing.user.role !== 'AUDITOR') {
       // Enforced server-side regardless; redirecting avoids offering a page
       // that can only ever answer "لا يوجد صلاحية" for this role.
-      router.replace(`${base}/dashboard`);
+      router.replace(existing.user.role === 'COLLECTOR' ? `${base}/fees` : `${base}/dashboard`);
       return;
     }
     setSession(existing);

@@ -2,7 +2,7 @@ import { AggregateRoot } from './aggregate-root.base';
 import { ForbiddenError, ValidationError } from '../errors/domain-error';
 
 export type UserKind = 'STAFF' | 'CITIZEN';
-export type StaffRole = 'SUPER_ADMIN' | 'AUDITOR' | 'FIELD_INSPECTOR';
+export type StaffRole = 'SUPER_ADMIN' | 'AUDITOR' | 'FIELD_INSPECTOR' | 'COLLECTOR';
 
 export interface StaffProps {
   id: string;

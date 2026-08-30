@@ -89,17 +89,16 @@ export class FeesController {
 
   // ──────────────────────────  Fee notices  ──────────────────────────
 
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR')
   @Get('notices')
   async listNotices() {
     return { items: await this.fees.listNotices() };
   }
 
   /**
-   * Issuing a fee bills every matching citizen at once, so it is SUPER_ADMIN
-   * only — an AUDITOR reads the municipality's books, it does not add to them.
+   * Issuing a fee bills matching citizens.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'COLLECTOR')
   @Post('notices')
   async issue(
     @Body(new ZodValidationPipe(createFeeNoticeSchema)) body: CreateFeeNotice,
@@ -108,7 +107,7 @@ export class FeesController {
     return this.fees.issue(body, { id: user.sub, role: user.role ?? '' });
   }
 
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR')
   @Get('summary')
   async summary() {
     return this.fees.summary();
@@ -150,7 +149,7 @@ export class FeesController {
    * differ, and a second route would have drifted from this one the first time
    * a field was added.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR')
   @Get('payments')
   async listPayments(
     @Query('status') status?: string,
@@ -179,7 +178,7 @@ export class FeesController {
    * Raises a one-off charge against one citizen — the counterpart to issuing a
    * notice, for a debt that has no rule behind it.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'COLLECTOR')
   @Post('payments')
   async charge(
     @Body(new ZodValidationPipe(chargeCitizenSchema)) body: ChargeCitizen,
@@ -197,7 +196,7 @@ export class FeesController {
    * An omitted `amount` settles the whole outstanding balance, which is both
    * the common case and the pre-partial-payment behaviour.
    */
-  @Roles('SUPER_ADMIN')
+  @Roles('SUPER_ADMIN', 'COLLECTOR')
   @Patch('payments/:id/settle')
   async settle(
     @Param('id') id: string,

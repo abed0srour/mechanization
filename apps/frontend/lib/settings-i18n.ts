@@ -359,11 +359,12 @@ export interface SettingsCopy {
  * them as unavailable is what makes that gap visible instead of leaving an
  * administrator to guess which of three roles an accountant is supposed to get.
  */
-export const ROLE_KEYS = ['admin', 'accountant', 'inspector', 'clerk', 'auditor'] as const;
+export const ROLE_KEYS = ['admin', 'collector', 'accountant', 'inspector', 'clerk', 'auditor'] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
 export const ROLE_BACKEND_VALUE: Record<RoleKey, string | null> = {
   admin: 'SUPER_ADMIN',
+  collector: 'COLLECTOR',
   accountant: null,
   inspector: 'FIELD_INSPECTOR',
   clerk: null,
@@ -728,6 +729,7 @@ const AR: SettingsCopy = {
       'هذا الدور غير موجود في قاعدة البيانات بعد — إضافته تحتاج ترحيلاً وتحديد صلاحياته على الخادم.',
     roleNames: {
       admin: 'مدير النظام',
+      collector: 'جابي',
       accountant: 'محاسب',
       inspector: 'مفتّش ميداني',
       clerk: 'موظف إداري',
@@ -735,6 +737,7 @@ const AR: SettingsCopy = {
     },
     roleDuties: {
       admin: 'صلاحية كاملة: الموافقة النهائية، الإعدادات، وإدارة الحسابات.',
+      collector: 'جباية الرسوم وتسجيل المقبوضات وإصدار الفواتير فقط.',
       accountant: 'إصدار الرسوم وتأكيد الدفعات ومتابعة التحصيل.',
       inspector: 'مراجعة الطلبات ميدانياً، دون الاطلاع على سجل النشاطات.',
       clerk: 'إدخال بيانات المواطنين وتحديثها، دون البتّ في الطلبات.',
@@ -1091,6 +1094,7 @@ const EN: SettingsCopy = {
       'This role does not exist in the database yet — adding it needs a migration and a decision about its permissions on the server.',
     roleNames: {
       admin: 'Administrator',
+      collector: 'Collector',
       accountant: 'Accountant',
       inspector: 'Field inspector',
       clerk: 'Clerk',
@@ -1098,6 +1102,7 @@ const EN: SettingsCopy = {
     },
     roleDuties: {
       admin: 'Full access: final approval, settings, and account management.',
+      collector: 'Collects fees, registers payments, and creates invoices only.',
       accountant: 'Issues fees, confirms payments, and follows up on collection.',
       inspector: 'Reviews claims in the field, without access to the activity log.',
       clerk: 'Enters and updates citizen records, without deciding claims.',

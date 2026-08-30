@@ -84,7 +84,8 @@ export default function StaffLogin({
       });
 
       saveSession(tenant, result, rememberMe);
-      router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
+      const target = result.user.role === 'COLLECTOR' ? 'fees' : 'dashboard';
+      router.push(`/${tenant}/${locale}/${adminPath}/${target}`);
     } catch (caught) {
       logApiError(caught);
       setError(

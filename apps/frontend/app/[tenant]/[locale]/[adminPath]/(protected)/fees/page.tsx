@@ -131,7 +131,7 @@ export default function FeesPage({
   const [municipalityName, setMunicipalityName] = useState('');
 
   const toast = useToast();
-  const canManage = role === 'SUPER_ADMIN';
+  const canManage = role === 'SUPER_ADMIN' || role === 'COLLECTOR';
 
   useEffect(() => {
     const session = loadSession(tenant);

@@ -97,7 +97,7 @@ export default function SettingsPage({
       return;
     }
     if (session.user.role !== 'SUPER_ADMIN') {
-      router.replace(`${base}/dashboard`);
+      router.replace(session.user.role === 'COLLECTOR' ? `${base}/fees` : `${base}/dashboard`);
       return;
     }
     setToken(session.accessToken);

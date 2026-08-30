@@ -60,6 +60,7 @@ export const ar = {
     SUPER_ADMIN: 'مدير النظام',
     AUDITOR: 'مدقّق',
     FIELD_INSPECTOR: 'مفتّش ميداني',
+    COLLECTOR: 'جابي',
   } satisfies Record<StaffRole, string>,
 
   residentStatus: {

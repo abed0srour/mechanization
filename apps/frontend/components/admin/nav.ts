@@ -56,6 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/dashboard',
         label: 'لوحة التحكم',
         icon: LayoutDashboard,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
         keywords: ['مؤشرات', 'تحليلات', 'إحصاءات'],
       },
       // Directly under the dashboard: the dashboard reports on the register,
@@ -64,6 +65,7 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/citizens',
         label: 'المواطنون',
         icon: Users,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR'],
         keywords: ['سجل', 'مواطن', 'عقار', 'استيراد'],
       },
       // Next to the registry rather than under settings: a fee is issued
@@ -72,15 +74,16 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/fees',
         label: 'الرسوم والمدفوعات',
         icon: Receipt,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR'],
         keywords: ['رسم', 'مطالبة', 'فاتورة', 'دفع'],
       },
       // Read-only: the ledger above answers "who owes what", this answers
-      // "what has been paid". An auditor lives here.
+      // "what has been paid".
       {
         path: '/payments',
         label: 'سجل العمليات',
         icon: ArrowLeftRight,
-        roles: ['SUPER_ADMIN', 'AUDITOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'COLLECTOR'],
         keywords: ['قبض', 'إيصال', 'محصّل', 'نقد'],
       },
     ],
@@ -88,14 +91,32 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'الأرض',
     items: [
-      { path: '/map', label: 'الخريطة', icon: MapIcon, keywords: ['عقارات', 'مواقع', 'مسح'] },
-      { path: '/zones', label: 'القطاعات', icon: Layers, keywords: ['قطاع', 'منطقة', 'حدود'] },
+      {
+        path: '/map',
+        label: 'الخريطة',
+        icon: MapIcon,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        keywords: ['عقارات', 'مواقع', 'مسح'],
+      },
+      {
+        path: '/zones',
+        label: 'القطاعات',
+        icon: Layers,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        keywords: ['قطاع', 'منطقة', 'حدود'],
+      },
     ],
   },
   {
     label: 'النظام',
     items: [
-      { path: '/appearance', label: 'المظهر', icon: Palette, keywords: ['ألوان', 'سمة', 'داكن'] },
+      {
+        path: '/appearance',
+        label: 'المظهر',
+        icon: Palette,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        keywords: ['ألوان', 'سمة', 'داكن'],
+      },
       {
         path: '/audit',
         label: 'سجل النشاطات',

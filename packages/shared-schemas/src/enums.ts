@@ -73,7 +73,7 @@ export type LandType = z.infer<typeof landTypeSchema>;
  * irreversible migration across every municipality's schema.
  */
 
-export const STAFF_ROLE = ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'] as const;
+export const STAFF_ROLE = ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR'] as const;
 export const staffRoleSchema = arabicEnum(STAFF_ROLE, 'الصلاحية غير صالحة');
 export type StaffRole = z.infer<typeof staffRoleSchema>;
 

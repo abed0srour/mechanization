@@ -40,6 +40,7 @@ enum StaffRole {
   SUPER_ADMIN
   AUDITOR
   FIELD_INSPECTOR
+  COLLECTOR
 }
 
 enum Gender {
