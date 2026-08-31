@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { cn } from '@/lib/utils';
 import {
   AlignedFieldGrid,
   SectionSaveRow,
@@ -283,6 +284,23 @@ export function FinanceSection({
                         {ar.feeFrequency?.[frequency as never] ?? frequency}
                       </SelectItem>
                     ))}
+                    {FREQUENCIES.map((frequency) => {
+                      const label =
+                        locale === 'en'
+                          ? (frequency === 'ONCE'
+                              ? 'One-time'
+                              : frequency === 'MONTHLY'
+                                ? 'Monthly'
+                                : frequency === 'HALF_YEARLY'
+                                  ? 'Semi-Annually'
+                                  : 'Annually')
+                          : (ar.feeFrequency?.[frequency as never] ?? frequency);
+                      return (
+                        <SelectItem key={frequency} value={frequency}>
+                          {label}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </SettingsField>
@@ -332,6 +350,8 @@ export function FinanceSection({
           <FieldGroup icon={Percent} title={copy.finance.rateHeading}>
             <div className="grid items-start gap-4 md:grid-cols-2">
               <AlignedFieldGrid columns={1}>
+            <div className="grid items-start gap-5 lg:grid-cols-12">
+              <div className="space-y-3 lg:col-span-6">
                 <SettingsField
                   label={copy.finance.defaultRate}
                   htmlFor="default-rate"
@@ -351,12 +371,14 @@ export function FinanceSection({
                       dir="ltr"
                       invalid={!rateValid}
                       className="pe-10 text-start"
+                      className="pe-10 text-start font-mono font-medium"
                       value={local.defaultRatePercent}
                       onChange={(e) => setLocal({ ...local, defaultRatePercent: e.target.value })}
                     />
                     <span
                       aria-hidden
                       className="pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-muted-foreground"
+                      className="pointer-events-none absolute inset-y-0 end-3 flex items-center text-sm font-semibold text-muted-foreground"
                     >
                       %
                     </span>
@@ -372,6 +394,30 @@ export function FinanceSection({
               */}
               <div className="flex min-w-0 flex-col gap-1.5">
                 <Label className="leading-snug text-muted-foreground">
+                {/* Quick Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-xs text-muted-foreground">{locale === 'en' ? 'Quick presets:' : 'خيارات سريعة:'}</span>
+                  {['0', '5', '10', '15', '20'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setLocal({ ...local, defaultRatePercent: preset })}
+                      className={cn(
+                        'rounded-md border px-2.5 py-0.5 text-xs font-medium transition-colors',
+                        local.defaultRatePercent === preset
+                          ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                          : 'border-border/60 bg-muted/40 hover:bg-accent hover:text-accent-foreground',
+                      )}
+                    >
+                      {preset}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rate Breakdown Card */}
+              <div className="flex flex-col gap-1.5 lg:col-span-6">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {copy.finance.ratePreview}
                 </Label>
                 <dl className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
@@ -382,6 +428,31 @@ export function FinanceSection({
                     <dd className="shrink-0 tabular-nums" dir="ltr">
                       {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
                     </dd>
+                <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-4 text-sm shadow-sm backdrop-blur-sm">
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span className="text-xs">{copy.finance.ratePreviewBase}</span>
+                      <span className="font-mono text-xs tabular-nums" dir="ltr">
+                        {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        {copy.finance.ratePreviewCharge}
+                        <span className="inline-flex rounded bg-primary/15 px-1.5 py-0.2 text-[11px] font-semibold text-primary">
+                          +{rateValid ? rate : 0}%
+                        </span>
+                      </span>
+                      <span className="font-mono text-xs font-semibold text-primary tabular-nums" dir="ltr">
+                        +{formatAmount(rateCharge, local.baseCurrency)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-border/60 pt-2 text-sm font-bold">
+                      <span>{copy.finance.ratePreviewTotal}</span>
+                      <span className="font-mono text-base text-foreground tabular-nums" dir="ltr">
+                        {formatAmount(RATE_PREVIEW_BASE + rateCharge, local.baseCurrency)}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-baseline justify-between gap-4">
                     <dt className="min-w-0 text-muted-foreground">
@@ -398,6 +469,7 @@ export function FinanceSection({
                     </dd>
                   </div>
                 </dl>
+                </div>
               </div>
             </div>
           </FieldGroup>
@@ -460,6 +532,8 @@ export function FinanceSection({
             {local.secondaryCurrency ? (
               <div className="grid items-start gap-4 md:grid-cols-2">
                 <AlignedFieldGrid columns={1}>
+              <div className="mt-3 grid items-start gap-5 lg:grid-cols-12">
+                <div className="lg:col-span-6">
                   <SettingsField
                     label={copy.finance.exchangeRate}
                     htmlFor="exchange-rate"
@@ -468,6 +542,7 @@ export function FinanceSection({
                   >
                     <div className="flex items-center gap-2">
                       <span className="shrink-0 text-sm text-muted-foreground" dir="ltr">
+                      <span className="shrink-0 rounded-md bg-muted px-2.5 py-2 text-xs font-semibold text-muted-foreground" dir="ltr">
                         1 {local.secondaryCurrency} =
                       </span>
                       <Input
@@ -476,18 +551,23 @@ export function FinanceSection({
                         dir="ltr"
                         invalid={!exchangeValid}
                         className="text-start"
+                        className="text-start font-mono font-medium"
                         value={local.exchangeRate}
                         onChange={(e) => setLocal({ ...local, exchangeRate: e.target.value })}
                       />
                       <span className="shrink-0 text-sm text-muted-foreground">
+                      <span className="shrink-0 rounded-md bg-muted px-2.5 py-2 text-xs font-semibold text-muted-foreground">
                         {local.baseCurrency}
                       </span>
                     </div>
                   </SettingsField>
                 </AlignedFieldGrid>
+                </div>
 
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <Label className="leading-snug text-muted-foreground">
+                <div className="flex flex-col gap-1.5 lg:col-span-6">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {copy.finance.conversionPreview}
                   </Label>
                   <div className="rounded-md border bg-muted/30 p-3">
@@ -496,6 +576,8 @@ export function FinanceSection({
                         panel on a phone rather than wrapping — it has no spaces
                         the browser likes to break at. */}
                     <p className="break-words text-sm tabular-nums" dir="ltr">
+                  <div className="rounded-xl border border-border/70 bg-muted/30 p-4 shadow-sm">
+                    <p className="break-words font-mono text-sm font-semibold tabular-nums" dir="ltr">
                       {exchangeValid && exchange
                         ? `${formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)} ≈ ${formatAmount(
                             RATE_PREVIEW_BASE / exchange,
@@ -504,12 +586,20 @@ export function FinanceSection({
                         : '—'}
                     </p>
                     <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    <p className="mt-2 text-xs text-muted-foreground">
                       {copy.finance.exchangeRateUpdated}:{' '}
                       {local.exchangeRateUpdatedAt
                         ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
                             locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
                           )
                         : copy.finance.exchangeRateNever}
+                      <span className="font-medium text-foreground">
+                        {local.exchangeRateUpdatedAt
+                          ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
+                              locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
+                            )
+                          : copy.finance.exchangeRateNever}
+                      </span>
                     </p>
                   </div>
                 </div>
