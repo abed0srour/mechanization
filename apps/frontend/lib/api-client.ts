@@ -1494,3 +1494,28 @@ export async function restoreSnapshot(
   }
   return payload as RestoreReport;
 }
+
+export async function changeStaffPassword(
+  tenant: string,
+  token: string,
+  input: { currentPassword: string; newPassword: string },
+): Promise<{ changed: boolean }> {
+  return apiFetch<{ changed: boolean }>(tenant, '/auth/staff/change-password', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function changeStaffEmail(
+  tenant: string,
+  token: string,
+  input: { newEmail: string; currentPassword: string },
+): Promise<{ email: string }> {
+  return apiFetch<{ email: string }>(tenant, '/auth/staff/change-email', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+

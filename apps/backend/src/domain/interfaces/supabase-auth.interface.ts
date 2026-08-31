@@ -23,6 +23,7 @@ export interface SupabaseAuthService {
   }): Promise<{ id: string }>;
   updateStaffUser(input: {
     email: string;
+    newEmail?: string;
     password?: string;
     firstName?: string;
     lastName?: string;

@@ -5,18 +5,25 @@ import {
   CheckCircle2,
   Circle,
   KeyRound,
+  Loader2,
   Mail,
   MonitorSmartphone,
   PencilLine,
   ScrollText,
   ShieldCheck,
 } from 'lucide-react';
-import { getStaff, logApiError } from '@/lib/api-client';
+import {
+  ApiRequestError,
+  changeStaffEmail,
+  changeStaffPassword,
+  getStaff,
+  logApiError,
+} from '@/lib/api-client';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/ui/toast';
 import {
   Table,
   TableBody,
@@ -27,7 +34,6 @@ import {
 } from '@/components/ui/table';
 import {
   AlignedFieldGrid,
-  Notice,
   ScrollableTable,
   SettingsCard,
   SettingsField,
@@ -89,25 +95,36 @@ export function SecuritySection({
   copy: SettingsCopy;
   locale: string;
 }) {
-  /*
-   * The signed-in account's own address, looked up rather than assumed.
-   *
-   * The session carries id, name, kind and role — no email — so the only
-   * truthful way to fill "current email" is to ask. On a screen whose subject
-   * is *which account this is*, a placeholder would be the one wrong thing to
-   * put in that field.
-   */
+  const toast = useToast();
   const [email, setEmail] = useState('');
+  const [loadingEmail, setLoadingEmail] = useState(true);
+
+  // Email form state
+  const [newEmail, setNewEmail] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+
+  // Password form state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        setLoadingEmail(true);
         const { items } = await getStaff(tenant, token);
-        if (!cancelled) setEmail(items.find((item) => item.id === userId)?.email ?? '');
+        if (!cancelled) {
+          setEmail(items.find((item) => item.id === userId)?.email ?? '');
+        }
       } catch (caught) {
         logApiError(caught);
-        /* the field stays empty rather than showing someone else's address */
+      } finally {
+        if (!cancelled) setLoadingEmail(false);
       }
     })();
     return () => {
@@ -115,13 +132,9 @@ export function SecuritySection({
     };
   }, [tenant, token, userId]);
 
-  const [newEmail, setNewEmail] = useState('');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
   const strength = passwordStrength(newPassword);
   const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
+  const isPasswordTooShort = newPassword.length > 0 && newPassword.length < 10;
 
   const dateFormat = useMemo(
     () =>
@@ -139,15 +152,97 @@ export function SecuritySection({
     copy.security.strengthStrong,
   ][strength];
 
+  const handleEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEmail || !emailPassword || savingEmail) return;
+    setEmailError(null);
+    setSavingEmail(true);
+
+    try {
+      const result = await changeStaffEmail(tenant, token, {
+        newEmail,
+        currentPassword: emailPassword,
+      });
+      setEmail(result.email);
+      setNewEmail('');
+      setEmailPassword('');
+      toast.success(
+        locale === 'en' ? 'Email updated successfully' : 'تم تحديث البريد الإلكتروني بنجاح',
+        {
+          description:
+            locale === 'en'
+              ? 'Your sign-in email address has been updated.'
+              : 'تم تحديث عنوان البريد الإلكتروني لحسابك.',
+        },
+      );
+    } catch (caught) {
+      logApiError(caught);
+      if (caught instanceof ApiRequestError) {
+        setEmailError(caught.message);
+      } else {
+        setEmailError(
+          locale === 'en'
+            ? 'Failed to update email address.'
+            : 'تعذّر تحديث البريد الإلكتروني.',
+        );
+      }
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword || !confirmPassword || mismatch || savingPassword) {
+      return;
+    }
+    if (newPassword.length < 10) {
+      setPasswordError(
+        locale === 'en'
+          ? 'New password must be at least 10 characters.'
+          : 'كلمة المرور يجب أن تكون 10 أحرف على الأقل.',
+      );
+      return;
+    }
+
+    setPasswordError(null);
+    setSavingPassword(true);
+
+    try {
+      await changeStaffPassword(tenant, token, {
+        currentPassword,
+        newPassword,
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success(
+        locale === 'en' ? 'Password changed successfully' : 'تم تغيير كلمة المرور بنجاح',
+        {
+          description:
+            locale === 'en'
+              ? 'Your account password has been updated.'
+              : 'تم تحديث كلمة مرور حسابك بنجاح.',
+        },
+      );
+    } catch (caught) {
+      logApiError(caught);
+      if (caught instanceof ApiRequestError) {
+        setPasswordError(caught.message);
+      } else {
+        setPasswordError(
+          locale === 'en'
+            ? 'Failed to update password.'
+            : 'تعذّر تغيير كلمة المرور.',
+        );
+      }
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/*
-        Stated before any control is reached, not beside the save button. An
-        administrator who types a new password into a form that cannot change it
-        has been wasted; worse, they may believe afterwards that they did.
-      */}
-      <Notice title={copy.security.designOnly}>{copy.security.designOnlyHint}</Notice>
-
       <SettingsCard
         icon={ShieldCheck}
         title={copy.security.verifyHeading}
@@ -156,17 +251,17 @@ export function SecuritySection({
         <ol className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[
             { icon: PencilLine, title: copy.security.stepEdit, hint: copy.security.stepEditHint, active: true },
-            { icon: Mail, title: copy.security.stepConfirm, hint: copy.security.stepConfirmHint, active: false },
-            { icon: CheckCircle2, title: copy.security.stepApply, hint: copy.security.stepApplyHint, active: false },
+            { icon: Mail, title: copy.security.stepConfirm, hint: copy.security.stepConfirmHint, active: true },
+            { icon: CheckCircle2, title: copy.security.stepApply, hint: copy.security.stepApplyHint, active: true },
           ].map((step, index) => {
             const Icon = step.icon;
             return (
               <li
                 key={step.title}
                 className={cn(
-                  'rounded-xl border p-4',
+                  'rounded-xl border p-4 transition-colors',
                   step.active
-                    ? 'border-primary/30 bg-primary/5'
+                    ? 'border-primary/20 bg-primary/[0.03]'
                     : 'border-border/70 bg-muted/20',
                 )}
               >
@@ -189,16 +284,16 @@ export function SecuritySection({
                     )}
                     aria-hidden
                   />
-                  <p className="min-w-0 truncate text-sm font-medium">{step.title}</p>
+                  <p className="min-w-0 truncate text-sm font-semibold">{step.title}</p>
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   {step.hint}
                 </p>
                 <Badge
-                  variant={step.active ? 'soft-warning' : 'soft-muted'}
+                  variant={step.active ? 'soft-success' : 'soft-muted'}
                   className="mt-3"
                 >
-                  {step.active ? copy.security.statePending : copy.security.stateWaiting}
+                  {locale === 'en' ? 'Active' : 'مفعّل'}
                 </Badge>
               </li>
             );
@@ -206,107 +301,197 @@ export function SecuritySection({
         </ol>
       </SettingsCard>
 
+      {/* Change Email */}
       <SettingsCard
         icon={Mail}
         title={copy.security.credentialsHeading}
         hint={copy.security.credentialsHint}
       >
-        <AlignedFieldGrid>
-          <SettingsField label={copy.security.currentEmail} htmlFor="current-email">
-            <Input id="current-email" dir="ltr" className="text-start" value={email} readOnly disabled />
-          </SettingsField>
-          <SettingsField label={copy.security.newEmail} htmlFor="new-email">
-            <Input
-              id="new-email"
-              type="email"
-              dir="ltr"
-              className="text-start"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-            />
-          </SettingsField>
-        </AlignedFieldGrid>
-        <div className="mt-5 flex items-center gap-3">
-          {/* Disabled, with the reason on the button's own row rather than in a
-              tooltip: a disabled control with no stated reason is the single
-              most common way an interface reads as broken. */}
-          <Button disabled>{copy.security.changeEmail}</Button>
-          <p className="text-xs text-muted-foreground">{copy.security.statePending}</p>
-        </div>
+        <form onSubmit={handleEmailChange} className="space-y-4">
+          <AlignedFieldGrid columns={3}>
+            <SettingsField label={copy.security.currentEmail} htmlFor="current-email">
+              <Input
+                id="current-email"
+                dir="ltr"
+                className="text-start font-mono"
+                value={loadingEmail ? '…' : email || '—'}
+                readOnly
+                disabled
+              />
+            </SettingsField>
+
+            <SettingsField
+              label={copy.security.newEmail}
+              htmlFor="new-email"
+              error={emailError ?? undefined}
+            >
+              <Input
+                id="new-email"
+                type="email"
+                dir="ltr"
+                className="text-start font-mono"
+                value={newEmail}
+                onChange={(e) => {
+                  setNewEmail(e.target.value);
+                  setEmailError(null);
+                }}
+                placeholder="name@example.com"
+                required
+              />
+            </SettingsField>
+
+            <SettingsField
+              label={locale === 'en' ? 'Current Password (to confirm)' : 'كلمة المرور الحالية (للتأكيد)'}
+              htmlFor="email-current-password"
+            >
+              <Input
+                id="email-current-password"
+                type="password"
+                autoComplete="current-password"
+                value={emailPassword}
+                onChange={(e) => {
+                  setEmailPassword(e.target.value);
+                  setEmailError(null);
+                }}
+                required
+              />
+            </SettingsField>
+          </AlignedFieldGrid>
+
+          <div className="flex items-center gap-3 pt-2">
+            <Button
+              type="submit"
+              disabled={!newEmail || !emailPassword || savingEmail || newEmail.toLowerCase() === email.toLowerCase()}
+            >
+              {savingEmail ? (
+                <>
+                  <Loader2 className="me-2 size-4 animate-spin" />
+                  {locale === 'en' ? 'Updating…' : 'جارٍ التحديث…'}
+                </>
+              ) : (
+                copy.security.changeEmail
+              )}
+            </Button>
+          </div>
+        </form>
       </SettingsCard>
 
+      {/* Change Password */}
       <SettingsCard
         icon={KeyRound}
         title={copy.security.passwordHeading}
         hint={copy.security.passwordHint}
       >
-        <AlignedFieldGrid columns={3}>
-          <SettingsField label={copy.security.currentPassword} htmlFor="current-password">
-            <Input
-              id="current-password"
-              type="password"
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-            />
-          </SettingsField>
-          <SettingsField label={copy.security.newPassword} htmlFor="new-password">
-            <Input
-              id="new-password"
-              type="password"
-              autoComplete="new-password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
-          </SettingsField>
-          <SettingsField
-            label={copy.security.confirmPassword}
-            htmlFor="confirm-password"
-            error={mismatch ? copy.security.passwordMismatch : undefined}
-          >
-            <Input
-              id="confirm-password"
-              type="password"
-              autoComplete="new-password"
-              invalid={mismatch}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-            />
-          </SettingsField>
-        </AlignedFieldGrid>
+        <form onSubmit={handlePasswordChange} className="space-y-4">
+          <AlignedFieldGrid columns={3}>
+            <SettingsField
+              label={copy.security.currentPassword}
+              htmlFor="current-password"
+              error={passwordError ?? undefined}
+            >
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => {
+                  setCurrentPassword(e.target.value);
+                  setPasswordError(null);
+                }}
+                required
+              />
+            </SettingsField>
 
-        {newPassword ? (
-          <div className="mt-4 max-w-sm space-y-1.5">
-            <div className="flex items-baseline justify-between text-xs">
-              <span className="text-muted-foreground">{copy.security.strength}</span>
-              <span className="font-medium">{strengthLabel}</span>
+            <SettingsField
+              label={copy.security.newPassword}
+              htmlFor="new-password"
+              hint={isPasswordTooShort ? (locale === 'en' ? 'Minimum 10 characters' : '10 أحرف على الأقل') : undefined}
+            >
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => {
+                  setNewPassword(e.target.value);
+                  setPasswordError(null);
+                }}
+                required
+              />
+            </SettingsField>
+
+            <SettingsField
+              label={copy.security.confirmPassword}
+              htmlFor="confirm-password"
+              error={mismatch ? copy.security.passwordMismatch : undefined}
+            >
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                invalid={mismatch}
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  setPasswordError(null);
+                }}
+                required
+              />
+            </SettingsField>
+          </AlignedFieldGrid>
+
+          {newPassword ? (
+            <div className="max-w-sm space-y-1.5 pt-1">
+              <div className="flex items-baseline justify-between text-xs">
+                <span className="text-muted-foreground">{copy.security.strength}</span>
+                <span className="font-medium">{strengthLabel}</span>
+              </div>
+              <div className="flex gap-1.5" aria-hidden>
+                {[1, 2, 3].map((step) => (
+                  <span
+                    key={step}
+                    className={cn(
+                      'h-1.5 flex-1 rounded-full transition-colors',
+                      strength >= step
+                        ? strength === 1
+                          ? 'bg-destructive'
+                          : strength === 2
+                            ? 'bg-warning'
+                            : 'bg-success'
+                        : 'bg-muted',
+                    )}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="flex gap-1.5" aria-hidden>
-              {[1, 2, 3].map((step) => (
-                <span
-                  key={step}
-                  className={cn(
-                    'h-1.5 flex-1 rounded-full transition-colors',
-                    strength >= step
-                      ? strength === 1
-                        ? 'bg-destructive'
-                        : strength === 2
-                          ? 'bg-warning'
-                          : 'bg-success'
-                      : 'bg-muted',
-                  )}
-                />
-              ))}
-            </div>
+          ) : null}
+
+          <div className="flex items-center gap-3 pt-2">
+            <Button
+              type="submit"
+              disabled={
+                !currentPassword ||
+                !newPassword ||
+                !confirmPassword ||
+                mismatch ||
+                newPassword.length < 10 ||
+                savingPassword
+              }
+            >
+              {savingPassword ? (
+                <>
+                  <Loader2 className="me-2 size-4 animate-spin" />
+                  {locale === 'en' ? 'Updating…' : 'جارٍ التحديث…'}
+                </>
+              ) : (
+                copy.security.changePassword
+              )}
+            </Button>
           </div>
-        ) : null}
-
-        <div className="mt-5 flex items-center gap-3">
-          <Button disabled>{copy.security.changePassword}</Button>
-          <p className="text-xs text-muted-foreground">{copy.security.statePending}</p>
-        </div>
+        </form>
       </SettingsCard>
 
+      {/* Two-Factor Authentication */}
       <SettingsCard
         icon={MonitorSmartphone}
         title={copy.security.twoFactorHeading}
@@ -314,11 +499,6 @@ export function SecuritySection({
         actions={<Badge variant="soft-muted">{copy.security.twoFactorOff}</Badge>}
       >
         <div className="flex flex-wrap items-start gap-5">
-          {/*
-            A placeholder where the enrolment QR goes, rather than a generated
-            one. A real QR here would encode a secret this app cannot issue, and
-            scanning it would enrol an authenticator against nothing.
-          */}
           <div className="flex size-28 shrink-0 items-center justify-center rounded-xl border border-dashed border-border bg-muted/30">
             <Circle className="size-6 text-muted-foreground" aria-hidden />
           </div>
@@ -347,6 +527,7 @@ export function SecuritySection({
         </div>
       </SettingsCard>
 
+      {/* Login History */}
       <SettingsCard
         icon={ScrollText}
         title={copy.security.historyHeading}
@@ -374,8 +555,6 @@ export function SecuritySection({
                   <TableCell className="whitespace-nowrap">
                     {dateFormat.format(new Date(Date.now() - row.minutesAgo * 60_000))}
                   </TableCell>
-                  {/* Latin data inside an RTL table: without `dir` the dots in
-                      an IPv4 address reorder and 192.0.2.14 reads as 14.2.0.192. */}
                   <TableCell dir="ltr" className="text-start font-mono text-xs">
                     {row.ip}
                   </TableCell>

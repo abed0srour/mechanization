@@ -96,6 +96,7 @@ export class SupabaseAuthServiceImpl implements SupabaseAuthService {
 
   async updateStaffUser(input: {
     email: string;
+    newEmail?: string;
     password?: string;
     firstName?: string;
     lastName?: string;
@@ -109,6 +110,10 @@ export class SupabaseAuthServiceImpl implements SupabaseAuthService {
     }
 
     const updates: Parameters<typeof this.client.auth.admin.updateUserById>[1] = {};
+    if (input.newEmail) {
+      updates.email = input.newEmail.trim().toLowerCase();
+      updates.email_confirm = true;
+    }
     if (input.password) {
       updates.password = input.password;
     }

@@ -149,3 +149,18 @@ export const staffPasswordPairSchema = z
 
 /** The soft-delete toggle, and its undo. */
 export const staffActiveSchema = z.object({ isActive: z.boolean() });
+
+/** Changing own password in Security Settings. */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'يرجى إدخال كلمة المرور الحالية'),
+  newPassword: staffPassword,
+});
+export type ChangePassword = z.infer<typeof changePasswordSchema>;
+
+/** Changing own email in Security Settings. */
+export const changeEmailSchema = z.object({
+  newEmail: z.string().trim().toLowerCase().email('البريد الإلكتروني الجديد غير صالح'),
+  currentPassword: z.string().min(1, 'يرجى إدخال كلمة المرور الحالية للتأكيد'),
+});
+export type ChangeEmail = z.infer<typeof changeEmailSchema>;
+

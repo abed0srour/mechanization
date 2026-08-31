@@ -18,7 +18,7 @@ import {
   UserRepository,
 } from '../../../domain/interfaces/user-repository.interface';
 import { StaffRole, User } from '../../../domain/entities/user.entity';
-import { NotFoundError, UnauthorizedError } from '../../common/exceptions';
+import { ConflictError, NotFoundError, UnauthorizedError } from '../../common/exceptions';
 import { OtpService } from './otp.service';
 
 /** The single token shape. Both citizens and staff carry exactly this. */
@@ -273,6 +273,103 @@ export class IdentityService {
       actorId: user.id,
       actorRole: user.role ?? '',
     });
+  }
+
+  /**
+   * Change own password. Verifies current password first, updates passwordHash and Supabase Auth.
+   */
+  async changeStaffPassword(
+    userId: string,
+    tenantSlug: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user || user.kind !== 'STAFF' || !user.passwordHash) {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    const match = await this.hasher.verify(currentPassword, user.passwordHash);
+    if (!match) {
+      throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const passwordHash = await this.hasher.hash(newPassword);
+    await this.users.updateStaff(user.id, { passwordHash });
+
+    // Sync to Supabase Auth
+    try {
+      if (user.email) {
+        await this.supabaseAuth.updateStaffUser({
+          email: user.email,
+          password: newPassword,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_PASSWORD_CHANGED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+  }
+
+  /**
+   * Change own email. Verifies current password first, checks uniqueness, and updates Supabase Auth.
+   */
+  async changeStaffEmail(
+    userId: string,
+    tenantSlug: string,
+    newEmail: string,
+    currentPassword: string,
+  ): Promise<{ email: string }> {
+    const user = await this.users.findById(userId);
+    if (!user || user.kind !== 'STAFF' || !user.passwordHash) {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    const match = await this.hasher.verify(currentPassword, user.passwordHash);
+    if (!match) {
+      throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const nextEmail = newEmail.trim().toLowerCase();
+    if (nextEmail === user.email?.toLowerCase()) {
+      return { email: nextEmail };
+    }
+
+    const existing = await this.users.findStaffByEmail(nextEmail);
+    if (existing) {
+      throw new ConflictError('البريد الإلكتروني مستخدم بالفعل من قبل موظف آخر');
+    }
+
+    await this.users.updateStaff(user.id, { email: nextEmail });
+
+    // Sync to Supabase Auth
+    try {
+      if (user.email) {
+        await this.supabaseAuth.updateStaffUser({
+          email: user.email,
+          newEmail: nextEmail,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_EMAIL_CHANGED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+
+    return { email: nextEmail };
   }
 
   // ───────────────────────────  Citizens  ───────────────────────────

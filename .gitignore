@@ -25,3 +25,4 @@ apps/backend/backups/*.json
 *.bundle
 _to_delete/
 .agents/
+supabase/.temp/
