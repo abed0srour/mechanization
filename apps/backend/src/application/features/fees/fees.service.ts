@@ -917,10 +917,39 @@ export class FeesService {
    * who owes it — a clerk taking cash at the counter needs to find the row by
    * the name in front of them.
    */
+  /** Returns unique fee titles registered in the municipality. */
+  async listDistinctTitles(): Promise<string[]> {
+    const [notices, payments] = await withConnectionRetry(() =>
+      Promise.all([
+        this.db.feeNotice.findMany({
+          select: { title: true },
+          distinct: ['title'],
+          orderBy: { title: 'asc' },
+        }),
+        this.db.citizenPayment.findMany({
+          select: { title: true },
+          distinct: ['title'],
+          orderBy: { title: 'asc' },
+        }),
+      ]),
+    );
+
+    const set = new Set<string>();
+    for (const n of notices) {
+      if (n.title?.trim()) set.add(n.title.trim());
+    }
+    for (const p of payments) {
+      if (p.title?.trim()) set.add(p.title.trim());
+    }
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }
+
   async listAllPayments(
     filter: {
       status?: string;
       search?: string;
+      feeTitle?: string;
       citizenId?: string;
       /** CASH | WHISH_MONEY. */
       method?: string;
@@ -963,6 +992,14 @@ export class FeesService {
       ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
       ...(filter.status ? { paymentStatus: filter.status as never } : {}),
       ...(filter.method ? { paymentMethod: filter.method as never } : {}),
+      ...(filter.feeTitle
+        ? {
+            OR: [
+              { feeNotice: { title: { equals: filter.feeTitle } } },
+              { searchText: { contains: searchTokens(filter.feeTitle)[0] || filter.feeTitle } },
+            ],
+          }
+        : {}),
       // PENDING_REVIEW belongs here despite `paidAmount` still being zero:
       // the citizen has declared a transfer, so there is a claimed
       // transaction with a method and a reference to show — it is simply

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { BillTypeSelect } from '@/components/admin/bill-type-select';
 
 export interface ChargeValues {
   citizenId: string;
@@ -45,6 +46,7 @@ export function ChargeCitizenDialog({
   error,
   onSubmit,
   locale = 'ar',
+  existingTitles = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,6 +55,7 @@ export function ChargeCitizenDialog({
   error: string | null;
   onSubmit: (values: ChargeValues) => void;
   locale?: string;
+  existingTitles?: string[];
 }) {
   const [values, setValues] = useState<ChargeValues>(EMPTY);
   const [query, setQuery] = useState('');
@@ -161,15 +164,26 @@ export function ChargeCitizenDialog({
           </Field>
 
           <Field
-            label={locale === 'en' ? 'Charge Reason / Title' : 'سبب المطالبة'}
+            label={locale === 'en' ? 'Fee / Bill Type' : 'نوع الرسم / سبب المطالبة'}
             htmlFor="charge-title"
             required
+            hint={
+              locale === 'en'
+                ? 'Select from predefined municipal bill types or search to type a custom name.'
+                : 'اختر من أنواع الرسوم البلدية المعتمدة أو ابحث لكتابة اسم مخصص.'
+            }
           >
-            <Input
+            <BillTypeSelect
               id="charge-title"
-              placeholder={locale === 'en' ? 'e.g. Real Estate Certificate Fee' : 'مثال: رسم إفادة عقارية'}
+              locale={locale}
               value={values.title}
-              onChange={(event) => set({ title: event.target.value })}
+              onChange={(title) => set({ title })}
+              existingTitles={existingTitles}
+              placeholder={
+                locale === 'en'
+                  ? 'Select from previous bills or type a new title…'
+                  : 'اختر من الرسوم السابقة أو اكتب اسماً جديداً…'
+              }
             />
           </Field>
 

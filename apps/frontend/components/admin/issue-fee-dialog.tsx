@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { BillTypeSelect } from '@/components/admin/bill-type-select';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
 
@@ -85,6 +86,7 @@ export function IssueFeeDialog({
   error,
   onSubmit,
   locale = 'ar',
+  existingTitles = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -93,6 +95,7 @@ export function IssueFeeDialog({
   error: string | null;
   onSubmit: (values: IssueFeeValues) => void;
   locale?: string;
+  existingTitles?: string[];
 }) {
   const labels = getLabels(locale);
   const [values, setValues] = useState<IssueFeeValues>(EMPTY);
@@ -226,16 +229,26 @@ export function IssueFeeDialog({
           {current.id === 'details' ? (
             <>
               <Field
-                label={locale === 'en' ? 'Fee Title' : 'اسم الرسم'}
+                label={locale === 'en' ? 'Fee / Bill Type' : 'نوع الرسم / الفاتورة'}
                 htmlFor="fee-title"
                 required
+                hint={
+                  locale === 'en'
+                    ? 'Select from predefined municipal bill types or search to type a custom name.'
+                    : 'اختر من أنواع الرسوم البلدية المعتمدة أو ابحث لكتابة اسم مخصص.'
+                }
               >
-                <Input
+                <BillTypeSelect
                   id="fee-title"
-                  autoFocus
-                  placeholder={locale === 'en' ? 'e.g. Monthly Waste Collection' : 'مثال: رسم النفايات الشهري'}
+                  locale={locale}
                   value={values.title}
-                  onChange={(event) => set({ title: event.target.value })}
+                  onChange={(title) => set({ title })}
+                  existingTitles={existingTitles}
+                  placeholder={
+                    locale === 'en'
+                      ? 'Select from previous bills or type a new title…'
+                      : 'اختر من الرسوم السابقة أو اكتب اسماً جديداً…'
+                  }
                 />
               </Field>
 

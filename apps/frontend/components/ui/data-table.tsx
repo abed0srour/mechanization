@@ -573,6 +573,19 @@ export function DataTable<TData, TValue = unknown>({
    * nobody presses Enter to say "show everything again".
    */
 
+  const handlePaginationChange = React.useCallback<OnChangeFn<PaginationState>>(
+    (updater) => {
+      const next =
+        typeof updater === 'function' ? updater(pagination) : updater;
+      if (onPaginationChange) {
+        onPaginationChange(next);
+      } else {
+        setInternalPagination(next);
+      }
+    },
+    [pagination, onPaginationChange],
+  );
+
   const table = useReactTable({
     data,
     columns,
@@ -591,7 +604,7 @@ export function DataTable<TData, TValue = unknown>({
     // `-1` means "unknown page count"; TanStack then trusts `pageCount` only
     // when the caller supplies one, and leaves next/previous enabled otherwise.
     pageCount: manualPagination ? (pageCount ?? -1) : undefined,
-    onPaginationChange: onPaginationChange ?? setInternalPagination,
+    onPaginationChange: handlePaginationChange,
     onSortingChange: onSortingChange ?? setInternalSorting,
     onGlobalFilterChange: (updater) => {
       const next =
@@ -866,10 +879,8 @@ export function DataTable<TData, TValue = unknown>({
           />
         </div>
 
-        {/* The single scroll container for both axes — `overflow-x` for a wide
-            row of action buttons, `overflow-y` under `max-h` for a long page.
-            `Table` deliberately adds no wrapper of its own; see table.tsx. */}
-        <div className="hidden max-h-[70vh] overflow-auto sm:block">
+        {/* The scroll container for horizontal overflow — lets all 10 records show full height without vertical scrolling. */}
+        <div className="hidden overflow-x-auto sm:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/95 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/80">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -1025,7 +1036,12 @@ export function DataTable<TData, TValue = unknown>({
             aria-label={labels.previous}
             title={labels.previous}
             disabled={loading || currentPage <= 1}
-            onClick={() => table.previousPage()}
+            onClick={() => {
+              handlePaginationChange({
+                ...pagination,
+                pageIndex: Math.max(pagination.pageIndex - 1, 0),
+              });
+            }}
           >
             <ChevronRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
           </Button>
@@ -1035,7 +1051,12 @@ export function DataTable<TData, TValue = unknown>({
             aria-label={labels.next}
             title={labels.next}
             disabled={loading || currentPage >= resolvedPageCount}
-            onClick={() => table.nextPage()}
+            onClick={() => {
+              handlePaginationChange({
+                ...pagination,
+                pageIndex: Math.min(pagination.pageIndex + 1, Math.max(resolvedPageCount - 1, 0)),
+              });
+            }}
           >
             <ChevronLeft className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
           </Button>

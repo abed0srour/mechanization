@@ -1320,12 +1320,17 @@ export interface AdminPaymentItem {
  * have) and re-orders newest-first — the سجل العمليات view, as against the
  * fees ledger's "what is owed".
  */
+export function getFeeTitles(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<string[]>(tenant, '/fees/titles', { token, signal });
+}
+
 export function getAllPayments(
   tenant: string,
   token: string,
   filter: {
     status?: string;
     search?: string;
+    feeTitle?: string;
     citizenId?: string;
     method?: string;
     transactionsOnly?: boolean;
@@ -1338,6 +1343,7 @@ export function getAllPayments(
   const query = new URLSearchParams();
   if (filter.status) query.set('status', filter.status);
   if (filter.search) query.set('search', filter.search);
+  if (filter.feeTitle) query.set('feeTitle', filter.feeTitle);
   if (filter.citizenId) query.set('citizenId', filter.citizenId);
   if (filter.method) query.set('method', filter.method);
   if (filter.transactionsOnly) query.set('transactionsOnly', 'true');

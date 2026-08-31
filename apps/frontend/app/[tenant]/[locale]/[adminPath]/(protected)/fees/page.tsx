@@ -23,6 +23,7 @@ import {
   getAllPayments,
   getCitizenProfile,
   getFeeSummary,
+  getFeeTitles,
   getMunicipalitySettings,
   getTenantConfig,
   issueFeeNotice,
@@ -48,6 +49,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { ChargeCitizenDialog, type ChargeValues } from '@/components/admin/charge-citizen-dialog';
 import { IssueFeeDialog, type IssueFeeValues } from '@/components/admin/issue-fee-dialog';
+import { BillTypeFilter } from '@/components/admin/bill-type-select';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
 import { cn } from '@/lib/utils';
 
@@ -143,6 +145,7 @@ export default function FeesPage({
 
   // Table Data State
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [feeTitleFilter, setFeeTitleFilter] = useState<string>('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
 
@@ -173,27 +176,21 @@ export default function FeesPage({
     setRole(session.user.role);
   }, [tenant, base, router]);
 
-  /*
-    The ledger page, and only the ledger page.
+  const feeTitlesQuery = useStaffQuery({
+    queryKey: ['fees-titles', tenant],
+    queryFn: (accessToken, signal) => getFeeTitles(tenant, accessToken, signal),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل أنواع الرسوم.',
+  });
 
-    These five reads were one `load`, which meant every page turn and every
-    search re-fetched the fee summary, the municipality's settings, the tenant
-    config and two hundred citizens — none of which depend on which slice of
-    the ledger is on screen. Splitting the parameterised read from the rest is
-    what stops a click on «التالي» costing five requests instead of one.
-
-    Cancellation comes with the key: changing the status tab while a search is
-    in flight abandons that request rather than racing it. The `useEffect` that
-    reset the page index is gone — `DataTable` already returns to page one when
-    a search is committed, and the status tabs do it explicitly below; having
-    both an effect and a handler doing it was what put two reads in flight at
-    once, with the slower one winning.
-  */
   const paymentsQuery = useStaffQuery({
     queryKey: [
       'fees-payments',
       tenant,
       statusFilter,
+      feeTitleFilter,
       appliedSearch,
       pagination.pageIndex,
       pagination.pageSize,
@@ -204,6 +201,7 @@ export default function FeesPage({
         accessToken,
         {
           status: statusFilter || undefined,
+          feeTitle: feeTitleFilter || undefined,
           search: appliedSearch || undefined,
           limit: pagination.pageSize,
           offset: pagination.pageIndex * pagination.pageSize,
@@ -691,48 +689,49 @@ export default function FeesPage({
       {/* Main Table Card */}
       <Card className="overflow-hidden">
         <CardHeader className="border-b pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base font-bold">
               <Receipt className="size-5 text-primary" />
               {locale === 'en' ? 'Fees & Billing Register' : 'سجل الرسوم والمطالبات'}
             </CardTitle>
 
-            {/* Status Tabs Filter */}
-            <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
-              {statusFilters.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  /*
-                    Narrowing the ledger returns to the first page, in the
-                    handler that narrows it rather than in an effect watching
-                    for the change. Without it, ticking «المسدّدة» on page 7
-                    asks for rows 60–70 of a set that now has nine, and the
-                    table goes blank with no clue that the rows are behind you.
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Searchable Bill Type Filter */}
+              <BillTypeFilter
+                value={feeTitleFilter}
+                onChange={(nextTitle) => {
+                  setFeeTitleFilter(nextTitle);
+                  setPagination((previous) =>
+                    previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+                  );
+                }}
+                locale={locale}
+                existingTitles={(feeTitlesQuery.data as string[] | undefined) ?? []}
+              />
 
-                    An effect did this until React Query took over the reads,
-                    and it had to stop: `setStatusFilter` and the effect's
-                    `setPagination` land in different renders, so the query key
-                    changed twice and the first read — the one at the stale
-                    offset — was fired for nothing. Setting both here makes it
-                    one render, one key, one request.
-                  */
-                  onClick={() => {
-                    setStatusFilter(tab.id);
-                    setPagination((previous) =>
-                      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
-                    );
-                  }}
-                  className={cn(
-                    'rounded-lg px-3 py-1 text-xs font-semibold transition-all',
-                    statusFilter === tab.id
-                      ? 'bg-card text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
+              {/* Status Tabs Filter */}
+              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
+                {statusFilters.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(tab.id);
+                      setPagination((previous) =>
+                        previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+                      );
+                    }}
+                    className={cn(
+                      'rounded-lg px-3 py-1 text-xs font-semibold transition-all cursor-pointer',
+                      statusFilter === tab.id
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -770,6 +769,7 @@ export default function FeesPage({
         error={null}
         onSubmit={handleIssueNotice}
         locale={locale}
+        existingTitles={(feeTitlesQuery.data as string[] | undefined) ?? []}
       />
 
       {/* Charge Citizen Dialog */}
@@ -781,6 +781,7 @@ export default function FeesPage({
         error={null}
         onSubmit={handleChargeCitizen}
         locale={locale}
+        existingTitles={(feeTitlesQuery.data as string[] | undefined) ?? []}
       />
 
       {/* Receipt Modal Dialog */}

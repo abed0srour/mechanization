@@ -152,11 +152,21 @@ export class FeesController {
    * differ, and a second route would have drifted from this one the first time
    * a field was added.
    */
+  /**
+   * Returns distinct fee titles registered across the municipality.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
+  @Get('titles')
+  async listTitles() {
+    return this.fees.listDistinctTitles();
+  }
+
   @Roles('SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('payments')
   async listPayments(
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('feeTitle') feeTitle?: string,
     /** Narrows the ledger to one citizen — the «عرض» drill-down. */
     @Query('citizenId') citizenId?: string,
     @Query('method') method?: string,
@@ -169,6 +179,7 @@ export class FeesController {
     return this.fees.listAllPayments({
       status,
       search,
+      feeTitle,
       citizenId,
       method,
       transactionsOnly: transactionsOnly === 'true',
