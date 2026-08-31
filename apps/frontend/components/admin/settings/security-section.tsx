@@ -10,12 +10,12 @@ import {
   MonitorSmartphone,
   PencilLine,
   ScrollText,
+  Send,
   ShieldCheck,
 } from 'lucide-react';
 import {
   ApiRequestError,
   changeStaffEmail,
-  changeStaffPassword,
   getStaff,
   logApiError,
   sendStaffPasswordResetEmail,
@@ -58,15 +58,6 @@ const SAMPLE_ROWS = [
   { minutesAgo: 2880, ip: '192.0.2.14', device: 'Chrome · Windows', location: 'Tyre, LB', ok: true },
 ] as const;
 
-/** Length and variety only — never a claim that a password is safe. */
-function passwordStrength(value: string): 0 | 1 | 2 | 3 {
-  if (!value) return 0;
-  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(value)).length;
-  if (value.length >= 14 && classes >= 3) return 3;
-  if (value.length >= 10 && classes >= 2) return 2;
-  return 1;
-}
-
 /**
  * الأمان — credentials, second factor, and who has signed in.
  *
@@ -103,15 +94,11 @@ export function SecuritySection({
   // Email form state
   const [newEmail, setNewEmail] = useState('');
   const [emailPassword, setEmailPassword] = useState('');
-  const [savingEmail, setSavingEmail] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [sendingEmailChange, setSendingEmailChange] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
 
-  // Password form state
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [savingPassword, setSavingPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
+  // Password reset state
   const [sendingResetEmail, setSendingResetEmail] = useState(false);
 
   useEffect(() => {
@@ -134,10 +121,6 @@ export function SecuritySection({
     };
   }, [tenant, token, userId]);
 
-  const strength = passwordStrength(newPassword);
-  const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
-  const isPasswordTooShort = newPassword.length > 0 && newPassword.length < 10;
-
   const dateFormat = useMemo(
     () =>
       new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn', {
@@ -147,18 +130,11 @@ export function SecuritySection({
     [locale],
   );
 
-  const strengthLabel = [
-    '—',
-    copy.security.strengthWeak,
-    copy.security.strengthFair,
-    copy.security.strengthStrong,
-  ][strength];
-
-  const handleEmailChange = async (e: React.FormEvent) => {
+  const handleSendEmailChange = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmail || !emailPassword || savingEmail) return;
+    if (!newEmail || !emailPassword || sendingEmailChange) return;
     setEmailError(null);
-    setSavingEmail(true);
+    setSendingEmailChange(true);
 
     try {
       const result = await changeStaffEmail(tenant, token, {
@@ -168,13 +144,14 @@ export function SecuritySection({
       setEmail(result.email);
       setNewEmail('');
       setEmailPassword('');
+      setShowEmailForm(false);
       toast.success(
         locale === 'en' ? 'Email updated successfully' : 'تم تحديث البريد الإلكتروني بنجاح',
         {
           description:
             locale === 'en'
               ? 'Your sign-in email address has been updated.'
-              : 'تم تحديث عنوان البريد الإلكتروني لحسابك وإرسال إشعار التأكيد.',
+              : 'تم تحديث البريد الإلكتروني لحسابك وتأكيد التغيير.',
         },
       );
     } catch (caught) {
@@ -189,62 +166,12 @@ export function SecuritySection({
         );
       }
     } finally {
-      setSavingEmail(false);
+      setSendingEmailChange(false);
     }
   };
 
-  const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentPassword || !newPassword || !confirmPassword || mismatch || savingPassword) {
-      return;
-    }
-    if (newPassword.length < 10) {
-      setPasswordError(
-        locale === 'en'
-          ? 'New password must be at least 10 characters.'
-          : 'كلمة المرور يجب أن تكون 10 أحرف على الأقل.',
-      );
-      return;
-    }
-
-    setPasswordError(null);
-    setSavingPassword(true);
-
-    try {
-      await changeStaffPassword(tenant, token, {
-        currentPassword,
-        newPassword,
-      });
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      toast.success(
-        locale === 'en' ? 'Password changed successfully' : 'تم تغيير كلمة المرور بنجاح',
-        {
-          description:
-            locale === 'en'
-              ? 'Your account password has been updated.'
-              : 'تم تحديث كلمة مرور حسابك بنجاح.',
-        },
-      );
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError) {
-        setPasswordError(caught.message);
-      } else {
-        setPasswordError(
-          locale === 'en'
-            ? 'Failed to update password.'
-            : 'تعذّر تغيير كلمة المرور.',
-        );
-      }
-    } finally {
-      setSavingPassword(false);
-    }
-  };
-
-  const handleSendResetEmail = async () => {
-    if (sendingResetEmail) return;
+  const handleSendResetPasswordEmail = async () => {
+    if (sendingResetEmail || !email) return;
     setSendingResetEmail(true);
     try {
       await sendStaffPasswordResetEmail(tenant, token);
@@ -282,6 +209,7 @@ export function SecuritySection({
 
   return (
     <div className="space-y-6">
+      {/* 3-Step Verification Overview */}
       <SettingsCard
         icon={ShieldCheck}
         title={copy.security.verifyHeading}
@@ -340,210 +268,155 @@ export function SecuritySection({
         </ol>
       </SettingsCard>
 
-      {/* Change Email */}
+      {/* Email Address Section */}
       <SettingsCard
         icon={Mail}
         title={copy.security.credentialsHeading}
         hint={copy.security.credentialsHint}
+        actions={
+          <Badge variant="soft-success">
+            {locale === 'en' ? 'Verified' : 'موثّق'}
+          </Badge>
+        }
       >
-        <form onSubmit={handleEmailChange} className="space-y-4">
-          <AlignedFieldGrid columns={3}>
-            <SettingsField label={copy.security.currentEmail} htmlFor="current-email">
-              <Input
-                id="current-email"
-                dir="ltr"
-                className="text-start font-mono"
-                value={loadingEmail ? '…' : email || '—'}
-                readOnly
-                disabled
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={copy.security.newEmail}
-              htmlFor="new-email"
-              error={emailError ?? undefined}
-            >
-              <Input
-                id="new-email"
-                type="email"
-                dir="ltr"
-                className="text-start font-mono"
-                value={newEmail}
-                onChange={(e) => {
-                  setNewEmail(e.target.value);
-                  setEmailError(null);
-                }}
-                placeholder="name@example.com"
-                required
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={locale === 'en' ? 'Current Password (to confirm)' : 'كلمة المرور الحالية (للتأكيد)'}
-              htmlFor="email-current-password"
-            >
-              <Input
-                id="email-current-password"
-                type="password"
-                autoComplete="current-password"
-                value={emailPassword}
-                onChange={(e) => {
-                  setEmailPassword(e.target.value);
-                  setEmailError(null);
-                }}
-                required
-              />
-            </SettingsField>
-          </AlignedFieldGrid>
-
-          <div className="flex items-center gap-3 pt-2">
-            <Button
-              type="submit"
-              disabled={!newEmail || !emailPassword || savingEmail || newEmail.toLowerCase() === email.toLowerCase()}
-            >
-              {savingEmail ? (
-                <>
-                  <Loader2 className="me-2 size-4 animate-spin" />
-                  {locale === 'en' ? 'Updating…' : 'جارٍ التحديث…'}
-                </>
-              ) : (
-                copy.security.changeEmail
-              )}
-            </Button>
+        <div className="space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border/70 bg-muted/20 p-4">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">
+                {copy.security.currentEmail}
+              </p>
+              <p className="font-mono text-sm font-semibold tracking-wide text-foreground">
+                {loadingEmail ? '…' : email || '—'}
+              </p>
+            </div>
+            {!showEmailForm && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEmailForm(true)}
+              >
+                <Send className="me-2 size-3.5" />
+                {locale === 'en' ? 'Change Email Address' : 'تغيير البريد الإلكتروني'}
+              </Button>
+            )}
           </div>
-        </form>
+
+          {showEmailForm && (
+            <form onSubmit={handleSendEmailChange} className="rounded-xl border border-primary/20 bg-primary/[0.02] p-4 space-y-4">
+              <AlignedFieldGrid columns={2}>
+                <SettingsField
+                  label={copy.security.newEmail}
+                  htmlFor="new-email"
+                  error={emailError ?? undefined}
+                >
+                  <Input
+                    id="new-email"
+                    type="email"
+                    dir="ltr"
+                    className="text-start font-mono"
+                    value={newEmail}
+                    onChange={(e) => {
+                      setNewEmail(e.target.value);
+                      setEmailError(null);
+                    }}
+                    placeholder="name@example.com"
+                    required
+                  />
+                </SettingsField>
+
+                <SettingsField
+                  label={locale === 'en' ? 'Current Password (to confirm)' : 'كلمة المرور الحالية (للتأكيد)'}
+                  htmlFor="email-current-password"
+                >
+                  <Input
+                    id="email-current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={emailPassword}
+                    onChange={(e) => {
+                      setEmailPassword(e.target.value);
+                      setEmailError(null);
+                    }}
+                    required
+                  />
+                </SettingsField>
+              </AlignedFieldGrid>
+
+              <div className="flex items-center gap-3 pt-1">
+                <Button
+                  type="submit"
+                  disabled={!newEmail || !emailPassword || sendingEmailChange || newEmail.toLowerCase() === email.toLowerCase()}
+                >
+                  {sendingEmailChange ? (
+                    <>
+                      <Loader2 className="me-2 size-4 animate-spin" />
+                      {locale === 'en' ? 'Sending link…' : 'جارٍ الإرسال…'}
+                    </>
+                  ) : (
+                    <>
+                      <Send className="me-2 size-4" />
+                      {locale === 'en' ? 'Send Change Confirmation' : 'إرسال رابط تأكيد التغيير'}
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowEmailForm(false);
+                    setEmailError(null);
+                  }}
+                >
+                  {locale === 'en' ? 'Cancel' : 'إلغاء'}
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
       </SettingsCard>
 
-      {/* Change Password */}
+      {/* Password & Authentication Section (Single Action Button) */}
       <SettingsCard
         icon={KeyRound}
         title={copy.security.passwordHeading}
         hint={copy.security.passwordHint}
+        actions={
+          <Badge variant="soft-success">
+            {locale === 'en' ? 'Protected' : 'محمي'}
+          </Badge>
+        }
       >
-        <form onSubmit={handlePasswordChange} className="space-y-4">
-          <AlignedFieldGrid columns={3}>
-            <SettingsField
-              label={copy.security.currentPassword}
-              htmlFor="current-password"
-              error={passwordError ?? undefined}
-            >
-              <Input
-                id="current-password"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(e) => {
-                  setCurrentPassword(e.target.value);
-                  setPasswordError(null);
-                }}
-                required
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={copy.security.newPassword}
-              htmlFor="new-password"
-              hint={isPasswordTooShort ? (locale === 'en' ? 'Minimum 10 characters' : '10 أحرف على الأقل') : undefined}
-            >
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => {
-                  setNewPassword(e.target.value);
-                  setPasswordError(null);
-                }}
-                required
-              />
-            </SettingsField>
-
-            <SettingsField
-              label={copy.security.confirmPassword}
-              htmlFor="confirm-password"
-              error={mismatch ? copy.security.passwordMismatch : undefined}
-            >
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                invalid={mismatch}
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  setPasswordError(null);
-                }}
-                required
-              />
-            </SettingsField>
-          </AlignedFieldGrid>
-
-          {newPassword ? (
-            <div className="max-w-sm space-y-1.5 pt-1">
-              <div className="flex items-baseline justify-between text-xs">
-                <span className="text-muted-foreground">{copy.security.strength}</span>
-                <span className="font-medium">{strengthLabel}</span>
-              </div>
-              <div className="flex gap-1.5" aria-hidden>
-                {[1, 2, 3].map((step) => (
-                  <span
-                    key={step}
-                    className={cn(
-                      'h-1.5 flex-1 rounded-full transition-colors',
-                      strength >= step
-                        ? strength === 1
-                          ? 'bg-destructive'
-                          : strength === 2
-                            ? 'bg-warning'
-                            : 'bg-success'
-                        : 'bg-muted',
-                    )}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Button
-              type="submit"
-              disabled={
-                !currentPassword ||
-                !newPassword ||
-                !confirmPassword ||
-                mismatch ||
-                newPassword.length < 10 ||
-                savingPassword
-              }
-            >
-              {savingPassword ? (
-                <>
-                  <Loader2 className="me-2 size-4 animate-spin" />
-                  {locale === 'en' ? 'Updating…' : 'جارٍ التحديث…'}
-                </>
-              ) : (
-                copy.security.changePassword
-              )}
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleSendResetEmail}
-              disabled={sendingResetEmail || loadingEmail || !email}
-            >
-              {sendingResetEmail ? (
-                <>
-                  <Loader2 className="me-2 size-4 animate-spin" />
-                  {locale === 'en' ? 'Sending reset link…' : 'جارٍ إرسال الرابط…'}
-                </>
-              ) : (
-                locale === 'en' ? 'Send reset link via email' : 'إرسال رابط إعادة التعيين عبر البريد'
-              )}
-            </Button>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-border/70 bg-muted/20 p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">
+              {locale === 'en' ? 'Account Password' : 'كلمة مرور الحساب'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {locale === 'en'
+                ? 'Send a secure password reset link to your registered email address.'
+                : 'إرسال رابط آمن لإعادة تعيين كلمة المرور مباشرة إلى بريدك الإلكتروني.'}
+            </p>
           </div>
-        </form>
+
+          <Button
+            type="button"
+            onClick={handleSendResetPasswordEmail}
+            disabled={sendingResetEmail || loadingEmail || !email}
+          >
+            {sendingResetEmail ? (
+              <>
+                <Loader2 className="me-2 size-4 animate-spin" />
+                {locale === 'en' ? 'Sending reset link…' : 'جارٍ إرسال الرابط…'}
+              </>
+            ) : (
+              <>
+                <Send className="me-2 size-4" />
+                {locale === 'en' ? 'Send Reset Password Email' : 'إرسال رابط إعادة تعيين كلمة المرور'}
+              </>
+            )}
+          </Button>
+        </div>
       </SettingsCard>
 
       {/* Two-Factor Authentication */}
