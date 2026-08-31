@@ -121,6 +121,36 @@ export class AuditService {
     });
   }
 
+  /**
+   * Field work: assignments, sync batches and draft promotions.
+   *
+   * One handler for all of them because they share a shape — a staff action
+   * against a field entity — and because the interesting audit question here is
+   * not "which of the three happened" but "who was in this sector, and what did
+   * they record". `entityType` keeps them separable in the log.
+   */
+  @OnEvent('field-work.changed')
+  async onFieldWorkChanged(payload: {
+    action: string;
+    entityType: string;
+    entityId: string;
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+    actorId: string;
+    actorRole: string;
+  }): Promise<void> {
+    await this.record({
+      actorId: payload.actorId,
+      actorType: 'STAFF',
+      actorRole: payload.actorRole as never,
+      action: payload.action,
+      entityType: payload.entityType,
+      entityId: payload.entityId,
+      before: payload.before,
+      after: payload.after,
+    });
+  }
+
   @OnEvent('user.logged-in')
   async onLogin(payload: {
     userId: string;

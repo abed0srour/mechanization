@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { landTypeSchema, PROPERTY_TYPE, unitTypeSchema, type PropertyType } from './enums';
-import { arabicOrLatinName, lebanesePhone } from './primitives';
+import { arabicOrLatinName, contactPhone } from './primitives';
 
 /**
  * Steps 3–4 — a single repeatable "property card".
@@ -32,7 +32,8 @@ const occupancyBranch = z.discriminatedUnion(
     z.object({
       occupancyType: z.literal('TENANT'),
       landlordName: arabicOrLatinName,
-      landlordPhone: lebanesePhone,
+      // A village building's owner very often lives abroad; see `contactPhone`.
+      landlordPhone: contactPhone,
     }),
   ],
   { errorMap: () => ({ message: 'نوع الإشغال مطلوب' }) },

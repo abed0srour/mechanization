@@ -162,6 +162,14 @@ model User {
   targetedFeeNotices    FeeNotice[]          @relation("FeeTargetCitizen")
   issuedFeeNotices      FeeNotice[]          @relation("FeeIssuedBy")
 
+  // -- Field work --
+  fieldAssignments   FieldAssignment[] @relation("AssignedInspector")
+  grantedAssignments FieldAssignment[] @relation("AssignmentGrantedBy")
+  fieldVisits        FieldVisit[]      @relation("VisitInspector")
+  visitsAsCitizen    FieldVisit[]      @relation("VisitCitizen")
+  fieldDrafts        FieldDraft[]      @relation("DraftInspector")
+  draftsPromotedTo   FieldDraft[]      @relation("DraftPromotedCitizen")
+
   /// Staff email is unique within the municipality (i.e. within this schema).
   @@unique([email])
   /// A household commonly shares one phone, so phone alone is not unique; the
@@ -421,8 +429,222 @@ model Zone {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  assignments FieldAssignment[]
+
   @@index([name])
   @@map("zones")
+}
+
+// ────────────────────────────  Field work  ────────────────────────────
+//
+// The register is filled by someone walking a sector door to door, and most
+// doors do not yield a finished record on the first knock. These three models
+// are what lets the municipality say *why*.
+//
+// The load-bearing decision: a visit hangs off a **parcel number, not a
+// citizen**. The commonest outcome is that there is no citizen yet — nobody
+// answered — and minting a half-empty `users` row to hold "nobody home" would
+// put a person on the register whom no one has met and who never consented to
+// being there. `property_entries` and `zones` already key on the deed's printed
+// number for the same reason; this follows them.
+
+enum VisitOutcome {
+  COMPLETED
+  PARTIAL
+  NOBODY_HOME
+  ACCESS_BLOCKED
+  NOT_DECISION_MAKER
+  SEASONAL
+  ABROAD
+  DOCUMENTS_MISSING
+  ESTATE_UNSETTLED
+  DISPUTED
+  REFUSED
+  ALREADY_REGISTERED
+  DEMOLISHED
+  ADDRESS_INVALID
+  MERGED_PARCEL
+}
+
+/// What the municipality does next. Derived from the outcome by
+/// `OUTCOME_DISPOSITION` and written by the server, never sent by the device —
+/// a worker who could pick both the reason and its consequence is a worker who
+/// can mark a sector finished by relabelling every refusal as closed.
+enum VisitDisposition {
+  DONE
+  RETRY
+  WAITING
+  CLOSED
+}
+
+/// A share of a sector, handed to a field worker.
+///
+/// The denominator for every coverage number, and the reason two workers do not
+/// collect the same house. A zone may carry several active assignments — a big
+/// sector split between three collectors — so exclusivity is held at the
+/// *parcel* level rather than the zone level: the assignments of a zone
+/// partition its parcels, and no two devices are ever handed the same door even
+/// though neither can see the other's work while offline.
+model FieldAssignment {
+  id     String @id @default(uuid()) @db.Uuid
+  zoneId String @db.Uuid
+  zone   Zone   @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  inspectorId String @db.Uuid
+  inspector   User   @relation("AssignedInspector", fields: [inspectorId], references: [id], onDelete: Restrict)
+
+  assignedById String? @db.Uuid
+  assignedBy   User?   @relation("AssignmentGrantedBy", fields: [assignedById], references: [id])
+
+  /// The parcels of the zone this worker holds. Empty means "everything the
+  /// other active assignments have not explicitly claimed" — the remainder, of
+  /// which a zone may have at most one (migration 0019). A sector worked by one
+  /// person is simply an empty array.
+  parcelNumbers String[] @default([])
+
+  note  String?
+  dueAt DateTime?
+
+  /// Null while the worker still holds the sector. Set — rather than the row
+  /// deleted — when it is handed on, because "who was responsible in March" is
+  /// a question the audit of a disputed record will eventually ask.
+  releasedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Two partial unique indexes live in migration 0019 and cannot be expressed
+  /// here: one active assignment per (zone, inspector), and at most one
+  /// remainder holder — an active assignment with empty `parcelNumbers` — per
+  /// zone. Together they are what keep the parcel partition intact.
+  @@index([zoneId, releasedAt])
+  @@index([inspectorId, releasedAt])
+  @@map("field_assignments")
+}
+
+/// One attempt at one door.
+model FieldVisit {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Generated on the device before the visit is recorded, and the idempotency
+  /// key for the whole sync path: a phone that pushed a batch, lost signal
+  /// before reading the response and retried must not create the visit twice.
+  /// It is also what lets the device work with no server at all — it does not
+  /// need one to allocate an id.
+  clientId String @unique @db.Uuid
+
+  /// رقم العقار, as text. A cadastre re-import rebuilds `parcels` wholesale, and
+  /// a log of work done that cascaded away on a routine survey correction would
+  /// be worthless.
+  parcelNumber String
+
+  outcome     VisitOutcome
+  disposition VisitDisposition
+
+  /// `Restrict`, not `Cascade`: a visit log is a record of work done, and
+  /// cascading would let the deletion of one employee silently rewrite the
+  /// coverage history of every sector they walked. Staff are deactivated rather
+  /// than deleted here, so this costs nothing and forecloses the alternative.
+  inspectorId String @db.Uuid
+  inspector   User   @relation("VisitInspector", fields: [inspectorId], references: [id], onDelete: Restrict)
+
+  /// Device clock at the door, not server receipt time — the two can be a full
+  /// day apart, and the one that matters for "when was this house visited" is
+  /// the first.
+  visitedAt DateTime
+
+  /// When the batch carrying this visit actually reached the server. The gap
+  /// between the two is how long the device was offline, which is the only
+  /// honest way to read a sync-lag report.
+  syncedAt DateTime @default(now())
+
+  /// Short, capped, and the highest-risk field in the feature: a record about a
+  /// person, written by a stranger at their door, with no declaration behind
+  /// it. See open decision #1 — retention here should be shorter than the
+  /// register's, not equal to it.
+  note String?
+
+  nextVisitAt DateTime?
+
+  /// Optional by design. Mandatory location on every visit is staff
+  /// surveillance; it is the obvious answer to a worker marking doors from a
+  /// café, and it needs the municipality's decision and the worker's knowledge
+  /// rather than a silent default.
+  latitude  Float?
+  longitude Float?
+
+  /// Who can supply the data instead — the resolution path for ABROAD,
+  /// ESTATE_UNSETTLED and NOT_DECISION_MAKER, without which those three are
+  /// three ways of writing "stuck".
+  proxyName  String?
+  proxyPhone String?
+
+  draftId String?     @db.Uuid
+  draft   FieldDraft? @relation(fields: [draftId], references: [id], onDelete: SetNull)
+
+  /// The citizen this visit produced, when it produced one. `SetNull` rather
+  /// than cascade: the visit is a record of work done and should outlive the
+  /// deletion of the record it created.
+  citizenId String? @db.Uuid
+  citizen   User?   @relation("VisitCitizen", fields: [citizenId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  /// Serves "the latest visit per parcel", which is what every worklist and
+  /// coverage number is built from.
+  @@index([parcelNumber, visitedAt])
+  @@index([disposition, nextVisitAt])
+  @@index([inspectorId, visitedAt])
+  @@map("field_visits")
+}
+
+/// Whatever was salvaged at a door that did not produce a filable record.
+///
+/// Held as JSON and validated by nothing at rest. The alternative — making the
+/// citizen fields optional — was rejected: `users.firstName` is NOT NULL and
+/// `adminCreateCitizenSchema` is shared with the public wizard, so there is no
+/// way to be lenient for drafts and strict for filings while they are the same
+/// validator. A draft is passed through that untouched validator at promotion
+/// instead, so the register keeps exactly the guarantees it has today and the
+/// salvage lives beside it rather than inside it.
+model FieldDraft {
+  id       String @id @default(uuid()) @db.Uuid
+  clientId String @unique @db.Uuid
+
+  parcelNumber String
+
+  inspectorId String @db.Uuid
+  inspector   User   @relation("DraftInspector", fields: [inspectorId], references: [id], onDelete: Restrict)
+
+  /// `{ personal?, contact?, properties? }` — the shape `adminCreateCitizenSchema`
+  /// takes, with nothing required.
+  payload Json
+
+  /// Dot-paths of what is still missing, recomputed on every write by
+  /// `draftGaps()` from the real validator. Stored rather than derived on read
+  /// so the follow-up queue can filter on "needs only documents" without
+  /// re-parsing every draft in the sector.
+  gaps String[] @default([])
+
+  /// Device clock. Last write wins between two pushes of the same draft, which
+  /// is correct when the only writer is the one worker the parcel is assigned
+  /// to.
+  deviceUpdatedAt DateTime
+
+  /// Set once the draft became a real citizen. The row is kept, not deleted:
+  /// it is the evidence of how many visits that record actually took.
+  promotedCitizenId String?   @db.Uuid
+  promotedCitizen   User?     @relation("DraftPromotedCitizen", fields: [promotedCitizenId], references: [id], onDelete: SetNull)
+  promotedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visits FieldVisit[]
+
+  @@index([parcelNumber])
+  @@index([inspectorId, promotedAt])
+  @@map("field_drafts")
 }
 
 enum DocumentType {

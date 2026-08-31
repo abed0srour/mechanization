@@ -180,7 +180,19 @@ export class IdentityService {
   ): Promise<TotpChallengeRequired | null> {
     const secret = user.totpSecret;
 
-    if (!user.hasConfirmedTotp || !secret) {
+    if (!secret) {
+      /**
+       * A SUPER_ADMIN reads every citizen's national ID number, residency
+       * status and scanned documents, and can export the register or restore
+       * over it. Enrolment for that role is a precondition of holding the
+       * account, not a setting inside it — so an incomplete one is refused
+       * here rather than waved through with a warning.
+       */
+      if (user.requiresTotp) {
+        throw new UnauthorizedError(
+          'هذا الحساب يتطلّب التحقق بخطوتين، ولم يكتمل تسجيل تطبيق المصادقة. يرجى مراجعة مدير النظام.',
+        );
+      }
       return null;
     }
 
@@ -188,6 +200,10 @@ export class IdentityService {
 
     if (!this.totp.verify(token, secret)) {
       throw new UnauthorizedError('رمز التحقق غير صحيح');
+    }
+
+    if (!user.hasConfirmedTotp) {
+      await this.users.confirmTotp(user.id);
     }
 
     /**
