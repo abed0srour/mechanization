@@ -1,46 +1,28 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { formatLbp, formatLbpCompact, isCompactable } from '@/lib/currency';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 import { cn } from '@/lib/utils';
 
-/**
- * One monetary amount, sized so it cannot break the layout it sits in.
- *
- * Three things this does that a bare `{amount} ل.ل` did not:
- *
- *  - **Compacts at a million.** LBP figures reach seven and eight digits
- *    routinely, and `1,250,000,000 ل.ل` in a table cell either wraps onto a
- *    second line — making one row twice the height of its neighbours — or is
- *    clipped by the cell's overflow. `1.25 مليار ل.ل` is half the width.
- *
- *  - **Keeps the exact figure one hover away**, and in `title` for touch and
- *    for anyone who has hover disabled. A rounded amount a clerk cannot get
- *    back to the pound is not something they can act on at a counter, so the
- *    shorthand is never the only copy of the number.
- *
- *  - **Refuses to wrap.** `whitespace-nowrap` plus `tabular-nums`: an amount
- *    is one atom, and a column of them should align on its digits rather than
- *    drift with the proportional figures the body font ships.
- *
- * The containers around it do the rest — none of the money cells or tiles in
- * this portal carry a fixed width, so a longer figure widens its own block
- * instead of being cut off by it.
- */
 export function Money({
   amount,
   className,
+  locale: propLocale,
   /** Renders the full grouped figure regardless of size. For a single row on
    *  a detail page, where there is room and the exact number is the point. */
   exact = false,
 }: {
   amount: number;
   className?: string;
+  locale?: string;
   exact?: boolean;
 }): React.JSX.Element {
-  const full = formatLbp(amount);
+  const pathname = usePathname();
+  const locale = propLocale ?? (pathname?.split('/')[2] === 'en' ? 'en' : 'ar');
+  const full = formatLbp(amount, locale);
   const compacted = !exact && isCompactable(amount);
-  const shown = compacted ? formatLbpCompact(amount) : full;
+  const shown = compacted ? formatLbpCompact(amount, locale) : full;
 
   const text = (
     <span className={cn('whitespace-nowrap tabular-nums', className)}>{shown}</span>

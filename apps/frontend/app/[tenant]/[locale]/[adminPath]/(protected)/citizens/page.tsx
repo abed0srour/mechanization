@@ -46,35 +46,63 @@ import { useToast } from '@/components/ui/toast';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 
 /** Roles allowed to write. Mirrors the server; the server is the enforcement. */
 const CAN_WRITE = ['SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER'];
 
-const TABLE_LABELS: DataTableLabels = {
-  searchAriaLabel: 'بحث في المواطنين',
-  searchPlaceholder: 'ابحث بالاسم، رقم الهاتف، الرقم المرجعي، أو رقم الهوية…',
-  clearSearch: 'مسح البحث',
-  searchHint: 'Enter',
-  searchApplied: 'بحث: «{term}»',
-  empty: 'لا يوجد مواطنون مسجّلون بعد.',
-  emptyHint: 'أضف أول مواطن، أو استورد سجلاً من ملف Excel.',
-  emptySearch: 'لا نتائج مطابقة لبحثك.',
-  emptySearchHint: 'جرّب الاسم الأول وحده، أو الرقم المرجعي، أو رقم الهاتف بدون صفر البداية.',
-  loadError: 'تعذّر تحميل سجل المواطنين.',
-  retry: 'إعادة المحاولة',
-  previous: 'السابق',
-  next: 'التالي',
-  pageOf: 'صفحة {current} من {total}',
-  rowsPerPage: 'عدد الصفوف',
-  totalRows: '{count} مواطن',
-  sortAscending: 'ترتيب تصاعدي',
-  sortDescending: 'ترتيب تنازلي',
-  sortNone: 'إلغاء الترتيب',
-  columns: 'الأعمدة',
-  columnsHint: 'الأعمدة الظاهرة',
-  resetColumns: 'استعادة الافتراضي',
-};
+function getTableLabels(locale: string): DataTableLabels {
+  if (locale === 'en') {
+    return {
+      searchAriaLabel: 'Search citizens',
+      searchPlaceholder: 'Search by name, phone, reference code, or ID…',
+      clearSearch: 'Clear search',
+      searchHint: 'Enter',
+      searchApplied: 'Search: "{term}"',
+      empty: 'No citizens registered yet.',
+      emptyHint: 'Add your first citizen, or import records from an Excel spreadsheet.',
+      emptySearch: 'No results match your search.',
+      emptySearchHint: 'Try the first name alone, the reference number, or the phone number without leading zeros.',
+      loadError: 'Failed to load citizens registry.',
+      retry: 'Retry',
+      previous: 'Previous',
+      next: 'Next',
+      pageOf: 'Page {current} of {total}',
+      rowsPerPage: 'Rows per page',
+      totalRows: '{count} citizens',
+      sortAscending: 'Sort ascending',
+      sortDescending: 'Sort descending',
+      sortNone: 'Clear sorting',
+      columns: 'Columns',
+      columnsHint: 'Visible columns',
+      resetColumns: 'Reset to default',
+    };
+  }
+  return {
+    searchAriaLabel: 'بحث في المواطنين',
+    searchPlaceholder: 'ابحث بالاسم، رقم الهاتف، الرقم المرجعي، أو رقم الهوية…',
+    clearSearch: 'مسح البحث',
+    searchHint: 'Enter',
+    searchApplied: 'بحث: «{term}»',
+    empty: 'لا يوجد مواطنون مسجّلون بعد.',
+    emptyHint: 'أضف أول مواطن، أو استورد سجلاً من ملف Excel.',
+    emptySearch: 'لا نتائج مطابقة لبحثك.',
+    emptySearchHint: 'جرّب الاسم الأول وحده، أو الرقم المرجعي، أو رقم الهاتف بدون صفر البداية.',
+    loadError: 'تعذّر تحميل سجل المواطنين.',
+    retry: 'إعادة المحاولة',
+    previous: 'السابق',
+    next: 'التالي',
+    pageOf: 'صفحة {current} من {total}',
+    rowsPerPage: 'عدد الصفوف',
+    totalRows: '{count} مواطن',
+    sortAscending: 'ترتيب تصاعدي',
+    sortDescending: 'ترتيب تنازلي',
+    sortNone: 'إلغاء الترتيب',
+    columns: 'الأعمدة',
+    columnsHint: 'الأعمدة الظاهرة',
+    resetColumns: 'استعادة الافتراضي',
+  };
+}
 
 /**
  * The citizen registry — the municipality's own record of who is registered,
@@ -254,15 +282,15 @@ export default function CitizensPage({
     [tenant, token, load, toast],
   );
 
+  const labels = getLabels(locale);
+
   const columns = useMemo<ColumnDef<CitizenListItem>[]>(
     () => [
       {
         accessorKey: 'fullName',
-        header: 'المواطن',
-        // Never hideable: a citizens table without the citizen is a grid of
-        // numbers belonging to nobody.
+        header: locale === 'en' ? 'Citizen' : 'المواطن',
         enableHiding: false,
-        meta: { label: 'المواطن' },
+        meta: { label: locale === 'en' ? 'Citizen' : 'المواطن' },
         cell: ({ row }) => {
           const citizen = row.original;
           return (
@@ -279,7 +307,7 @@ export default function CitizensPage({
                   {!citizen.isActive ? (
                     <Badge variant="outline" className="shrink-0 gap-1 py-0">
                       <Ban className="size-3" aria-hidden />
-                      معطّل
+                      {locale === 'en' ? 'Disabled' : 'معطّل'}
                     </Badge>
                   ) : null}
                 </p>
@@ -293,26 +321,15 @@ export default function CitizensPage({
           );
         },
       },
-      /*
-       * Phone and WhatsApp are two columns, not one stacked cell.
-       *
-       * They were one «التواصل» column with the WhatsApp number as a subtitle,
-       * which made the pair inseparable: a clerk who works entirely over
-       * WhatsApp could not drop the landline, and one who never uses WhatsApp
-       * could not drop that. Split, each is a row in the columns menu and the
-       * table becomes the one that particular desk needs.
-       */
       {
         accessorKey: 'phone',
-        header: 'الهاتف',
-        meta: { label: 'الهاتف' },
+        header: locale === 'en' ? 'Phone' : 'الهاتف',
+        meta: { label: locale === 'en' ? 'Phone' : 'الهاتف' },
         enableSorting: false,
         cell: ({ row }) => {
           const { phone } = row.original;
           if (!phone) return <span className="text-muted-foreground">—</span>;
           return (
-            // Click-to-call: the first move on a questionable record is to
-            // phone whoever is on it.
             <a
               href={`tel:${phone}`}
               dir="ltr"
@@ -326,18 +343,14 @@ export default function CitizensPage({
       },
       {
         accessorKey: 'whatsapp',
-        header: 'واتساب',
-        meta: { label: 'واتساب' },
+        header: locale === 'en' ? 'WhatsApp' : 'واتساب',
+        meta: { label: locale === 'en' ? 'WhatsApp' : 'واتساب' },
         enableSorting: false,
         cell: ({ row }) => {
           const { phone, whatsapp } = row.original;
           if (!whatsapp) return <span className="text-muted-foreground">—</span>;
           return (
             <a
-              // `wa.me` wants digits only — no spaces, no dashes, no leading
-              // `+`. The stored string is whatever a clerk typed, so it is
-              // normalised here rather than at rest, where it is printed for a
-              // human to read and dial.
               href={`https://wa.me/${whatsapp.replace(/\D/g, '')}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -346,11 +359,10 @@ export default function CitizensPage({
             >
               <MessageCircle className="size-3.5 shrink-0" aria-hidden />
               {whatsapp}
-              {/* Says "same number as the landline" without repeating it — the
-                  common case, and worth distinguishing from a genuinely
-                  separate WhatsApp line. */}
               {whatsapp === phone ? (
-                <span className="text-xs text-muted-foreground">(نفس الهاتف)</span>
+                <span className="text-xs text-muted-foreground">
+                  {locale === 'en' ? '(same)' : '(نفس الهاتف)'}
+                </span>
               ) : null}
             </a>
           );
@@ -358,8 +370,8 @@ export default function CitizensPage({
       },
       {
         accessorKey: 'identityDocNumber',
-        header: 'وثيقة الهوية',
-        meta: { label: 'وثيقة الهوية', mobile: 'hide' },
+        header: locale === 'en' ? 'ID Document' : 'وثيقة الهوية',
+        meta: { label: locale === 'en' ? 'ID Document' : 'وثيقة الهوية', mobile: 'hide' },
         enableSorting: false,
         cell: ({ row }) => {
           const { identityDocType, identityDocNumber } = row.original;
@@ -371,7 +383,7 @@ export default function CitizensPage({
               </p>
               {identityDocType ? (
                 <p className="text-xs text-muted-foreground">
-                  {ar.identityDocType?.[identityDocType as never] ?? identityDocType}
+                  {labels.identityDocType?.[identityDocType as never] ?? identityDocType}
                 </p>
               ) : null}
             </div>
@@ -380,46 +392,53 @@ export default function CitizensPage({
       },
       {
         accessorKey: 'residentStatus',
-        header: 'صفة الإقامة',
-        meta: { label: 'صفة الإقامة', mobile: 'hide' },
+        header: locale === 'en' ? 'Residency Status' : 'صفة الإقامة',
+        meta: { label: locale === 'en' ? 'Residency Status' : 'صفة الإقامة', mobile: 'hide' },
         enableSorting: false,
         cell: ({ row }) => {
           const { residentStatus } = row.original;
           if (!residentStatus) return <span className="text-muted-foreground">—</span>;
           return (
             <Badge variant="soft-muted">
-              {ar.residentStatus?.[residentStatus as never] ?? residentStatus}
+              {labels.residentStatus?.[residentStatus as never] ?? residentStatus}
             </Badge>
           );
         },
       },
       {
         accessorKey: 'registeredAt',
-        header: 'تاريخ التسجيل',
-        meta: { label: 'تاريخ التسجيل', cellClassName: 'whitespace-nowrap', mobile: 'hide' },
+        header: locale === 'en' ? 'Registration Date' : 'تاريخ التسجيل',
+        meta: {
+          label: locale === 'en' ? 'Registration Date' : 'تاريخ التسجيل',
+          cellClassName: 'whitespace-nowrap',
+          mobile: 'hide',
+        },
         cell: ({ row }) => (
           <span className="text-sm">{formatDate(row.original.registeredAt)}</span>
         ),
       },
       {
-        // Was «الطلبات» — a review-status badge over a filing count. A record
-        // has no status to report now, so the column says what the citizen
-        // actually has on the register: their properties, and when the
-        // municipality last recorded one.
         accessorKey: 'propertyCount',
-        header: 'العقارات',
-        meta: { label: 'العقارات' },
+        header: locale === 'en' ? 'Properties' : 'العقارات',
+        meta: { label: locale === 'en' ? 'Properties' : 'العقارات' },
         cell: ({ row }) => {
           const citizen = row.original;
           if (citizen.propertyCount === 0) {
-            return <span className="text-sm text-muted-foreground">لا توجد عقارات</span>;
+            return (
+              <span className="text-sm text-muted-foreground">
+                {locale === 'en' ? 'No properties' : 'لا توجد عقارات'}
+              </span>
+            );
           }
           return (
             <div className="space-y-0.5">
-              <p className="font-medium tabular-nums">{citizen.propertyCount} عقار</p>
+              <p className="font-medium tabular-nums">
+                {citizen.propertyCount} {locale === 'en' ? 'properties' : 'عقار'}
+              </p>
               {citizen.latestSubmittedAt ? (
                 <p className="whitespace-nowrap text-xs text-muted-foreground">
-                  آخر تسجيل {formatDate(citizen.latestSubmittedAt)}
+                  {locale === 'en' ? 'Last registered ' : 'آخر تسجيل '}
+                  {formatDate(citizen.latestSubmittedAt)}
                 </p>
               ) : null}
             </div>
@@ -428,12 +447,11 @@ export default function CitizensPage({
       },
       {
         accessorKey: 'feesTotal',
-        header: 'الرسوم',
-        // No width on the column and `whitespace-nowrap` on the cell: an
-        // eight-figure total widens its own block rather than wrapping to a
-        // second line, which would leave that one row twice the height of its
-        // neighbours. The table's own `overflow-x` absorbs the extra width.
-        meta: { label: 'الرسوم', cellClassName: 'whitespace-nowrap' },
+        header: locale === 'en' ? 'Fees' : 'الرسوم',
+        meta: {
+          label: locale === 'en' ? 'Fees' : 'الرسوم',
+          cellClassName: 'whitespace-nowrap',
+        },
         cell: ({ row }) => {
           const citizen = row.original;
           if (citizen.feesTotal === 0) {
@@ -443,7 +461,8 @@ export default function CitizensPage({
             <div className="space-y-0.5">
               <Money amount={citizen.feesTotal} className="block font-medium" />
               <p className="text-xs text-muted-foreground">
-                مسدّد <Money amount={citizen.paidTotal} />
+                {locale === 'en' ? 'Paid ' : 'مسدّد '}
+                <Money amount={citizen.paidTotal} />
               </p>
             </div>
           );
@@ -451,19 +470,18 @@ export default function CitizensPage({
       },
       {
         accessorKey: 'overdueTotal',
-        header: 'المتأخرات',
-        meta: { label: 'المتأخرات', cellClassName: 'whitespace-nowrap' },
+        header: locale === 'en' ? 'Overdue' : 'المتأخرات',
+        meta: {
+          label: locale === 'en' ? 'Overdue' : 'المتأخرات',
+          cellClassName: 'whitespace-nowrap',
+        },
         cell: ({ row }) => {
           const citizen = row.original;
-
-          // Nothing owed and nothing late is the good state, and it gets the
-          // quiet treatment — a column of green ticks reads as loudly as a
-          // column of red warnings, and only one of the two needs acting on.
           if (citizen.outstandingTotal === 0) {
             return (
               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
                 <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600" aria-hidden />
-                لا متأخرات
+                {locale === 'en' ? 'No arrears' : 'لا متأخرات'}
               </span>
             );
           }
@@ -487,14 +505,16 @@ export default function CitizensPage({
               </p>
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 {citizen.overdueTotal > 0 ? (
-                  <span>{citizen.overdueCount} فاتورة متأخرة</span>
+                  <span>
+                    {citizen.overdueCount} {locale === 'en' ? 'overdue bills' : 'فاتورة متأخرة'}
+                  </span>
                 ) : (
-                  <span>غير مستحقة بعد</span>
+                  <span>{locale === 'en' ? 'Not yet due' : 'غير مستحقة بعد'}</span>
                 )}
                 {citizen.pendingReviewCount > 0 ? (
                   <Badge variant="outline" className="gap-1 py-0 text-[0.7rem]">
                     <Clock3 className="size-3" aria-hidden />
-                    {citizen.pendingReviewCount} قيد التحقق
+                    {citizen.pendingReviewCount} {locale === 'en' ? 'under review' : 'قيد التحقق'}
                   </Badge>
                 ) : null}
               </p>
@@ -504,29 +524,20 @@ export default function CitizensPage({
       },
       {
         id: 'actions',
-        header: 'إجراء',
-        // Always on: hiding the row's own controls leaves a table nothing can
-        // be done from, and no obvious way to get them back.
+        header: locale === 'en' ? 'Actions' : 'إجراء',
         enableHiding: false,
-
         enableSorting: false,
-        // Pinned to the card footer on a phone rather than rendered as a
-        // label/value row, which squeezed four icon buttons into a
-        // right-aligned <dd>.
-        meta: { label: 'إجراء', mobile: 'actions' },
+        meta: { label: locale === 'en' ? 'Actions' : 'إجراء', mobile: 'actions' },
         cell: ({ row }) => {
           const citizen = row.original;
           const busy = busyId === citizen.id;
 
           return (
-            // Deliberately not `flex-wrap`: wrapping four buttons makes one row
-            // twice the height of its neighbours. The table's own `overflow-x`
-            // absorbs the width instead.
             <div className="flex items-center gap-1.5">
-              <ActionTooltip label="عرض التفاصيل والفواتير">
+              <ActionTooltip label={locale === 'en' ? 'View details & invoices' : 'عرض التفاصيل والفواتير'}>
                 <Link
                   href={`${base}/citizens/${citizen.id}`}
-                  aria-label="عرض التفاصيل"
+                  aria-label={locale === 'en' ? 'View details' : 'عرض التفاصيل'}
                   className={buttonVariants({ variant: 'secondary', size: 'icon-sm' })}
                 >
                   <UserRound className="size-4" aria-hidden />
@@ -534,10 +545,10 @@ export default function CitizensPage({
               </ActionTooltip>
 
               {canWrite ? (
-                <ActionTooltip label="تعديل البيانات">
+                <ActionTooltip label={locale === 'en' ? 'Edit information' : 'تعديل البيانات'}>
                   <Link
                     href={`${base}/citizens/${citizen.id}/edit`}
-                    aria-label="تعديل"
+                    aria-label={locale === 'en' ? 'Edit' : 'تعديل'}
                     className={buttonVariants({ variant: 'outline', size: 'icon-sm' })}
                   >
                     <Pencil className="size-4" aria-hidden />
@@ -547,12 +558,16 @@ export default function CitizensPage({
 
               {canWrite ? (
                 <ActionTooltip
-                  label={citizen.isActive ? 'تعطيل — يوقف إصدار الرسوم' : 'إعادة التفعيل'}
+                  label={
+                    citizen.isActive
+                      ? (locale === 'en' ? 'Disable — halts new fees' : 'تعطيل — يوقف إصدار الرسوم')
+                      : (locale === 'en' ? 'Re-activate' : 'إعادة التفعيل')
+                  }
                 >
                   <Button
                     variant="outline"
                     size="icon-sm"
-                    aria-label={citizen.isActive ? 'تعطيل' : 'إعادة التفعيل'}
+                    aria-label={citizen.isActive ? (locale === 'en' ? 'Disable' : 'تعطيل') : (locale === 'en' ? 'Re-activate' : 'إعادة التفعيل')}
                     disabled={busy}
                     onClick={() => void toggleActive(citizen)}
                   >
@@ -568,11 +583,11 @@ export default function CitizensPage({
               ) : null}
 
               {canDelete ? (
-                <ActionTooltip label="حذف نهائي — يحذف الطلبات والمستندات والفواتير">
+                <ActionTooltip label={locale === 'en' ? 'Permanent delete' : 'حذف نهائي — يحذف الطلبات والمستندات والفواتير'}>
                   <Button
                     variant="outline"
                     size="icon-sm"
-                    aria-label="حذف نهائي"
+                    aria-label={locale === 'en' ? 'Permanent delete' : 'حذف نهائي'}
                     className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={busy}
                     onClick={() => setPendingDelete(citizen)}
@@ -586,35 +601,33 @@ export default function CitizensPage({
         },
       },
     ],
-    [base, busyId, canWrite, canDelete, toggleActive],
+    [base, busyId, canWrite, canDelete, toggleActive, locale, labels],
   );
 
-  /**
-   * Headline totals computed from the loaded page rather than fetched.
-   *
-   * The list endpoint already carries every number these need, so a second
-   * round trip would only introduce a moment where the cards and the table
-   * below them disagree.
-   */
-
   if (!token) return null;
+
+  const tableLabels = getTableLabels(locale);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
       <PageHeader
         icon={Users}
-        title="المواطنون"
-        subtitle="سجل المواطنين المسجّلين لدى البلدية — البيانات والعقارات والرسوم المستحقة"
+        title={locale === 'en' ? 'Citizens' : 'المواطنون'}
+        subtitle={
+          locale === 'en'
+            ? 'Municipal citizens registry — personal records, registered properties, and fees'
+            : 'سجل المواطنين المسجّلين لدى البلدية — البيانات والعقارات والرسوم المستحقة'
+        }
         actions={
           canWrite ? (
             <>
               <Button variant="outline" onClick={() => setImportOpen(true)}>
                 <FileSpreadsheet className="size-4" aria-hidden />
-                استيراد من ملف
+                {locale === 'en' ? 'Import from file' : 'استيراد من ملف'}
               </Button>
               <Link href={`${base}/citizens/new`} className={buttonVariants()}>
                 <UserPlus className="size-4" aria-hidden />
-                تسجيل مواطن جديد
+                {locale === 'en' ? 'Register new citizen' : 'تسجيل مواطن جديد'}
               </Link>
             </>
           ) : null
@@ -632,26 +645,26 @@ export default function CitizensPage({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="إجمالي المواطنين"
+          label={locale === 'en' ? 'Total Citizens' : 'إجمالي المواطنين'}
           value={total.toLocaleString('en-US')}
           loading={query.loading}
           icon={<Users className="size-6 text-primary" aria-hidden />}
         />
         <MetricCard
-          label="رسوم غير مسدّدة"
+          label={locale === 'en' ? 'Unpaid Fees' : 'رسوم غير مسدّدة'}
           value={<Money amount={totals.outstanding} />}
           loading={query.loading}
           icon={<Wallet className="size-6 text-primary" aria-hidden />}
         />
         <MetricCard
-          label="متأخرات مستحقة"
+          label={locale === 'en' ? 'Overdue Arrears' : 'متأخرات مستحقة'}
           value={<Money amount={totals.overdue} />}
           loading={query.loading}
           icon={<Banknote className="size-6 text-destructive" aria-hidden />}
           accent="bg-destructive/10"
         />
         <MetricCard
-          label="مواطنون متأخرون"
+          label={locale === 'en' ? 'Citizens in Arrears' : 'مواطنون متأخرون'}
           value={totals.inArrears.toLocaleString('en-US')}
           loading={query.loading}
           icon={<TriangleAlert className="size-6 text-warning" aria-hidden />}
@@ -663,18 +676,19 @@ export default function CitizensPage({
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Users className="size-5" aria-hidden />
-            سجل المواطنين
+            {locale === 'en' ? 'Citizens Registry' : 'سجل المواطنين'}
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            «المتأخرات» هي الرسوم غير المسدّدة التي تجاوزت تاريخ استحقاقها. التعطيل يوقف
-            إصدار رسوم جديدة ويُبقي السجل كما هو؛ الحذف النهائي يزيل كل شيء.
+            {locale === 'en'
+              ? '"Overdue" reflects unpaid fees past their due date. Disabling halts new fees while preserving historical records; deleting permanently purges all files.'
+              : '«المتأخرات» هي الرسوم غير المسدّدة التي تجاوزت تاريخ استحقاقها. التعطيل يوقف إصدار رسوم جديدة ويُبقي السجل كما هو؛ الحذف النهائي يزيل كل شيء.'}
           </p>
         </CardHeader>
         <CardContent className="p-6">
           <DataTable
             columns={columns}
             data={items}
-            labels={TABLE_LABELS}
+            labels={tableLabels}
             getRowId={(row) => row.id}
             loading={query.loading}
             error={query.error}
@@ -738,27 +752,42 @@ export default function CitizensPage({
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
         }}
-        title="حذف الملف نهائياً"
+        title={locale === 'en' ? 'Delete Record Permanently' : 'حذف الملف نهائياً'}
         description={
           pendingDelete ? (
             <>
-              سيُحذف ملف <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
-              بكل ما فيه: {pendingDelete.registrationCount} طلب، {pendingDelete.propertyCount} عقار،
-              ومستنداته وفواتيره. لا يمكن التراجع.
+              {locale === 'en' ? (
+                <>
+                  Citizen file for{' '}
+                  <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
+                  will be deleted permanently along with all {pendingDelete.registrationCount} applications,{' '}
+                  {pendingDelete.propertyCount} properties, documents, and bills. This cannot be undone.
+                </>
+              ) : (
+                <>
+                  سيُحذف ملف <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
+                  بكل ما فيه: {pendingDelete.registrationCount} طلب، {pendingDelete.propertyCount} عقار،
+                  ومستنداته وفواتيره. لا يمكن التراجع.
+                </>
+              )}
               {pendingDelete.outstandingTotal > 0 ? (
-                // Named rather than left to be discovered afterwards: deleting
-                // a file with money owed against it deletes the debt too, and
-                // that is a decision the municipality should make knowingly.
                 <span className="mt-2 block font-medium text-destructive">
-                  على هذا الملف رسوم غير مسدّدة — سيُحذف الدين معه.
+                  {locale === 'en'
+                    ? 'This record has unpaid fees — the outstanding debt will be removed with it.'
+                    : 'على هذا الملف رسوم غير مسدّدة — سيُحذف الدين معه.'}
                 </span>
               ) : null}
             </>
           ) : null
         }
-        confirmLabel="حذف نهائي"
+        confirmLabel={locale === 'en' ? 'Delete Permanently' : 'حذف نهائي'}
+        cancelLabel={locale === 'en' ? 'Cancel' : 'إلغاء'}
         requireText={pendingDelete?.fullName}
-        requireTextHint="اكتب اسم المواطن بالكامل للتأكيد"
+        requireTextHint={
+          locale === 'en'
+            ? 'Type the full citizen name to confirm'
+            : 'اكتب اسم المواطن بالكامل للتأكيد'
+        }
         onConfirm={async () => {
           if (pendingDelete) await removeCitizen(pendingDelete);
         }}

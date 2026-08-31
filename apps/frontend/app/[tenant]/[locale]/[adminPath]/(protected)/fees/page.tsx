@@ -16,7 +16,7 @@ import {
   UserPlus,
   Wallet,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   chargeCitizen,
@@ -51,38 +51,77 @@ import { IssueFeeDialog, type IssueFeeValues } from '@/components/admin/issue-fe
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
 import { cn } from '@/lib/utils';
 
-const TABLE_LABELS: DataTableLabels = {
-  searchAriaLabel: 'بحث في الرسوم والمطالبات',
-  searchPlaceholder: 'ابحث باسم المواطن أو الرسم أو الرقم المرجعي…',
-  clearSearch: 'مسح البحث',
-  searchHint: 'Enter',
-  searchApplied: 'بحث: «{term}»',
-  empty: 'لا توجد رسوم أو مطالبات مسجّلة بعد.',
-  emptyHint: 'أصدر أول رسم من زر «إصدار رسم جديد» أعلاه.',
-  emptySearch: 'لا توجد نتائج مطابقة لبحثك.',
-  emptySearchHint: 'جرّب البحث باسم المواطن، أو نوع الرسم، أو الرقم المرجعي.',
-  loadError: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
-  retry: 'إعادة المحاولة',
-  previous: 'السابق',
-  next: 'التالي',
-  pageOf: 'صفحة {current} من {total}',
-  rowsPerPage: 'عدد الصفوف',
-  totalRows: '{count} مطالبة',
-  sortAscending: 'ترتيب تصاعدي',
-  sortDescending: 'ترتيب تنازلي',
-  sortNone: 'إلغاء الترتيب',
-  columns: 'الأعمدة',
-  columnsHint: 'الأعمدة الظاهرة',
-  resetColumns: 'استعادة الافتراضي',
-};
+function getTableLabels(locale: string): DataTableLabels {
+  if (locale === 'en') {
+    return {
+      searchAriaLabel: 'Search fees and demands',
+      searchPlaceholder: 'Search by citizen name, fee title, or reference code…',
+      clearSearch: 'Clear search',
+      searchHint: 'Enter',
+      searchApplied: 'Search: "{term}"',
+      empty: 'No fees or demands registered yet.',
+      emptyHint: 'Issue your first fee using the "Issue Fee Notice" button above.',
+      emptySearch: 'No results match your search.',
+      emptySearchHint: 'Try searching by citizen name, fee title, or reference code.',
+      loadError: 'Failed to load fees and payments register.',
+      retry: 'Retry',
+      previous: 'Previous',
+      next: 'Next',
+      pageOf: 'Page {current} of {total}',
+      rowsPerPage: 'Rows per page',
+      totalRows: '{count} demands',
+      sortAscending: 'Sort ascending',
+      sortDescending: 'Sort descending',
+      sortNone: 'Clear sorting',
+      columns: 'Columns',
+      columnsHint: 'Visible columns',
+      resetColumns: 'Reset to default',
+    };
+  }
+  return {
+    searchAriaLabel: 'بحث في الرسوم والمطالبات',
+    searchPlaceholder: 'ابحث باسم المواطن أو الرسم أو الرقم المرجعي…',
+    clearSearch: 'مسح البحث',
+    searchHint: 'Enter',
+    searchApplied: 'بحث: «{term}»',
+    empty: 'لا توجد رسوم أو مطالبات مسجّلة بعد.',
+    emptyHint: 'أصدر أول رسم من زر «إصدار رسم جديد» أعلاه.',
+    emptySearch: 'لا توجد نتائج مطابقة لبحثك.',
+    emptySearchHint: 'جرّب البحث باسم المواطن، أو نوع الرسم، أو الرقم المرجعي.',
+    loadError: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
+    retry: 'إعادة المحاولة',
+    previous: 'السابق',
+    next: 'التالي',
+    pageOf: 'صفحة {current} من {total}',
+    rowsPerPage: 'عدد الصفوف',
+    totalRows: '{count} مطالبة',
+    sortAscending: 'ترتيب تصاعدي',
+    sortDescending: 'ترتيب تنازلي',
+    sortNone: 'إلغاء الترتيب',
+    columns: 'الأعمدة',
+    columnsHint: 'الأعمدة الظاهرة',
+    resetColumns: 'استعادة الافتراضي',
+  };
+}
 
-const STATUS_FILTERS = [
-  { id: '', label: 'الكل' },
-  { id: 'UNPAID', label: 'غير مسددة' },
-  { id: 'OVERDUE', label: 'متأخرة' },
-  { id: 'PENDING_REVIEW', label: 'قيد المراجعة' },
-  { id: 'PAID', label: 'مدفوعة' },
-] as const;
+function getStatusFilters(locale: string) {
+  if (locale === 'en') {
+    return [
+      { id: '', label: 'All' },
+      { id: 'UNPAID', label: 'Unpaid' },
+      { id: 'OVERDUE', label: 'Overdue' },
+      { id: 'PENDING_REVIEW', label: 'Under Review' },
+      { id: 'PAID', label: 'Paid' },
+    ] as const;
+  }
+  return [
+    { id: '', label: 'الكل' },
+    { id: 'UNPAID', label: 'غير مسددة' },
+    { id: 'OVERDUE', label: 'متأخرة' },
+    { id: 'PENDING_REVIEW', label: 'قيد المراجعة' },
+    { id: 'PAID', label: 'مدفوعة' },
+  ] as const;
+}
 
 function initials(fullName: string): string {
   const words = fullName.trim().split(/\s+/).filter(Boolean);
@@ -326,11 +365,13 @@ export default function FeesPage({
     }
   };
 
+  const labels = getLabels(locale);
+
   const columns = useMemo<ColumnDef<AdminPaymentItem>[]>(
     () => [
       {
         accessorKey: 'citizenName',
-        header: 'المواطن',
+        header: locale === 'en' ? 'Citizen' : 'المواطن',
         cell: ({ row }) => {
           const payment = row.original;
           return (
@@ -370,7 +411,7 @@ export default function FeesPage({
       },
       {
         accessorKey: 'title',
-        header: 'الرسم / المطالبة',
+        header: locale === 'en' ? 'Fee / Demand' : 'الرسم / المطالبة',
         cell: ({ row }) => {
           const payment = row.original;
           return (
@@ -378,7 +419,7 @@ export default function FeesPage({
               <p className="font-medium text-foreground">{payment.title}</p>
               {payment.frequency ? (
                 <Badge variant="soft-muted" className="text-[10px] px-1.5 py-0">
-                  {ar.feeFrequency[payment.frequency as never] ?? payment.frequency}
+                  {labels.feeFrequency[payment.frequency as never] ?? payment.frequency}
                 </Badge>
               ) : null}
             </div>
@@ -387,7 +428,7 @@ export default function FeesPage({
       },
       {
         accessorKey: 'dueDate',
-        header: 'تاريخ الاستحقاق',
+        header: locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق',
         cell: ({ row }) => {
           return (
             <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
@@ -398,17 +439,17 @@ export default function FeesPage({
       },
       {
         accessorKey: 'amount',
-        header: 'قيمة الرسم',
+        header: locale === 'en' ? 'Fee Amount' : 'قيمة الرسم',
         meta: { align: 'end' },
         cell: ({ row }) => (
           <span className="font-mono text-sm tabular-nums text-foreground whitespace-nowrap">
-            {formatLbp(row.original.amount)}
+            {formatLbp(row.original.amount, locale)}
           </span>
         ),
       },
       {
         accessorKey: 'paidAmount',
-        header: 'المسدد',
+        header: locale === 'en' ? 'Paid' : 'المسدد',
         meta: { align: 'end' },
         cell: ({ row }) => {
           const paid = row.original.paidAmount;
@@ -419,14 +460,14 @@ export default function FeesPage({
                 paid > 0 ? 'font-semibold text-success' : 'text-muted-foreground',
               )}
             >
-              {paid > 0 ? formatLbp(paid) : '—'}
+              {paid > 0 ? formatLbp(paid, locale) : '—'}
             </span>
           );
         },
       },
       {
         accessorKey: 'remaining',
-        header: 'الرصيد المستحق',
+        header: locale === 'en' ? 'Balance Due' : 'الرصيد المستحق',
         meta: { align: 'end' },
         cell: ({ row }) => {
           const remaining = row.original.remaining;
@@ -442,14 +483,14 @@ export default function FeesPage({
                     : 'text-success',
               )}
             >
-              {formatLbp(remaining)}
+              {formatLbp(remaining, locale)}
             </span>
           );
         },
       },
       {
         accessorKey: 'paymentStatus',
-        header: 'الحالة',
+        header: locale === 'en' ? 'Status' : 'الحالة',
         cell: ({ row }) => {
           const status = row.original.paymentStatus;
           return (
@@ -466,14 +507,14 @@ export default function FeesPage({
                       : 'border-border bg-muted/50 text-muted-foreground',
               )}
             >
-              {ar.paymentStatus[status as never] ?? status}
+              {labels.paymentStatus[status as never] ?? status}
             </Badge>
           );
         },
       },
       {
         id: 'actions',
-        header: 'الإجراءات',
+        header: locale === 'en' ? 'Actions' : 'الإجراءات',
         meta: { align: 'end' },
         cell: ({ row }) => {
           const payment = row.original;
@@ -483,7 +524,6 @@ export default function FeesPage({
 
           return (
             <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-              {/* Review actions for claims pending review */}
               {isPendingReview && canManage ? (
                 <>
                   <Button
@@ -498,7 +538,7 @@ export default function FeesPage({
                     ) : (
                       <CheckCircle2 className="size-3.5 rtl:ml-1 ltr:mr-1" />
                     )}
-                    تأكيد
+                    {locale === 'en' ? 'Confirm' : 'تأكيد'}
                   </Button>
                   <Button
                     size="sm"
@@ -507,23 +547,21 @@ export default function FeesPage({
                     disabled={isBusy}
                     onClick={() => void handleReview(payment.id, false)}
                   >
-                    رفض
+                    {locale === 'en' ? 'Reject' : 'رفض'}
                   </Button>
                 </>
               ) : null}
 
-              {/* Settle button for unpaid / overdue / partial */}
               {canManage && !isPaid && !isPendingReview ? (
                 <Link
                   href={`${base}/fees/payments/${payment.id}/settle`}
                   className={buttonVariants({ variant: 'default', size: 'sm' })}
                 >
                   <Banknote className="size-3.5 rtl:ml-1.5 ltr:mr-1.5" />
-                  تسجيل دفعة
+                  {locale === 'en' ? 'Record Payment' : 'تسجيل دفعة'}
                 </Link>
               ) : null}
 
-              {/* Receipt button for any invoice with payments */}
               {payment.paidAmount > 0 ? (
                 <Button
                   size="sm"
@@ -539,7 +577,7 @@ export default function FeesPage({
                   ) : (
                     <Receipt className="size-3.5 rtl:ml-1.5 ltr:mr-1.5" />
                   )}
-                  وصل القبض
+                  {locale === 'en' ? 'Receipt' : 'وصل القبض'}
                 </Button>
               ) : null}
             </div>
@@ -547,17 +585,24 @@ export default function FeesPage({
         },
       },
     ],
-    [base, canManage, busyPaymentId, openReceipt],
+    [base, canManage, busyPaymentId, openReceipt, locale, labels],
   );
 
   if (!token) return null;
+
+  const tableLabels = getTableLabels(locale);
+  const statusFilters = getStatusFilters(locale);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         icon={Receipt}
-        title="إدارة الرسوم والمدفوعات"
-        subtitle="سجل الرسوم والمطالبات المالية للمواطنين — الإصدار والتحصيل والوصولات"
+        title={locale === 'en' ? 'Fees & Billing' : 'إدارة الرسوم والمدفوعات'}
+        subtitle={
+          locale === 'en'
+            ? 'Financial demands and fees register — issuance, collection, and receipts'
+            : 'سجل الرسوم والمطالبات المالية للمواطنين — الإصدار والتحصيل والوصولات'
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -570,18 +615,18 @@ export default function FeesPage({
                 className={cn('size-4 rtl:ml-1.5 ltr:mr-1.5', refreshing && 'animate-spin')}
                 aria-hidden
               />
-              تحديث
+              {locale === 'en' ? 'Refresh' : 'تحديث'}
             </Button>
 
             {canManage ? (
               <>
                 <Button variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
                   <UserPlus className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
-                  تكليف مباشر
+                  {locale === 'en' ? 'Direct Charge' : 'تكليف مباشر'}
                 </Button>
                 <Button size="sm" onClick={() => setIssueOpen(true)}>
                   <Plus className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
-                  إصدار رسم جديد
+                  {locale === 'en' ? 'Issue New Fee' : 'إصدار رسم جديد'}
                 </Button>
               </>
             ) : null}
@@ -601,32 +646,40 @@ export default function FeesPage({
       {/* KPI Cards Summary Row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="إجمالي المحصّل"
-          value={formatLbp(summary?.paidTotal ?? 0)}
-          subtext={summary ? `${summary.paidCount} دفعة مسددة` : undefined}
+          label={locale === 'en' ? 'Total Collected' : 'إجمالي المحصّل'}
+          value={formatLbp(summary?.paidTotal ?? 0, locale)}
+          subtext={
+            summary
+              ? (locale === 'en' ? `${summary.paidCount} payments settled` : `${summary.paidCount} دفعة مسددة`)
+              : undefined
+          }
           loading={loading}
           icon={<Wallet className="size-6 text-success" />}
           accent="bg-success/10"
         />
         <MetricCard
-          label="المستحقات غير المسددة"
-          value={formatLbp(summary?.unpaidTotal ?? 0)}
-          subtext={summary ? `${summary.unpaidCount} مطالبة مطلوبة` : undefined}
+          label={locale === 'en' ? 'Unpaid Balance' : 'المستحقات غير المسددة'}
+          value={formatLbp(summary?.unpaidTotal ?? 0, locale)}
+          subtext={
+            summary
+              ? (locale === 'en' ? `${summary.unpaidCount} demands due` : `${summary.unpaidCount} مطالبة مطلوبة`)
+              : undefined
+          }
           loading={loading}
           icon={<Banknote className="size-6 text-primary" />}
         />
         <MetricCard
-          label="دفعات بانتظار التحقق"
+          label={locale === 'en' ? 'Pending Review' : 'دفعات بانتظار التحقق'}
           value={(summary?.pendingReviewCount ?? 0).toLocaleString('en-US')}
-          subtext="تحويلات تحتاج موافقة الموظف"
+          subtext={locale === 'en' ? 'Transfers awaiting verification' : 'تحويلات تحتاج موافقة الموظف'}
           loading={loading}
           icon={<Clock3 className="size-6 text-warning" />}
           accent="bg-warning/10"
         />
         <MetricCard
-          label="إجمالي الرسوم الصادرة"
-          value={formatLbp((summary?.paidTotal ?? 0) + (summary?.unpaidTotal ?? 0))}
-          subtext="المجموع الكلي للمطالبات"
+          label={locale === 'en' ? 'Total Billed' : 'إجمالي الرسوم الصادرة'}
+          value={formatLbp((summary?.paidTotal ?? 0) + (summary?.unpaidTotal ?? 0), locale)}
+          subtext={locale === 'en' ? 'Gross billed charges' : 'المجموع الكلي للمطالبات'}
           loading={loading}
           icon={<Receipt className="size-6 text-primary" />}
         />
@@ -638,12 +691,12 @@ export default function FeesPage({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base font-bold">
               <Receipt className="size-5 text-primary" />
-              سجل الرسوم والمطالبات
+              {locale === 'en' ? 'Fees & Billing Register' : 'سجل الرسوم والمطالبات'}
             </CardTitle>
 
             {/* Status Tabs Filter */}
             <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
-              {STATUS_FILTERS.map((tab) => (
+              {statusFilters.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
@@ -685,7 +738,7 @@ export default function FeesPage({
           <DataTable
             columns={columns}
             data={items}
-            labels={TABLE_LABELS}
+            labels={tableLabels}
             columnStorageKey="fees"
             getRowId={(row) => row.id}
             loading={loading}

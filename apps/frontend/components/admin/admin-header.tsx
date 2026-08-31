@@ -29,7 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import type { Session } from '@/lib/api-client';
 import { clearSession } from '@/lib/session';
 
@@ -117,7 +117,13 @@ export function AdminHeader({
     router.replace(`${base}/login`);
   }
 
-  const displayName = session?.user.name ?? '';
+  const rawDisplayName = session?.user.name ?? '';
+  const labels = getLabels(locale);
+  // If the stored username is the default 'مدير النظام' or blank, translate it
+  const displayName =
+    locale === 'en' && (rawDisplayName === 'مدير النظام' || !rawDisplayName)
+      ? (role ? labels.staffRole?.[role as never] ?? 'System Administrator' : 'Administrator')
+      : (rawDisplayName || (locale === 'en' ? 'User' : 'مستخدم'));
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4">
@@ -144,59 +150,52 @@ export function AdminHeader({
         </Link>
         {active ? (
           <>
-            <ChevronLeft
-              aria-hidden
-              className="hidden size-3.5 shrink-0 text-muted-foreground/60 ltr:rotate-180 sm:inline"
-            />
-            {onDetailRoute ? (
-              <>
-                <Link
-                  href={`${base}${active.path}`}
-                  className="truncate text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {localizedLabel(active, locale)}
-                </Link>
-                <ChevronLeft
-                  aria-hidden
-                  className="size-3.5 shrink-0 text-muted-foreground/60 ltr:rotate-180"
-                />
-                <span className="truncate font-semibold text-foreground">{leafLabel}</span>
-              </>
-            ) : (
-              <span className="truncate font-semibold text-foreground">{localizedLabel(active, locale)}</span>
-            )}
+            <ChevronLeft className="size-4 shrink-0 text-muted-foreground/60 rtl:rotate-180" aria-hidden />
+            <Link
+              href={`${base}${active.path}`}
+              className={
+                onDetailRoute
+                  ? 'hidden shrink-0 text-muted-foreground transition-colors hover:text-foreground sm:inline'
+                  : 'truncate font-medium text-foreground'
+              }
+            >
+              {localizedLabel(active, locale)}
+            </Link>
+          </>
+        ) : null}
+        {onDetailRoute ? (
+          <>
+            <ChevronLeft className="size-4 shrink-0 text-muted-foreground/60 rtl:rotate-180" aria-hidden />
+            <span className="truncate font-medium text-foreground">{leafLabel}</span>
           </>
         ) : null}
       </nav>
 
       <div className="flex-1" />
 
-      {/* Search collapses to its icon below `sm`. The full affordance — a box
-          with a placeholder and the ⌘K hint — costs 200px that a 360px screen
-          has to take from the breadcrumb. */}
-      <button
-        type="button"
-        onClick={onOpenSearch}
-        aria-label={locale === 'en' ? 'Global search' : 'بحث شامل'}
-        className="hidden h-9 w-56 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground sm:flex xl:w-72"
-      >
-        <Search className="size-4 shrink-0" />
-        <span className="truncate">{locale === 'en' ? 'Search…' : 'بحث…'}</span>
-        <kbd className="ms-auto hidden shrink-0 rounded border bg-muted px-1.5 font-sans text-[10px] font-medium text-muted-foreground lg:inline">
-          Ctrl K
-        </kbd>
-      </button>
+      {/* Global search launcher: Cmd/Ctrl+K or click.
+          Search covers citizens by name/phone/file-number, properties by
+          cadastral number, and navigation items. */}
       <Button
-        variant="ghost"
-        size="icon"
-        className="shrink-0 sm:hidden"
+        variant="outline"
+        size="sm"
         onClick={onOpenSearch}
-        aria-label={locale === 'en' ? 'Global search' : 'بحث شامل'}
+        className="hidden h-9 w-64 items-center justify-between text-muted-foreground hover:text-foreground md:flex"
+        aria-label={locale === 'en' ? 'Global search' : 'بحث عام في السجل'}
       >
-        <Search className="size-5" />
+        <span className="flex items-center gap-2 text-xs">
+          <Search className="size-3.5" />
+          <span>{locale === 'en' ? 'Search…' : 'بحث في السجل…'}</span>
+        </span>
+        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+          <span className="text-xs">Ctrl</span>K
+        </kbd>
       </Button>
 
-      <LanguageSwitcher currentLocale={locale} />
+      {/* Language Switcher */}
+      <div className="px-1">
+        <LanguageSwitcher variant="toggle" currentLocale={locale} />
+      </div>
 
       {/* Sits before the account menu rather than after it: this is work
           arriving, and the account menu is the one control on this bar
@@ -218,11 +217,11 @@ export function AdminHeader({
         <DropdownMenuContent align="end" className="w-60">
           <DropdownMenuLabel className="space-y-0.5">
             <span className="block truncate text-sm font-semibold text-foreground">
-              {displayName || (locale === 'en' ? 'User' : 'مستخدم')}
+              {displayName}
             </span>
             {role ? (
               <span className="block text-xs font-normal">
-                {locale === 'en' ? role : (ar.staffRole?.[role as never] ?? role)}
+                {labels.staffRole?.[role as never] ?? role}
               </span>
             ) : null}
           </DropdownMenuLabel>

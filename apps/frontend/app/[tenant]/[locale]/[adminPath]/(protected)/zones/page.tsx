@@ -292,20 +292,26 @@ export default function ZonesPage({
         */}
         <DraggablePanel
           storageKey="zones-list"
-          title={editorOpen ? (editing ? `تعديل: ${editing.name}` : 'قطاع جديد') : 'القطاعات'}
+          title={
+            editorOpen
+              ? editing
+                ? (locale === 'en' ? `Edit: ${editing.name}` : `تعديل: ${editing.name}`)
+                : (locale === 'en' ? 'New Zone / Sector' : 'قطاع جديد')
+              : (locale === 'en' ? 'Zones / Sectors' : 'القطاعات')
+          }
         >
           {editorOpen ? (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="border-b px-4 py-2">
                 <p className="text-xs text-muted-foreground">
-                  {selectedParcels.length} عقار محدّد
+                  {selectedParcels.length} {locale === 'en' ? 'parcels selected' : 'عقار محدّد'}
                 </p>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto p-2">
                 {selectedParcels.length === 0 ? (
                   <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    لم يتم تحديد أي عقار بعد
+                    {locale === 'en' ? 'No parcels selected yet' : 'لم يتم تحديد أي عقار بعد'}
                   </p>
                 ) : (
                   <ul className="flex flex-wrap gap-1.5">
@@ -317,7 +323,7 @@ export default function ZonesPage({
                             setSelectedParcels((prev) => prev.filter((n) => n !== parcelNumber))
                           }
                           className="flex items-center gap-1 rounded-md border bg-accent/40 px-2 py-1 text-xs transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          aria-label={`إزالة العقار ${parcelNumber}`}
+                          aria-label={locale === 'en' ? `Remove parcel ${parcelNumber}` : `إزالة العقار ${parcelNumber}`}
                         >
                           <span dir="ltr">{parcelNumber}</span>
                           <X className="size-3" aria-hidden />
@@ -336,10 +342,12 @@ export default function ZonesPage({
                     setModalOpen(true);
                   }}
                 >
-                  {editing ? 'حفظ التعديلات' : 'حفظ القطاع'}
+                  {editing
+                    ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+                    : (locale === 'en' ? 'Save Zone' : 'حفظ القطاع')}
                 </Button>
                 <Button variant="outline" onClick={closeEditor}>
-                  إلغاء
+                  {locale === 'en' ? 'Cancel' : 'إلغاء'}
                 </Button>
               </div>
             </div>
@@ -348,15 +356,13 @@ export default function ZonesPage({
               {loading ? (
                 <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" aria-hidden />
-                  جاري التحميل…
+                  {locale === 'en' ? 'Loading…' : 'جاري التحميل…'}
                 </div>
               ) : zones.length === 0 ? (
-                // No "create the first sector" button here any more: the same
-                // button now sits permanently at the panel's foot, and two of
-                // them a centimetre apart is not encouragement, it is doubt
-                // about which one does what.
                 <div className="p-6 text-center">
-                  <p className="text-sm text-muted-foreground">لا توجد قطاعات بعد</p>
+                  <p className="text-sm text-muted-foreground">
+                    {locale === 'en' ? 'No zones or sectors created yet' : 'لا توجد قطاعات بعد'}
+                  </p>
                 </div>
               ) : (
                 <ul className="divide-y">
@@ -370,7 +376,7 @@ export default function ZonesPage({
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{zone.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          <span dir="ltr">{zone.code}</span> — {zone.parcelCount} عقار
+                          <span dir="ltr">{zone.code}</span> — {zone.parcelCount} {locale === 'en' ? 'parcels' : 'عقار'}
                         </p>
                       </div>
                       {canEdit ? (
@@ -381,14 +387,14 @@ export default function ZonesPage({
                             className="h-7 px-2 text-xs"
                             onClick={() => void startEdit(zone.id)}
                           >
-                            تعديل
+                            {locale === 'en' ? 'Edit' : 'تعديل'}
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="size-7 text-muted-foreground hover:text-destructive"
                             onClick={() => setPendingDelete(zone)}
-                            aria-label={`حذف ${zone.name}`}
+                            aria-label={locale === 'en' ? `Delete ${zone.name}` : `حذف ${zone.name}`}
                           >
                             <Trash2 className="size-3.5" aria-hidden />
                           </Button>
@@ -408,7 +414,7 @@ export default function ZonesPage({
                 <div className="sticky bottom-0 border-t bg-card p-3">
                   <Button className="w-full" onClick={startNew}>
                     <Plus className="size-4" aria-hidden />
-                    قطاع جديد
+                    {locale === 'en' ? 'New Zone' : 'قطاع جديد'}
                   </Button>
                 </div>
               ) : null}
@@ -436,8 +442,6 @@ export default function ZonesPage({
           {notice ? (
             <div
               role="status"
-              // Stacks above the editor's own hint pill, which itself clears the
-              // basemap switcher — three floating things share this column.
               className="absolute bottom-36 left-1/2 z-20 -translate-x-1/2 rounded-lg border bg-card px-4 py-2 text-sm shadow-lg"
             >
               {notice}
@@ -462,17 +466,26 @@ export default function ZonesPage({
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
         }}
-        title="حذف القطاع"
+        title={locale === 'en' ? 'Delete Zone' : 'حذف القطاع'}
         description={
           pendingDelete ? (
             <>
-              سيُحذف القطاع{' '}
-              <span className="font-semibold text-foreground">{pendingDelete.name}</span>، وسيصبح{' '}
-              {pendingDelete.parcelCount} عقار بلا قطاع. العقارات نفسها لا تتأثر.
+              {locale === 'en' ? (
+                <>
+                  Zone <span className="font-semibold text-foreground">{pendingDelete.name}</span> will be deleted, and {pendingDelete.parcelCount} parcels will become unassigned. Parcels themselves are not deleted.
+                </>
+              ) : (
+                <>
+                  سيُحذف القطاع{' '}
+                  <span className="font-semibold text-foreground">{pendingDelete.name}</span>، وسيصبح{' '}
+                  {pendingDelete.parcelCount} عقار بلا قطاع. العقارات نفسها لا تتأثر.
+                </>
+              )}
             </>
           ) : null
         }
-        confirmLabel="حذف القطاع"
+        confirmLabel={locale === 'en' ? 'Delete Zone' : 'حذف القطاع'}
+        cancelLabel={locale === 'en' ? 'Cancel' : 'إلغاء'}
         onConfirm={async () => {
           if (pendingDelete) await handleDelete(pendingDelete);
         }}

@@ -14,19 +14,16 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1
  * two into one request — and because the header must be able to say which
  * municipality this is before a session exists at all.
  */
-async function getTenantName(slug: string): Promise<string | undefined> {
+async function getTenantName(slug: string, locale: string = 'ar'): Promise<string | undefined> {
   try {
     const response = await fetch(`${API_URL}/t/${slug}/tenant/config`, {
       next: { revalidate: 300 },
     });
     if (!response.ok) return undefined;
     const config = (await response.json()) as { name?: string; nameAr?: string };
-    // Arabic first: this portal is Arabic-first, and `name` is the Latin
-    // transliteration a municipality fills in second, if at all.
-    return config.nameAr ?? config.name;
+    return locale === 'en' ? (config.name ?? config.nameAr) : (config.nameAr ?? config.name);
   } catch {
-    // The breadcrumb falls back to «البلدية». A failed lookup for a decorative
-    // string must not take down every staff screen under it.
+    // The breadcrumb falls back to «البلدية» / "Municipality".
     return undefined;
   }
 }
@@ -57,7 +54,7 @@ export default async function ProtectedAdminLayout({
   params: Promise<{ tenant: string; locale: string; adminPath: string }>;
 }) {
   const { tenant, locale, adminPath } = await params;
-  const tenantName = await getTenantName(tenant);
+  const tenantName = await getTenantName(tenant, locale);
 
   return (
     /* Outermost of the three, because it is the longest-lived: the staff read

@@ -17,16 +17,17 @@ const MILLION = 1_000_000;
 const BILLION = 1_000_000_000;
 
 /** Grouped to the last pound — what a receipt has to say. */
-export function formatLbp(amount: number): string {
-  return `${Math.round(amount).toLocaleString('en-US')} ل.ل`;
+export function formatLbp(amount: number, locale: string = 'ar'): string {
+  const formatted = Math.round(amount).toLocaleString('en-US');
+  return locale === 'en' ? `${formatted} LBP` : `${formatted} ل.ل`;
 }
 
 /**
  * How many decimals a scaled figure keeps.
  *
- * Below ten the second decimal is real information — 5.5 مليون and 5.55 مليون
- * are 50,000 ل.ل apart, which is a fee. Above ten it is noise: at 123.45 مليون
- * the last digit is 10,000 ل.ل against a number where the reader only wants
+ * Below ten the second decimal is real information — 5.5 million and 5.55 million
+ * are 50,000 LBP apart, which is a fee. Above ten it is noise: at 123.45 million
+ * the last digit is 10,000 LBP against a number where the reader only wants
  * the magnitude, and the extra glyphs cost more than they say.
  */
 function scaled(value: number): string {
@@ -43,37 +44,15 @@ export function isCompactable(amount: number): boolean {
 
 /**
  * Shorthand for anything in the millions or above; exact below that.
- *
- * The threshold is one million rather than one thousand deliberately. Six
- * digits grouped (`500,000 ل.ل`) still fits any cell here and is exact, so
- * abbreviating it would trade precision for nothing. Seven and up is where a
- * table cell, a KPI tile or a summary row starts to wrap — so that is where
- * the shorthand starts.
- *
- * Always pair this with the exact value somewhere reachable — see `Money`,
- * which puts it in a tooltip and a `title`. A rounded figure with no way back
- * to the real one is not a number a clerk can act on.
  */
-export function formatLbpCompact(amount: number): string {
+export function formatLbpCompact(amount: number, locale: string = 'ar'): string {
   const magnitude = Math.abs(amount);
-  if (magnitude < MILLION) return formatLbp(amount);
+  if (magnitude < MILLION) return formatLbp(amount, locale);
 
-  /**
-   * The unit is chosen from the *rounded* figure, not the raw one.
-   *
-   * Picking it from the raw magnitude alone puts 999,999,999 just under the
-   * billion threshold, scales it to 999.999999 million, and then rounds that
-   * to `1000 مليون` — a thousand of a unit that has a name of its own, which
-   * reads as an off-by-a-factor bug even though the value is right. Anything
-   * that rounds up to four digits belongs in the next unit up.
-   */
   const millions = scaled(amount / MILLION);
   if (magnitude < BILLION && Math.abs(Number(millions)) < 1000) {
-    return `${millions} مليون ل.ل`;
+    return locale === 'en' ? `${millions}M LBP` : `${millions} مليون ل.ل`;
   }
 
-  // مليار is the ceiling on purpose: a municipality's outstanding total runs
-  // to tens of billions of pounds at the current nominal scale, and there is
-  // no honest use here for a unit above that.
-  return `${scaled(amount / BILLION)} مليار ل.ل`;
+  return locale === 'en' ? `${scaled(amount / BILLION)}B LBP` : `${scaled(amount / BILLION)} مليار ل.ل`;
 }

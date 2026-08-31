@@ -70,40 +70,38 @@ const DEFAULT_FOLDED: ReadonlySet<string> = new Set(['units']);
  * from the single word a citizen picks in a form.
  */
 const UNIT_CARDS = [
-  { source: 'unit', key: 'APARTMENT', label: 'شقق سكنية', icon: Building2 },
-  { source: 'property', key: 'HOUSE', label: 'منازل مستقلة', icon: Home },
-  { source: 'unit', key: 'SHOP', label: 'أقسام ووحدات تجارية', icon: Store },
-  { source: 'unit', key: 'CLINIC', label: 'مستوصفات وعيادات', icon: Stethoscope },
-  { source: 'property', key: 'BUILDING', label: 'مبانٍ مسجّلة', icon: Building },
-  { source: 'property', key: 'LAND', label: 'أراضٍ', icon: Trees },
-  { source: 'property', key: 'TENT', label: 'خيام', icon: Tent },
+  { source: 'unit', key: 'APARTMENT', label: 'شقق سكنية', labelEn: 'Residential Apartments', icon: Building2 },
+  { source: 'property', key: 'HOUSE', label: 'منازل مستقلة', labelEn: 'Standalone Houses', icon: Home },
+  { source: 'unit', key: 'SHOP', label: 'أقسام ووحدات تجارية', labelEn: 'Commercial Units & Shops', icon: Store },
+  { source: 'unit', key: 'CLINIC', label: 'مستوصفات وعيادات', labelEn: 'Clinics & Dispensaries', icon: Stethoscope },
+  { source: 'property', key: 'BUILDING', label: 'مبانٍ مسجّلة', labelEn: 'Registered Buildings', icon: Building },
+  { source: 'property', key: 'LAND', label: 'أراضٍ', labelEn: 'Land Parcels', icon: Trees },
+  { source: 'property', key: 'TENT', label: 'خيام', labelEn: 'Tents & Temporary', icon: Tent },
 ] as const;
 
 /**
  * Picks one unit for a whole money axis.
- *
- * A y-axis reading `20,000,000 / 40,000,000` spends half the plot width on
- * zeros that are identical on every tick. Scaling the axis once and naming the
- * unit in the card's subtitle says the same thing in two characters — and it
- * is the only way an LBP axis fits on a tablet at all.
  */
-function moneyAxis(max: number): { divisor: number; unit: string } {
-  if (max >= 1_000_000_000) return { divisor: 1_000_000_000, unit: 'مليار ل.ل' };
-  if (max >= 1_000_000) return { divisor: 1_000_000, unit: 'مليون ل.ل' };
-  if (max >= 1_000) return { divisor: 1_000, unit: 'ألف ل.ل' };
-  return { divisor: 1, unit: 'ل.ل' };
+function moneyAxis(max: number, locale: string = 'ar'): { divisor: number; unit: string } {
+  if (max >= 1_000_000_000) {
+    return { divisor: 1_000_000_000, unit: locale === 'en' ? 'B LBP' : 'مليار ل.ل' };
+  }
+  if (max >= 1_000_000) {
+    return { divisor: 1_000_000, unit: locale === 'en' ? 'M LBP' : 'مليون ل.ل' };
+  }
+  if (max >= 1_000) {
+    return { divisor: 1_000, unit: locale === 'en' ? 'k LBP' : 'ألف ل.ل' };
+  }
+  return { divisor: 1, unit: locale === 'en' ? 'LBP' : 'ل.ل' };
 }
 
-/** `2026-08` → `أغسطس` (+ the year, for the tooltip and the table). */
-function monthLabels(month: string): { short: string; long: string } {
+/** `2026-08` → `أغسطس` or `Aug` (+ the year, for the tooltip and the table). */
+function monthLabels(month: string, locale: string = 'ar'): { short: string; long: string } {
   const [year, index] = month.split('-').map(Number);
   const date = new Date(Date.UTC(year, (index ?? 1) - 1, 1));
   return {
-    // `formatMonth`, not `formatDate`: a chart axis wants the Arabic month
-    // name, and the only thing that changes here is that the year beside it is
-    // now Latin like every other figure on the dashboard.
-    short: formatMonth(date, { month: 'short', timeZone: 'UTC' }),
-    long: formatMonth(date, { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    short: formatMonth(date, { month: 'short', timeZone: 'UTC' }, locale),
+    long: formatMonth(date, { month: 'long', year: 'numeric', timeZone: 'UTC' }, locale),
   };
 }
 
@@ -280,7 +278,7 @@ export default function StaffDashboard({
   const monthly = useMemo(() => {
     if (!data) return [];
     return data.monthly.map((entry) => {
-      const { short, long } = monthLabels(entry.month);
+      const { short, long } = monthLabels(entry.month, locale);
       return {
         label: short,
         title: long,
@@ -288,11 +286,11 @@ export default function StaffDashboard({
         values: [entry.collected, entry.overdue],
       };
     });
-  }, [data]);
+  }, [data, locale]);
 
   const moneyScale = useMemo(
-    () => moneyAxis(Math.max(...monthly.flatMap((m) => m.values), 0)),
-    [monthly],
+    () => moneyAxis(Math.max(...monthly.flatMap((m) => m.values), 0), locale),
+    [monthly, locale],
   );
 
   /** Resolves each unit card against whichever of the two maps it reads. */
@@ -300,10 +298,11 @@ export default function StaffDashboard({
     () =>
       UNIT_CARDS.map((card) => ({
         ...card,
+        label: locale === 'en' ? card.labelEn : card.label,
         value:
           (card.source === 'unit' ? data?.unitsByType : data?.propertiesByType)?.[card.key] ?? 0,
       })),
-    [data],
+    [data, locale],
   );
 
   const collectionRate =
@@ -317,8 +316,8 @@ export default function StaffDashboard({
       : 0;
 
   const trendSeries: SeriesKey[] = [
-    { label: 'محصّل', color: 'var(--viz-series-1)' },
-    { label: 'متأخر', color: 'var(--viz-series-2)' },
+    { label: locale === 'en' ? 'Collected' : 'محصّل', color: 'var(--viz-series-1)' },
+    { label: locale === 'en' ? 'Overdue' : 'متأخر', color: 'var(--viz-series-2)' },
   ];
 
   if (!token) return null;

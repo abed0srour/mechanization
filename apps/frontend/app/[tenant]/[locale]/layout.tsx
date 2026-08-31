@@ -47,19 +47,24 @@ async function getTenant(slug: string): Promise<PublicTenantConfig | null> {
   }
 }
 
-/**
- * The `<html>`/`<body>` shell for every route under this tenant — citizen
- * pages and the staff portal alike — plus the one thing both genuinely share:
- * language direction and the municipality's branding colour.
- *
- * Deliberately carries no header, container width or footer. Those used to
- * live here and applied to every route by construction, which put the staff
- * dashboard and the fullscreen map inside the citizen wizard's
- * `max-w-3xl` reading column — a limit chosen for a single-column form, wrong
- * for a data table and fatal for a full-viewport map. Citizen-facing chrome
- * now lives in `(citizen)/layout.tsx`, scoped to the routes that are actually
- * citizen-facing; `[adminPath]/**` pages own their own full-width shell.
- */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ tenant: string; locale: string }>;
+}) {
+  const { tenant, locale } = await params;
+  const config = await getTenant(tenant);
+  const name = locale === 'en' ? (config?.name ?? 'Municipal Register') : (config?.nameAr ?? 'السجل البلدي');
+  const subtitle = locale === 'en' ? 'Property & Residency Registry' : 'منصة العقارات والوحدات السكنية';
+  return {
+    title: `${name} — ${subtitle}`,
+    description:
+      locale === 'en'
+        ? 'Official Property & Residency Registry for Lebanese Municipalities'
+        : 'النظام الرسمي لتسجيل وحصر العقارات والوحدات السكنية للبلديات اللبنانية',
+  };
+}
+
 export default async function TenantLayout({
   children,
   params,

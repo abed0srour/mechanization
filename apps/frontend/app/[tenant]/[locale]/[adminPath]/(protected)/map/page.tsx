@@ -27,7 +27,7 @@ const FullscreenMap = dynamic(
     loading: () => (
       <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" aria-hidden />
-        جاري تهيئة الخريطة…
+        Loading map…
       </div>
     ),
   },
@@ -110,22 +110,15 @@ export default function FullscreenMapPage({
           router.replace(`${base}/login`);
           return;
         }
-        setError('تعذّر تحميل بيانات الخريطة.');
+        setError(locale === 'en' ? 'Failed to load map data.' : 'تعذّر تحميل بيانات الخريطة.');
       });
 
     return () => {
       cancelled = true;
     };
-  }, [tenant, token, base, router]);
+  }, [tenant, token, base, router, locale]);
 
   return (
-    /*
-      The cadastre upload — and with it this page's whole header, which held
-      nothing else — moved to إعدادات البلدية. Replacing a municipality's parcel
-      geometry is configuration done once at setup, not a thing to have within
-      reach of a mis-click every time someone opens the map to look up an
-      address. The map is now only the map.
-    */
     <div className="flex h-full flex-col">
       <div className="relative flex-1">
         {!token ? null : error ? (
@@ -134,7 +127,7 @@ export default function FullscreenMapPage({
               {error}
             </p>
             <Button variant="outline" onClick={() => router.push(`${base}/dashboard`)}>
-              رجوع إلى اللوحة
+              {locale === 'en' ? 'Back to Dashboard' : 'رجوع إلى اللوحة'}
             </Button>
           </div>
         ) : (
