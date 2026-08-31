@@ -168,13 +168,8 @@ export function SettingsTabs<T extends string>({
   label: string;
 }) {
   return (
-    <nav aria-label={label}>
-      {/*
-        Wraps rather than scrolls. Six labels is two rows on a phone, and two
-        visible rows beat one row that hides half the sections off-screen behind
-        a horizontal scroll an administrator has no reason to suspect is there.
-      */}
-      <div className="flex h-auto w-full flex-wrap items-center gap-1 rounded-lg bg-muted p-1 text-muted-foreground sm:w-auto">
+    <nav aria-label={label} className="w-full overflow-hidden">
+      <div className="flex h-auto w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = active === item.id;
@@ -185,7 +180,7 @@ export function SettingsTabs<T extends string>({
               onClick={() => onSelect(item.id)}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all sm:flex-none',
+                'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all',
                 isActive
                   ? 'bg-background text-foreground shadow'
                   : 'hover:text-foreground',
