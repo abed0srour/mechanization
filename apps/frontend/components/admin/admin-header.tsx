@@ -33,12 +33,6 @@ import { getLabels } from '@mechanization/shared-schemas';
 import type { Session } from '@/lib/api-client';
 import { clearSession } from '@/lib/session';
 
-const THEME_OPTIONS = [
-  { value: 'light', label: 'فاتح', icon: Sun },
-  { value: 'dark', label: 'داكن', icon: Moon },
-  { value: 'system', label: 'النظام', icon: Monitor },
-] as const;
-
 /**
  * The bar across the top of every staff screen.
  *

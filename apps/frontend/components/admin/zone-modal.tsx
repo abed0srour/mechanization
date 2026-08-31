@@ -25,17 +25,6 @@ import type { ZoneDetail } from '@/lib/api-client';
  * two opposite hues. These eight are spaced around the wheel and hold up
  * against both satellite imagery and the light basemap.
  */
-const PALETTE = [
-  { hex: '#3B82F6', label: 'أزرق' },
-  { hex: '#10B981', label: 'أخضر' },
-  { hex: '#F59E0B', label: 'برتقالي' },
-  { hex: '#EF4444', label: 'أحمر' },
-  { hex: '#8B5CF6', label: 'بنفسجي' },
-  { hex: '#EC4899', label: 'وردي' },
-  { hex: '#14B8A6', label: 'فيروزي' },
-  { hex: '#84CC16', label: 'ليموني' },
-] as const;
-
 export interface ZoneFormValues {
   name: string;
   code: string;

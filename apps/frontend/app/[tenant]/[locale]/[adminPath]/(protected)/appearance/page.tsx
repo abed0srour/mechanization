@@ -5,16 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { Check, Laptop, Moon, Palette, Sun } from 'lucide-react';
 import { loadSession } from '@/lib/session';
-import { ACCENTS, type AccentId } from '@/lib/accents';
+import { type AccentId } from '@/lib/accents';
 import { useAccent } from '@/components/accent-provider';
 import { PageHeader } from '@/components/ui/page-header';
 import { cn } from '@/lib/utils';
-
-const MODES = [
-  { id: 'light', label: 'فاتح', hint: 'خلفية كريمية فاتحة طوال الوقت', icon: Sun },
-  { id: 'dark', label: 'داكن', hint: 'مريح للعين في الإضاءة المنخفضة', icon: Moon },
-  { id: 'system', label: 'حسب النظام', hint: 'يتبع إعداد الجهاز تلقائياً', icon: Laptop },
-] as const;
 
 /** The tick on a chosen card. */
 function SelectedBadge() {

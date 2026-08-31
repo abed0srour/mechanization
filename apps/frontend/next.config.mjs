@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 
 /** @type {import('next').NextConfig} */
@@ -66,7 +67,7 @@ const nextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: SECURITY_HEADERS }];
   },
-  ...(onVercel
+  ...(onVercel || process.platform === 'win32'
     ? {}
     : {
         // Traced standalone output, so the Docker runner ships only what the app
@@ -74,7 +75,7 @@ const nextConfig = {
         output: 'standalone',
         // The workspace root, not apps/frontend — otherwise tracing misses the
         // symlinked shared-schemas package.
-        outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
+        outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
       }),
 };
 

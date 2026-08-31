@@ -24,27 +24,6 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
-const METHODS = [
-  {
-    value: 'CASH',
-    title: 'نقداً',
-    description: 'استلام في الصندوق',
-    icon: Banknote,
-  },
-  {
-    value: 'WHISH_MONEY',
-    title: 'تحويل Whish',
-    description: 'تحويل مؤكد',
-    icon: CreditCard,
-  },
-  {
-    value: 'COLLECTOR',
-    title: 'عبر المحصّل',
-    description: 'استلام ميداني',
-    icon: UserCheck,
-  },
-] as const;
-
 export interface SettleTarget {
   id: string;
   title: string;

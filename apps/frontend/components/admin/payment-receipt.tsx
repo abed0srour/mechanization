@@ -112,7 +112,6 @@ export function PaymentReceipt({
     0,
   );
 
-  const tenantProperty = properties.find((p) => p.occupancyType === 'TENANT');
   const wa = whatsappNumber(citizen.whatsapp ?? citizen.phone);
 
   const message = [

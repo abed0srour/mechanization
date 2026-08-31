@@ -30,6 +30,8 @@ function safeHslTriple(value: string | undefined): string | null {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side fetch so the municipality's name and branding are in the first
  * HTML response — a citizen on a slow connection should not watch an unbranded
