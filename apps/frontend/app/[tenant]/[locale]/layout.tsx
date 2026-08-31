@@ -101,10 +101,6 @@ export default async function TenantLayout({
     */
     <html lang={locale} dir={isRtl ? 'rtl' : 'ltr'} suppressHydrationWarning>
       <head>
-        <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@500;700&display=swap"
-          rel="stylesheet"
-        />
         {/*
           The hand-rolled light/dark pre-paint script that used to sit here is
           gone. `next-themes` injects an equivalent one of its own, and running

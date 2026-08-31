@@ -44,25 +44,6 @@ import { useTranslations } from 'next-intl';
  * resolves through.
  */
 
-/** Generic and tenant-free — see the note above on why the panel can say these. */
-const ASSURANCES = [
-  {
-    icon: Lock,
-    title: 'اتصال مشفّر',
-    body: 'بيانات الدخول والجلسة تمرّ عبر قناة مشفّرة بالكامل.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'صلاحيات محدّدة',
-    body: 'لكل حساب صلاحياته، ولا يظهر للموظف إلا ما يخصّ عمله.',
-  },
-  {
-    icon: History,
-    title: 'سجل كامل',
-    body: 'كل محاولة دخول وكل إجراء يُسجَّل مع وقته وصاحبه.',
-  },
-] as const;
-
 export default function StaffLogin({
   params,
 }: {

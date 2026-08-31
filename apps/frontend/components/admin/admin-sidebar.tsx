@@ -165,14 +165,20 @@ export function AdminSidebar({
             >
               <ShieldCheck className="size-[18px]" />
             </span>
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold">لوحة البلدية</p>
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+              {locale === 'en' ? 'Municipality Portal' : 'لوحة البلدية'}
+            </p>
           </>
         ) : null}
         <button
           type="button"
           onClick={toggleCollapsed}
-          aria-label={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
-          title={collapsed ? 'إظهار الشريط الجانبي' : 'طي الشريط الجانبي'}
+          aria-label={collapsed
+            ? (locale === 'en' ? 'Expand sidebar' : 'إظهار الشريط الجانبي')
+            : (locale === 'en' ? 'Collapse sidebar' : 'طي الشريط الجانبي')}
+          title={collapsed
+            ? (locale === 'en' ? 'Expand sidebar' : 'إظهار الشريط الجانبي')
+            : (locale === 'en' ? 'Collapse sidebar' : 'طي الشريط الجانبي')}
           className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           {collapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}

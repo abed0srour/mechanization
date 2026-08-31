@@ -105,7 +105,7 @@ export default function TenantHome({
 
           <div className="space-y-2">
             <label htmlFor="reference" className="sr-only">
-              {tCitizen('enterReference')}
+              {tCitizen('referenceNumber')}
             </label>
             <Input
               id="reference"
@@ -139,7 +139,7 @@ export default function TenantHome({
               }}
             />
             <p className="text-center text-xs text-muted-foreground">
-              {tCitizen('referenceMaskHint')}
+              {tCitizen('autoDashHint')}
             </p>
           </div>
 
@@ -164,7 +164,6 @@ export default function TenantHome({
               onClick={() => router.push(`${base}/login`)}
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
-              {tCitizen('signInSms')}
             </button>
           </p>
         </CardContent>

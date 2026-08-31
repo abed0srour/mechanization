@@ -121,3 +121,111 @@ export const ar = {
     EXTRA_PHOTO: 'صورة إضافية',
   } satisfies Record<DocumentType, string>,
 } as const;
+
+export const en = {
+  gender: { MALE: 'Male', FEMALE: 'Female' } satisfies Record<Gender, string>,
+
+  feeFrequency: {
+    ONCE: 'Once',
+    MONTHLY: 'Monthly',
+    HALF_YEARLY: 'Semi-Annually',
+    ANNUALLY: 'Annually',
+  },
+
+  feeTargetType: {
+    ALL_CITIZENS: 'All Citizens',
+    BUILDING_CATEGORY: 'Property Category',
+    INDIVIDUAL_CITIZEN: 'Individual Citizen',
+  },
+
+  feeTargetCategory: {
+    BUILDING: 'Buildings',
+    HOUSE: 'Houses',
+    LAND: 'Land',
+    TENT: 'Tents',
+    APARTMENT: 'Apartments',
+    CLINIC: 'Clinics',
+    SHOP: 'Commercial Shops',
+  },
+
+  paymentStatus: {
+    UNPAID: 'Unpaid',
+    PENDING_REVIEW: 'Pending Review',
+    PAID: 'Paid',
+    OVERDUE: 'Overdue',
+  },
+
+  paymentMethod: {
+    CASH: 'Cash at Municipality',
+    WHISH_MONEY: 'Whish Money Transfer',
+    COLLECTOR: 'Via Collector',
+  },
+
+  staffRole: {
+    SUPER_ADMIN: 'System Administrator',
+    AUDITOR: 'Auditor',
+    FIELD_INSPECTOR: 'Field Inspector',
+    COLLECTOR: 'Collector',
+    ACCOUNTANT: 'Accountant',
+    ADMINISTRATIVE_OFFICER: 'Administrative Officer',
+  } satisfies Record<StaffRole, string>,
+
+  residentStatus: {
+    REFUGEE: 'Refugee',
+    DISPLACED: 'Displaced',
+    VILLAGE_RESIDENT: 'Village Resident',
+  } satisfies Record<ResidentStatus, string>,
+
+  identityDocType: {
+    NATIONAL_ID: 'National ID',
+    FAMILY_RECORD: 'Family Record',
+    DRIVER_LICENSE: 'Driver License',
+    PASSPORT: 'Passport',
+  } satisfies Record<IdentityDocType, string>,
+
+  identityDocNumberLabel: {
+    NATIONAL_ID: 'National ID Number',
+    FAMILY_RECORD: 'Family Record Number',
+    DRIVER_LICENSE: 'Driver License Number',
+    PASSPORT: 'Passport Number',
+  } satisfies Record<IdentityDocType, string>,
+
+  maritalStatus: {
+    SINGLE: 'Single',
+    MARRIED: 'Married',
+    DIVORCED: 'Divorced',
+    WIDOWED: 'Widowed',
+  } satisfies Record<MaritalStatus, string>,
+
+  occupancyType: { OWNER: 'Owner', TENANT: 'Tenant' } satisfies Record<OccupancyType, string>,
+
+  propertyType: {
+    BUILDING: 'Building',
+    HOUSE: 'House',
+    LAND: 'Land',
+    TENT: 'Tent',
+  } satisfies Record<PropertyType, string>,
+
+  unitType: {
+    APARTMENT: 'Apartment',
+    CLINIC: 'Clinic',
+    SHOP: 'Commercial Shop',
+  } satisfies Record<UnitType, string>,
+
+  landType: {
+    AGRICULTURAL: 'Agricultural',
+    INDUSTRIAL: 'Industrial',
+  } satisfies Record<LandType, string>,
+
+  documentType: {
+    IDENTITY: 'Identity Document',
+    OWNERSHIP_PROOF: 'Proof of Ownership',
+    RENTAL_CONTRACT: 'Rental Agreement',
+    RESIDENCY_PROOF: 'Residency Verification',
+    EXTRA_PHOTO: 'Additional Photograph',
+  } satisfies Record<DocumentType, string>,
+} as const;
+
+export function getLabels(locale: string = 'ar') {
+  return locale === 'en' ? en : ar;
+}

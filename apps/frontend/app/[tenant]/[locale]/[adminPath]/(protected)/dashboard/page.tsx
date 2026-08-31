@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import {
   Banknote,
   BarChart3,
@@ -148,6 +149,8 @@ export default function StaffDashboard({
   const { tenant, locale, adminPath } = use(params);
   const router = useRouter();
   const base = `/${tenant}/${locale}/${adminPath}`;
+  const tDashboard = useTranslations('dashboard');
+  const tCommon = useTranslations('common');
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
@@ -326,20 +329,18 @@ export default function StaffDashboard({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
-              لوحة التحكم
+              {locale === 'en' ? 'Dashboard' : 'لوحة التحكم'}
             </h1>
-            {/* `ar.staffRole`, not the raw enum: this rendered as the literal
-                string "SUPER_ADMIN" beside an otherwise fully Arabic heading.
-                The label table already exists and the staff table already
-                uses it. */}
             {role ? (
               <Badge variant="soft-default">
-                {ar.staffRole?.[role as never] ?? role}
+                {locale === 'en' ? role : (ar.staffRole?.[role as never] ?? role)}
               </Badge>
             ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            مؤشرات البلدية: السكان، الرسوم والتحصيل، وحالة الطلبات
+            {locale === 'en'
+              ? 'Municipality metrics: population, fees, collection, and records status.'
+              : 'مؤشرات البلدية: السكان، الرسوم والتحصيل، وحالة الطلبات'}
           </p>
         </div>
 
@@ -350,17 +351,17 @@ export default function StaffDashboard({
               className={buttonVariants({ variant: 'outline' })}
             >
               <Download className="size-4" aria-hidden />
-              تصدير CSV
+              {tCommon('exportCsv')}
             </a>
           ) : null}
           <Button
             variant="outline"
             onClick={() => void load()}
             disabled={refreshing}
-            title="تحديث البيانات"
+            title={tCommon('refresh')}
           >
             <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} aria-hidden />
-            تحديث
+            {tCommon('refresh')}
           </Button>
         </div>
       </header>
@@ -387,75 +388,63 @@ export default function StaffDashboard({
           height with their detail panels on one line, whatever each card's
           middle happens to carry.
         */}
-        <section aria-label="المؤشرات الرئيسية" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {/*
-            عدد السكان leads, rather than the record count: one registration
-            speaks for a whole household, so the record count understates the
-            people served roughly fourfold — and it is the population a
-            municipality budgets against.
-          */}
+        <section aria-label={locale === 'en' ? 'Key Metrics' : 'المؤشرات الرئيسية'} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
-            label="عدد السكان المسجّلين"
+            label={tDashboard('kpiPopulation')}
             icon={Users}
             value={data ? count(data.populationTotal) : '—'}
             loading={loading}
-            /*
-              Above the rule, beside the figure it qualifies, rather than down
-              among the supporting counts. Households with no عدد أفراد الأسرة
-              on file contribute zero to the figure above, so it is understated
-              by at least this many people — a dashboard that filed that away
-              with the rest would be lying by omission.
-            */
             alert={
               data && data.householdsWithoutSize > 0
-                ? `${data.householdsWithoutSize} أسرة بلا عدد أفراد مسجّل`
+                ? (locale === 'en'
+                  ? `${data.householdsWithoutSize} households without registered size`
+                  : `${data.householdsWithoutSize} أسرة بلا عدد أفراد مسجّل`)
                 : null
             }
           >
-            {/* The count of households missing a size is not repeated here —
-                the warning above the rule already carries it. */}
             <dl className="space-y-2.5">
-              <DetailRow label="أسر مسجّلة" value={count(data?.citizenRecords)} />
               <DetailRow
-                label="متوسط حجم الأسرة"
-                value={household ? `${household.average} أفراد` : '—'}
+                label={tDashboard('kpiFamilies')}
+                value={count(data?.citizenRecords)}
               />
               <DetailRow
-                label="الحجم الأكثر شيوعاً"
-                value={household ? `${household.mode} أفراد` : '—'}
+                label={tDashboard('kpiAvgFamily')}
+                value={household ? (locale === 'en' ? `${household.average} members` : `${household.average} أفراد`) : '—'}
+              />
+              <DetailRow
+                label={tDashboard('kpiCommonFamily')}
+                value={household ? (locale === 'en' ? `${household.mode} members` : `${household.mode} أفراد`) : '—'}
               />
             </dl>
             {data && data.householdsWithoutSize > 0 ? (
               <p className="text-xs leading-relaxed text-muted-foreground">
-                الأسر بلا عدد أفراد تُحتسب بصفر، فرقم السكان أعلاه أقل من الواقع. المتوسط
-                والحجم الأكثر شيوعاً محسوبان من الأسر المصرّح بعددها فقط.
+                {locale === 'en'
+                  ? 'Households without registered size count as zero; total population may be higher than displayed.'
+                  : 'الأسر بلا عدد أفراد تُحتسب بصفر، فرقم السكان أعلاه أقل من الواقع. المتوسط والحجم الأكثر شيوعاً محسوبان من الأسر المصرّح بعددها فقط.'}
               </p>
             ) : null}
-            <DetailLink href={`${base}/citizens`}>فتح سجل المواطنين</DetailLink>
+            <DetailLink href={`${base}/citizens`}>{tDashboard('citizensShortcut')}</DetailLink>
           </KpiCard>
 
           <KpiCard
-            label="إجمالي الرسوم"
+            label={tDashboard('kpiFees')}
             icon={Receipt}
             value={data ? <Money amount={data.billedTotal} /> : '—'}
             loading={loading}
           >
-            {/* The supporting counts were "N طلب مسجّل". A طلب is no longer a
-                thing a citizen files and tracks — records are entered by staff
-                — so they now count what the fee is actually levied against. */}
             <dl className="space-y-2.5">
-              <DetailRow label="عقارات مسجّلة" value={count(data?.propertyTotal)} />
-              <DetailRow label="وحدات مسجّلة" value={count(data?.unitTotal)} />
+              <DetailRow label={tDashboard('kpiProperties')} value={count(data?.propertyTotal)} />
+              <DetailRow label={tDashboard('kpiUnits')} value={count(data?.unitTotal)} />
               <DetailRow
-                label="غير مسدّد"
+                label={tDashboard('kpiUnpaid')}
                 value={data ? formatLbp(data.outstandingTotal) : '—'}
               />
             </dl>
-            <DetailLink href={`${base}/fees`}>فتح الرسوم والمدفوعات</DetailLink>
+            <DetailLink href={`${base}/fees`}>{tDashboard('feesShortcut')}</DetailLink>
           </KpiCard>
 
           <KpiCard
-            label="المتأخرات"
+            label={tDashboard('kpiOverdue')}
             icon={Banknote}
             tone="destructive"
             value={data ? <Money amount={data.overdueTotal} /> : '—'}
@@ -463,37 +452,31 @@ export default function StaffDashboard({
           >
             <dl className="space-y-2.5">
               <DetailRow
-                label="فواتير تجاوزت الاستحقاق"
+                label={locale === 'en' ? 'Overdue Invoices' : 'فواتير تجاوزت الاستحقاق'}
                 value={count(data?.overdueCount)}
               />
               <DetailRow
-                label="حصّتها من الرسوم"
+                label={locale === 'en' ? 'Share of Total Fees' : 'حصّتها من الرسوم'}
                 value={data ? `${overduePercent}%` : '—'}
               />
               <DetailRow
-                label="من إجمالي الرسوم"
+                label={locale === 'en' ? 'Total Billed' : 'من إجمالي الرسوم'}
                 value={data ? formatLbp(data.billedTotal) : '—'}
               />
             </dl>
-            <DetailLink href={`${base}/fees`}>متابعة التحصيل</DetailLink>
+            <DetailLink href={`${base}/fees`}>{tDashboard('feesShortcut')}</DetailLink>
           </KpiCard>
 
           <KpiCard
-            label="المحصَّل"
+            label={tDashboard('kpiCollected')}
             icon={Wallet}
             tone="success"
             value={data ? <Money amount={data.collectedTotal} /> : '—'}
             loading={loading}
-            /*
-              A meter, not a fifth card: a rate against a limit is the one
-              thing a bar reads better than a figure. The unfilled track is a
-              lighter step of the fill's own ramp, so the state reads across
-              the whole bar rather than only where it stops.
-            */
             extra={
               <div className="space-y-1.5">
                 <div className="flex items-baseline justify-between gap-2 text-xs">
-                  <span className="text-muted-foreground">نسبة التحصيل</span>
+                  <span className="text-muted-foreground">{tDashboard('kpiCollectionRate')}</span>
                   {loading ? (
                     <Skeleton className="h-3 w-8" />
                   ) : (
@@ -505,7 +488,7 @@ export default function StaffDashboard({
                   aria-valuenow={collectionPercent}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-label="نسبة التحصيل"
+                  aria-label={tDashboard('kpiCollectionRate')}
                   className="h-2 w-full overflow-hidden rounded-full"
                   style={{ background: 'var(--viz-step-1)' }}
                 >
@@ -520,40 +503,35 @@ export default function StaffDashboard({
               </div>
             }
           >
-            {/* نسبة التحصيل is not repeated here — the meter above already
-                carries it, and a row restating the number directly under it is
-                the duplication this layout is meant to remove. */}
             <dl className="space-y-2.5">
               <DetailRow
-                label="غير مسدّد"
+                label={tDashboard('kpiUnpaid')}
                 value={data ? formatLbp(data.outstandingTotal) : '—'}
               />
-              <DetailRow label="دفعات بانتظار التحقق" value={count(data?.pendingReviewCount)} />
+              <DetailRow
+                label={tDashboard('kpiPendingReview')}
+                value={count(data?.pendingReviewCount)}
+              />
             </dl>
-            <DetailLink href={`${base}/fees`}>تأكيد الدفعات</DetailLink>
+            <DetailLink href={`${base}/fees`}>{tDashboard('feesShortcut')}</DetailLink>
           </KpiCard>
         </section>
 
         {/* ── Municipal units ───────────────────────────────────────── */}
         <FoldSection
           id="units"
-          title="الوحدات والعقارات"
+          title={locale === 'en' ? 'Housing & Property Units' : 'الوحدات والعقارات'}
           icon={Building2}
           summary={
             loading
-              ? 'جارٍ التحميل…'
-              : `${count(data?.propertyTotal)} عقار · ${count(data?.unitTotal)} وحدة`
+              ? (locale === 'en' ? 'Loading…' : 'جارٍ التحميل…')
+              : (locale === 'en'
+                ? `${count(data?.propertyTotal)} properties · ${count(data?.unitTotal)} units`
+                : `${count(data?.propertyTotal)} عقار · ${count(data?.unitTotal)} وحدة`)
           }
           open={!foldedSections.has('units')}
           onToggle={() => toggleSection('units')}
         >
-          {/*
-            Counts, not a chart. Seven categories on one bar axis would put a
-            municipality's whole building stock on a scale set by its largest
-            category — with 5 buildings against 1 tent the four small ones
-            become invisible slivers. Each number is the point here, and the
-            form for "the number is the point" is a tile.
-          */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {unitCards.map((card) => (
               <UnitTile
@@ -566,39 +544,29 @@ export default function StaffDashboard({
             ))}
           </div>
 
-          {/*
-            Said plainly rather than left for someone to discover: a شقة inside
-            a registered building and a property registered as a single unit
-            are counted the same way here, so the two figures above do not add
-            up to each other and are not meant to.
-          */}
           <p className="text-xs leading-relaxed text-muted-foreground">
-            تُحتسب الوحدات داخل المباني المسجّلة والوحدات المسجّلة بذاتها معاً. «مبانٍ
-            مسجّلة» تعدّ العقار الواحد مرة واحدة مهما بلغ عدد وحداته.
+            {locale === 'en'
+              ? 'Units inside registered buildings and standalone units are counted together. Registered buildings counts each property once regardless of unit count.'
+              : 'تُحتسب الوحدات داخل المباني المسجّلة والوحدات المسجّلة بذاتها معاً. «مبانٍ مسجّلة» تعدّ العقار الواحد مرة واحدة مهما بلغ عدد وحداته.'}
           </p>
         </FoldSection>
 
         {/* ── Charts ────────────────────────────────────────────────── */}
-        {/*
-          Children are rendered only while open, not merely hidden: the charts
-          size themselves from a ResizeObserver on their container, and one
-          that mounts at zero width draws a chart with no plot area in it.
-        */}
         <FoldSection
           id="analytics"
-          title="التحليلات"
+          title={locale === 'en' ? 'Analytics' : 'التحليلات'}
           icon={BarChart3}
-          summary="توزيع أحجام الأسر، والتحصيل الشهري"
+          summary={locale === 'en' ? 'Household size distribution and monthly collection' : 'توزيع أحجام الأسر، والتحصيل الشهري'}
           open={!foldedSections.has('analytics')}
           onToggle={() => toggleSection('analytics')}
         >
           <div className="grid gap-4 lg:grid-cols-2">
             <ChartCard
-              title="توزيع أحجام الأسر"
-              description="عدد الأسر المسجّلة حسب عدد أفرادها"
+              title={locale === 'en' ? 'Household Size Distribution' : 'توزيع أحجام الأسر'}
+              description={locale === 'en' ? 'Registered households by member count' : 'عدد الأسر المسجّلة حسب عدد أفرادها'}
               icon={UsersRound}
               table={{
-                columns: ['عدد الأفراد', 'عدد الأسر'],
+                columns: locale === 'en' ? ['Household Size', 'Households'] : ['عدد الأفراد', 'عدد الأسر'],
                 rows: familyBuckets.map((bucket) => [
                   bucket.title,
                   bucket.value.toLocaleString('en-US'),
@@ -608,18 +576,18 @@ export default function StaffDashboard({
               <ColumnChart
                 data={familyBuckets}
                 color="var(--viz-series-1)"
-                yLabel="عدد الأسر"
+                yLabel={locale === 'en' ? 'Households' : 'عدد الأسر'}
                 formatValue={(value) => value.toLocaleString('en-US')}
               />
             </ChartCard>
 
             <ChartCard
-              title="التحصيل والمتأخرات شهرياً"
-              description={`آخر ٦ أشهر حسب تاريخ الاستحقاق — بـ${moneyScale.unit}`}
+              title={locale === 'en' ? 'Monthly Collection & Arrears' : 'التحصيل والمتأخرات شهرياً'}
+              description={locale === 'en' ? `Past 6 months by due date — in ${moneyScale.unit}` : `آخر ٦ أشهر حسب تاريخ الاستحقاق — بـ${moneyScale.unit}`}
               icon={TrendingUp}
               series={trendSeries}
               table={{
-                columns: ['الشهر', 'محصّل', 'متأخر'],
+                columns: locale === 'en' ? ['Month', 'Collected', 'Overdue'] : ['الشهر', 'محصّل', 'متأخر'],
                 rows: (data?.monthly ?? []).map((entry) => [
                   monthLabels(entry.month).long,
                   formatLbp(entry.collected),
@@ -630,7 +598,7 @@ export default function StaffDashboard({
               <GroupedColumnChart
                 data={monthly}
                 series={trendSeries}
-                yLabel={`المبالغ بـ${moneyScale.unit}`}
+                yLabel={locale === 'en' ? `Amounts in ${moneyScale.unit}` : `المبالغ بـ${moneyScale.unit}`}
                 formatValue={(value) => formatLbp(value)}
                 formatTick={(value) =>
                   (value / moneyScale.divisor).toLocaleString('en-US', {
@@ -643,36 +611,34 @@ export default function StaffDashboard({
         </FoldSection>
 
         {/* ── Shortcuts ─────────────────────────────────────────────── */}
-        {/*
-          Quieter than the cards above by design: these are doors, not data,
-          and the page has already spent the reader's attention on the numbers.
-        */}
-        <section aria-label="الانتقال السريع" className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">الانتقال السريع</h2>
+        <section aria-label={locale === 'en' ? 'Quick Access' : 'الانتقال السريع'} className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            {locale === 'en' ? 'Quick Access' : 'الانتقال السريع'}
+          </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Shortcut
               href={`${base}/citizens`}
               icon={Users}
-              title="المواطنون"
-              description="السجل الكامل، الإضافة والتعديل"
+              title={locale === 'en' ? 'Citizens' : 'المواطنون'}
+              description={locale === 'en' ? 'Full registry, search and edit' : 'السجل الكامل، الإضافة والتعديل'}
             />
             <Shortcut
               href={`${base}/fees`}
               icon={Receipt}
-              title="الرسوم والمدفوعات"
-              description="إصدار الرسوم وتأكيد الدفعات"
+              title={locale === 'en' ? 'Fees & Billing' : 'الرسوم والمدفوعات'}
+              description={locale === 'en' ? 'Issue bills and verify payments' : 'إصدار الرسوم وتأكيد الدفعات'}
             />
             <Shortcut
               href={`${base}/map`}
               icon={MapIcon}
-              title="الخريطة"
-              description="العقارات المسجّلة على السجل العقاري"
+              title={locale === 'en' ? 'Cadastral Map' : 'الخريطة'}
+              description={locale === 'en' ? 'Properties mapped on cadastre' : 'العقارات المسجّلة على السجل العقاري'}
             />
             <Shortcut
               href={`${base}/zones`}
               icon={Layers}
-              title="القطاعات"
-              description="تقسيم البلدية إلى مناطق"
+              title={locale === 'en' ? 'Zones' : 'القطاعات'}
+              description={locale === 'en' ? 'Municipal district zones' : 'تقسيم البلدية إلى مناطق'}
             />
           </div>
         </section>

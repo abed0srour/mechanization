@@ -130,7 +130,9 @@ export function AdminShell({
                 <ShieldCheck className="size-[18px]" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">لوحة البلدية</p>
+                <p className="truncate text-sm font-semibold">
+                  {locale === 'en' ? 'Municipality Portal' : 'لوحة البلدية'}
+                </p>
                 {tenantName ? (
                   <p className="truncate text-xs text-muted-foreground">{tenantName}</p>
                 ) : null}
@@ -170,6 +172,7 @@ export function AdminShell({
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         base={base}
+        locale={locale}
         tenant={tenant}
         token={session?.accessToken}
         role={role}

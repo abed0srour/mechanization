@@ -55,92 +55,105 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'السجل',
+    labelEn: 'Registry',
     items: [
       // The register's overview, so the register's roles — see DashboardController.
       {
         path: '/dashboard',
         label: 'لوحة التحكم',
+        labelEn: 'Dashboard',
         icon: LayoutDashboard,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
-        keywords: ['مؤشرات', 'تحليلات', 'إحصاءات'],
+        keywords: ['مؤشرات', 'تحليلات', 'إحصاءات', 'dashboard', 'analytics'],
       },
       // Directly under the dashboard: the dashboard reports on the register,
       // and this is the register itself — one row per person.
       {
         path: '/citizens',
         label: 'المواطنون',
+        labelEn: 'Citizens',
         icon: Users,
-        keywords: ['سجل', 'مواطن', 'عقار', 'استيراد'],
+        keywords: ['سجل', 'مواطن', 'عقار', 'استيراد', 'citizens', 'registry'],
       },
       // Next to the registry rather than under settings: a fee is issued
       // against the citizens in it, not configured in isolation.
       {
         path: '/fees',
         label: 'الرسوم والمدفوعات',
+        labelEn: 'Fees & Billing',
         icon: Receipt,
-        keywords: ['رسم', 'مطالبة', 'فاتورة', 'دفع'],
+        keywords: ['رسم', 'مطالبة', 'فاتورة', 'دفع', 'fees', 'billing'],
       },
       // Read-only: the ledger above answers "who owes what", this answers
       // "what has been paid". An auditor lives here.
       {
         path: '/payments',
         label: 'سجل العمليات',
+        labelEn: 'Payment Operations',
         icon: ArrowLeftRight,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT'],
-        keywords: ['قبض', 'إيصال', 'محصّل', 'نقد'],
+        keywords: ['قبض', 'إيصال', 'محصّل', 'نقد', 'payments', 'transactions'],
       },
     ],
   },
   {
     label: 'الأرض',
+    labelEn: 'Land & Map',
     items: [
       {
         path: '/map',
         label: 'الخريطة',
+        labelEn: 'Cadastral Map',
         icon: MapIcon,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER'],
-        keywords: ['عقارات', 'مواقع', 'مسح'],
+        keywords: ['عقارات', 'مواقع', 'مسح', 'map', 'cadastre'],
       },
       {
         path: '/zones',
         label: 'القطاعات',
+        labelEn: 'Zones',
         icon: Layers,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
-        keywords: ['قطاع', 'منطقة', 'حدود'],
+        keywords: ['قطاع', 'منطقة', 'حدود', 'zones', 'districts'],
       },
     ],
   },
   {
     label: 'النظام',
+    labelEn: 'System',
     roles: ['SUPER_ADMIN'],
     items: [
       {
         path: '/appearance',
         label: 'المظهر',
+        labelEn: 'Appearance',
         icon: Palette,
         roles: ['SUPER_ADMIN'],
-        keywords: ['ألوان', 'سمة', 'داكن'],
+        keywords: ['ألوان', 'سمة', 'داكن', 'appearance', 'theme'],
       },
       {
         path: '/audit',
         label: 'سجل النشاطات',
+        labelEn: 'Audit Log',
         icon: ShieldCheck,
         roles: ['SUPER_ADMIN'],
-        keywords: ['تدقيق', 'تاريخ', 'تغييرات'],
+        keywords: ['تدقيق', 'تاريخ', 'تغييرات', 'audit', 'logs'],
       },
       {
         path: '/settings',
         label: 'إعدادات البلدية',
+        labelEn: 'Settings',
         icon: Settings,
         roles: ['SUPER_ADMIN'],
-        keywords: ['ويش', 'واتساب', 'عنوان', 'دوام'],
+        keywords: ['ويش', 'واتساب', 'عنوان', 'دوام', 'settings', 'config'],
       },
       {
         path: '/staff',
         label: 'الموظفون',
+        labelEn: 'Staff Management',
         icon: UsersRound,
         roles: ['SUPER_ADMIN'],
-        keywords: ['موظف', 'صلاحيات', 'حساب'],
+        keywords: ['موظف', 'صلاحيات', 'حساب', 'staff', 'users'],
       },
     ],
   },
