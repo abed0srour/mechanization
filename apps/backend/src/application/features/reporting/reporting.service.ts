@@ -89,6 +89,13 @@ export interface SpatialFeature {
 }
 
 /** One citizen registered against a parcel, as the staff map drawer shows them. */
+export interface ParcelRegistrantFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  paymentStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
+}
+
 export interface ParcelRegistrant {
   citizenId: string;
   registrationId: string;
@@ -103,6 +110,14 @@ export interface ParcelRegistrant {
   registeredAt: string;
   /** Units inside this citizen's slice of the building, if any. */
   unitCount: number;
+  financials?: ParcelRegistrantFinancials;
+}
+
+export interface ParcelFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  status: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
 }
 
 /**
@@ -118,6 +133,7 @@ export interface RegisteredParcel {
   latitude: number;
   longitude: number;
   registrants: ParcelRegistrant[];
+  financials?: ParcelFinancials;
 }
 
 /** One unit inside a BUILDING — شقة, عيادة or محل. */
@@ -799,9 +815,62 @@ export class ReportingService {
       }),
     );
 
+    // Collect all citizen IDs to fetch their payment ledger summary in one go
+    const citizenIds = Array.from(new Set(rows.map((r) => r.registration.citizen.id)));
+    const payments =
+      citizenIds.length > 0
+        ? await withConnectionRetry(() =>
+            this.db.citizenPayment.findMany({
+              where: { citizenId: { in: citizenIds } },
+              select: {
+                citizenId: true,
+                amount: true,
+                paidAmount: true,
+                paymentStatus: true,
+              },
+            }),
+          )
+        : [];
+
+    const paymentsByCitizen = new Map<
+      string,
+      Array<{ amount: number; paidAmount: number; status: string }>
+    >();
+    for (const p of payments) {
+      const list = paymentsByCitizen.get(p.citizenId) ?? [];
+      list.push({
+        amount: Number(p.amount),
+        paidAmount: Number(p.paidAmount),
+        status: p.paymentStatus,
+      });
+      paymentsByCitizen.set(p.citizenId, list);
+    }
+
     const byParcel = new Map<string, RegisteredParcel>();
 
     for (const row of rows) {
+      const citizenId = row.registration.citizen.id;
+      const citizenPayments = paymentsByCitizen.get(citizenId) ?? [];
+
+      let totalBilled = 0;
+      let totalPaid = 0;
+      for (const cp of citizenPayments) {
+        totalBilled += cp.amount;
+        totalPaid += cp.paidAmount;
+      }
+      const totalDue = Math.max(totalBilled - totalPaid, 0);
+
+      let citizenStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS' = 'NO_BILLS';
+      if (totalBilled === 0) {
+        citizenStatus = 'NO_BILLS';
+      } else if (totalDue === 0) {
+        citizenStatus = 'PAID';
+      } else if (totalPaid > 0) {
+        citizenStatus = 'PARTIALLY_PAID';
+      } else {
+        citizenStatus = 'UNPAID';
+      }
+
       const parcel = byParcel.get(row.propertyNumber) ?? {
         propertyNumber: row.propertyNumber,
         latitude: row.latitude!,
@@ -810,7 +879,7 @@ export class ReportingService {
       };
 
       parcel.registrants.push({
-        citizenId: row.registration.citizen.id,
+        citizenId,
         registrationId: row.registration.id,
         fullName: [
           row.registration.citizen.firstName,
@@ -825,9 +894,47 @@ export class ReportingService {
         buildingName: row.buildingName,
         registeredAt: row.registration.submittedAt.toISOString(),
         unitCount: row._count.units,
+        financials: {
+          totalBilled,
+          totalPaid,
+          totalDue,
+          paymentStatus: citizenStatus,
+        },
       });
 
       byParcel.set(row.propertyNumber, parcel);
+    }
+
+    // Compute parcel-level aggregated financials
+    for (const parcel of byParcel.values()) {
+      let parcelBilled = 0;
+      let parcelPaid = 0;
+
+      for (const reg of parcel.registrants) {
+        if (reg.financials) {
+          parcelBilled += reg.financials.totalBilled;
+          parcelPaid += reg.financials.totalPaid;
+        }
+      }
+
+      const parcelDue = Math.max(parcelBilled - parcelPaid, 0);
+      let parcelStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS' = 'NO_BILLS';
+      if (parcelBilled === 0) {
+        parcelStatus = 'NO_BILLS';
+      } else if (parcelDue === 0) {
+        parcelStatus = 'PAID';
+      } else if (parcelPaid > 0) {
+        parcelStatus = 'PARTIALLY_PAID';
+      } else {
+        parcelStatus = 'UNPAID';
+      }
+
+      parcel.financials = {
+        totalBilled: parcelBilled,
+        totalPaid: parcelPaid,
+        totalDue: parcelDue,
+        status: parcelStatus,
+      };
     }
 
     return [...byParcel.values()];

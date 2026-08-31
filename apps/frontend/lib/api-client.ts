@@ -305,6 +305,13 @@ export function getDashboardAnalytics(tenant: string, token: string) {
   return apiFetch<DashboardAnalytics>(tenant, '/dashboard/analytics', { token });
 }
 
+export interface ParcelRegistrantFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  paymentStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
+}
+
 /** One citizen registered against a parcel, as the map drawer lists them. */
 export interface ParcelRegistrant {
   citizenId: string;
@@ -314,9 +321,17 @@ export interface ParcelRegistrant {
   occupancyType: string;
   propertyType: string;
   buildingName: string | null;
-  status: string;
+  status?: string;
   registeredAt: string;
   unitCount: number;
+  financials?: ParcelRegistrantFinancials;
+}
+
+export interface ParcelFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  status: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
 }
 
 /**
@@ -330,6 +345,7 @@ export interface RegisteredParcel {
   latitude: number;
   longitude: number;
   registrants: ParcelRegistrant[];
+  financials?: ParcelFinancials;
 }
 
 /**

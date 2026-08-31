@@ -188,7 +188,8 @@ export function CommandPalette({
               ? 'Search section or citizen — by name, phone, or reference'
               : 'ابحث عن قسم أو مواطن — بالاسم أو الهاتف أو الرقم المرجعي'}
             aria-label={locale === 'en' ? 'Search section or citizen' : 'ابحث عن قسم أو مواطن'}
-            className="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            style={{ outline: 'none', boxShadow: 'none', border: 'none' }}
+            className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm shadow-none outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
           {searching ? (
             <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
