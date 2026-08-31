@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  KeyRound,
   LayoutDashboard,
   Layers,
   Map as MapIcon,
@@ -121,7 +122,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'النظام',
     labelEn: 'System',
-    roles: ['SUPER_ADMIN'],
     items: [
       {
         path: '/appearance',
@@ -154,6 +154,13 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: UsersRound,
         roles: ['SUPER_ADMIN'],
         keywords: ['موظف', 'صلاحيات', 'حساب', 'staff', 'users'],
+      },
+      {
+        path: '/account',
+        label: 'أمان الحساب',
+        labelEn: 'Account Security',
+        icon: KeyRound,
+        keywords: ['كلمة المرور', 'أمان', 'حسابي', 'مصادقة', '2fa', 'password', 'security', 'account'],
       },
     ],
   },

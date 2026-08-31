@@ -10,6 +10,7 @@ import {
   Monitor,
   Moon,
   Search,
+  ShieldCheck,
   Sun,
   User,
 } from 'lucide-react';
@@ -225,6 +226,13 @@ export function AdminHeader({
               </span>
             ) : null}
           </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem onSelect={() => router.push(`${base}/account`)}>
+            <ShieldCheck className="size-4" aria-hidden />
+            <span>{locale === 'en' ? 'Account Security' : 'أمان الحساب'}</span>
+          </DropdownMenuItem>
+
           <DropdownMenuSeparator />
 
           <DropdownMenuLabel>{locale === 'en' ? 'Theme' : 'المظهر'}</DropdownMenuLabel>
