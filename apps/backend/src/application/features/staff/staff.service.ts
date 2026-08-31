@@ -389,4 +389,16 @@ export class StaffService {
 
     return { email: nextEmail };
   }
+
+  async sendPasswordResetEmail(input: {
+    staffId: string;
+    redirectTo?: string;
+  }): Promise<{ message: string }> {
+    const user = await this.users.findById(input.staffId);
+    if (!user || !user.email) {
+      throw new NotFoundError('Staff user', input.staffId);
+    }
+    await this.supabaseAuth.sendPasswordResetEmail(user.email, input.redirectTo);
+    return { message: 'تم إرسال بريد إعادة تعيين كلمة المرور بنجاح' };
+  }
 }

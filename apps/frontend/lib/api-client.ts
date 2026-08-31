@@ -1519,3 +1519,15 @@ export async function changeStaffEmail(
   });
 }
 
+export async function sendStaffPasswordResetEmail(
+  tenant: string,
+  token: string,
+  redirectTo?: string,
+): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(tenant, '/auth/staff/send-reset-password-email', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ redirectTo }),
+  });
+}
+

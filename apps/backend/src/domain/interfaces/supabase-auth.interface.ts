@@ -32,4 +32,5 @@ export interface SupabaseAuthService {
   }): Promise<void>;
   deleteStaffUser(email: string): Promise<void>;
   verifyToken(token: string): Promise<SupabaseAuthUser | null>;
+  sendPasswordResetEmail(email: string, redirectTo?: string): Promise<void>;
 }

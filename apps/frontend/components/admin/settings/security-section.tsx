@@ -18,6 +18,7 @@ import {
   changeStaffPassword,
   getStaff,
   logApiError,
+  sendStaffPasswordResetEmail,
 } from '@/lib/api-client';
 import type { SettingsCopy } from '@/lib/settings-i18n';
 import { Badge } from '@/components/ui/badge';
@@ -111,6 +112,7 @@ export function SecuritySection({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [sendingResetEmail, setSendingResetEmail] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,7 +174,7 @@ export function SecuritySection({
           description:
             locale === 'en'
               ? 'Your sign-in email address has been updated.'
-              : 'تم تحديث عنوان البريد الإلكتروني لحسابك.',
+              : 'تم تحديث عنوان البريد الإلكتروني لحسابك وإرسال إشعار التأكيد.',
         },
       );
     } catch (caught) {
@@ -238,6 +240,43 @@ export function SecuritySection({
       }
     } finally {
       setSavingPassword(false);
+    }
+  };
+
+  const handleSendResetEmail = async () => {
+    if (sendingResetEmail) return;
+    setSendingResetEmail(true);
+    try {
+      await sendStaffPasswordResetEmail(tenant, token);
+      toast.success(
+        locale === 'en' ? 'Reset link sent' : 'تم إرسال رابط إعادة التعيين',
+        {
+          description:
+            locale === 'en'
+              ? `A password reset email has been sent to ${email}. Check your inbox.`
+              : `تم إرسال بريد إعادة تعيين كلمة المرور إلى ${email}. تفقّد بريدك الإلكتروني.`,
+        },
+      );
+    } catch (caught) {
+      logApiError(caught);
+      if (caught instanceof ApiRequestError) {
+        toast.error(
+          locale === 'en' ? 'Failed to send reset email' : 'تعذّر إرسال البريد',
+          { description: caught.message },
+        );
+      } else {
+        toast.error(
+          locale === 'en' ? 'Failed to send reset email' : 'تعذّر إرسال البريد',
+          {
+            description:
+              locale === 'en'
+                ? 'Unable to send password reset email.'
+                : 'تعذّر إرسال بريد إعادة تعيين كلمة المرور.',
+          },
+        );
+      }
+    } finally {
+      setSendingResetEmail(false);
     }
   };
 
@@ -466,7 +505,7 @@ export function SecuritySection({
             </div>
           ) : null}
 
-          <div className="flex items-center gap-3 pt-2">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <Button
               type="submit"
               disabled={
@@ -485,6 +524,22 @@ export function SecuritySection({
                 </>
               ) : (
                 copy.security.changePassword
+              )}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSendResetEmail}
+              disabled={sendingResetEmail || loadingEmail || !email}
+            >
+              {sendingResetEmail ? (
+                <>
+                  <Loader2 className="me-2 size-4 animate-spin" />
+                  {locale === 'en' ? 'Sending reset link…' : 'جارٍ إرسال الرابط…'}
+                </>
+              ) : (
+                locale === 'en' ? 'Send reset link via email' : 'إرسال رابط إعادة التعيين عبر البريد'
               )}
             </Button>
           </div>

@@ -103,6 +103,14 @@ export class AuthController {
     return result;
   }
 
+  @Post('staff/send-reset-password-email')
+  async sendResetPasswordEmail(
+    @CurrentUser() user: SessionClaims,
+    @Body() body?: { redirectTo?: string },
+  ) {
+    return this.identity.sendStaffPasswordResetEmail(user.sub, body?.redirectTo);
+  }
+
   // ───────────────────────────  Citizens  ───────────────────────────
 
   @Public()

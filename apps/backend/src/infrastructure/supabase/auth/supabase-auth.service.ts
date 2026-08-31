@@ -167,6 +167,16 @@ export class SupabaseAuthServiceImpl implements SupabaseAuthService {
     }
   }
 
+  async sendPasswordResetEmail(email: string, redirectTo?: string): Promise<void> {
+    const { error } = await this.client.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo,
+    });
+    if (error) {
+      this.logger.error(`Failed to send password reset email to ${email}: ${error.message}`);
+      throw new Error(`تعذّر إرسال بريد إعادة تعيين كلمة المرور: ${error.message}`);
+    }
+  }
+
   private async findUserByEmail(email: string) {
     const normalised = email.trim().toLowerCase();
     const { data, error } = await this.client.auth.admin.listUsers({ page: 1, perPage: 1000 });
