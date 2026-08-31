@@ -1,3 +1,5 @@
+import createNextIntlPlugin from 'next-intl/plugin';
+
 /** @type {import('next').NextConfig} */
 
 /**
@@ -75,8 +77,6 @@ const nextConfig = {
         outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
       }),
 };
-
-import createNextIntlPlugin from 'next-intl/plugin';
 
 const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 
