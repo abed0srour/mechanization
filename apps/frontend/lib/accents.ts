@@ -51,6 +51,7 @@ export const ACCENT_STORAGE_KEY = 'mechanization.accent';
 
 export function isAccent(value: unknown): value is AccentId {
   return ACCENTS.some((accent) => accent.id === value);
+  return value === 'municipal';
 }
 
 /**
@@ -66,7 +67,9 @@ export function isAccent(value: unknown): value is AccentId {
  * It cannot share `next-themes`' script: that one owns the `dark` class from
  * its own key, this one owns `data-accent` from another. They touch different
  * attributes, so running both is safe.
+ * Cleans up any stale non-municipal data-accent attribute or storage.
  */
 export const ACCENT_INIT_SCRIPT = `(function(){try{var a=localStorage.getItem('${ACCENT_STORAGE_KEY}');var v=${JSON.stringify(
   ACCENTS.map((accent) => accent.id),
 )};if(a&&v.indexOf(a)!==-1&&a!=='${DEFAULT_ACCENT}')document.documentElement.setAttribute('data-accent',a);}catch(e){}})();`;
+export const ACCENT_INIT_SCRIPT = `(function(){try{localStorage.removeItem('${ACCENT_STORAGE_KEY}');document.documentElement.removeAttribute('data-accent');}catch(e){}})();`;
