@@ -348,8 +348,6 @@ export function FinanceSection({
           </FieldGroup>
 
           <FieldGroup icon={Percent} title={copy.finance.rateHeading}>
-            <div className="grid items-start gap-4 md:grid-cols-2">
-              <AlignedFieldGrid columns={1}>
             <div className="grid items-start gap-5 lg:grid-cols-12">
               <div className="space-y-3 lg:col-span-6">
                 <SettingsField
@@ -358,42 +356,25 @@ export function FinanceSection({
                   hint={rateValid ? copy.finance.rateAppliesTo : undefined}
                   error={rateValid ? undefined : copy.finance.invalidRate}
                 >
-                  {/* `dir="ltr"` on the wrapper as well as the input: `end-3.5`
-                      below is a logical property and resolves against this
-                      div's own direction. Left off, it inherits the page's
-                      RTL and pins the % sign to the physical left — the same
-                      edge an ltr input's digits start from — so the suffix
-                      and a two-digit rate would sit on top of each other. */}
                   <div className="relative" dir="ltr">
                     <Input
                       id="default-rate"
                       inputMode="decimal"
                       dir="ltr"
                       invalid={!rateValid}
-                      className="pe-10 text-start"
                       className="pe-10 text-start font-mono font-medium"
                       value={local.defaultRatePercent}
                       onChange={(e) => setLocal({ ...local, defaultRatePercent: e.target.value })}
                     />
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-0 end-3.5 flex items-center text-sm text-muted-foreground"
                       className="pointer-events-none absolute inset-y-0 end-3 flex items-center text-sm font-semibold text-muted-foreground"
                     >
                       %
                     </span>
                   </div>
                 </SettingsField>
-              </AlignedFieldGrid>
 
-              {/*
-                A worked example rather than a bare percentage. "10%" of what,
-                added to what, is the question an administrator is actually
-                answering, and a figure they can check against a fee they know
-                is how they answer it.
-              */}
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <Label className="leading-snug text-muted-foreground">
                 {/* Quick Presets */}
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                   <span className="text-xs text-muted-foreground">{locale === 'en' ? 'Quick presets:' : 'خيارات سريعة:'}</span>
@@ -420,14 +401,6 @@ export function FinanceSection({
                 <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {copy.finance.ratePreview}
                 </Label>
-                <dl className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
-                  <div className="flex items-baseline justify-between gap-4">
-                    <dt className="min-w-0 text-muted-foreground">
-                      {copy.finance.ratePreviewBase}
-                    </dt>
-                    <dd className="shrink-0 tabular-nums" dir="ltr">
-                      {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
-                    </dd>
                 <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-4 text-sm shadow-sm backdrop-blur-sm">
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between text-muted-foreground">
@@ -454,21 +427,6 @@ export function FinanceSection({
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-baseline justify-between gap-4">
-                    <dt className="min-w-0 text-muted-foreground">
-                      {copy.finance.ratePreviewCharge}
-                    </dt>
-                    <dd className="shrink-0 tabular-nums" dir="ltr">
-                      {formatAmount(rateCharge, local.baseCurrency)}
-                    </dd>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-4 border-t pt-2 font-semibold">
-                    <dt className="min-w-0">{copy.finance.ratePreviewTotal}</dt>
-                    <dd className="shrink-0 tabular-nums" dir="ltr">
-                      {formatAmount(RATE_PREVIEW_BASE + rateCharge, local.baseCurrency)}
-                    </dd>
-                  </div>
-                </dl>
                 </div>
               </div>
             </div>
@@ -504,8 +462,6 @@ export function FinanceSection({
                 hint={copy.finance.secondaryCurrencyHint}
               >
                 <Select
-                  // Radix rejects `''` as an item value, so "none" travels as a
-                  // sentinel and is mapped back at the boundary.
                   value={local.secondaryCurrency || 'NONE'}
                   onValueChange={(next) =>
                     setLocal({
@@ -530,8 +486,6 @@ export function FinanceSection({
             </AlignedFieldGrid>
 
             {local.secondaryCurrency ? (
-              <div className="grid items-start gap-4 md:grid-cols-2">
-                <AlignedFieldGrid columns={1}>
               <div className="mt-3 grid items-start gap-5 lg:grid-cols-12">
                 <div className="lg:col-span-6">
                   <SettingsField
@@ -541,7 +495,6 @@ export function FinanceSection({
                     error={exchangeValid ? undefined : copy.finance.invalidExchange}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="shrink-0 text-sm text-muted-foreground" dir="ltr">
                       <span className="shrink-0 rounded-md bg-muted px-2.5 py-2 text-xs font-semibold text-muted-foreground" dir="ltr">
                         1 {local.secondaryCurrency} =
                       </span>
@@ -550,32 +503,21 @@ export function FinanceSection({
                         inputMode="decimal"
                         dir="ltr"
                         invalid={!exchangeValid}
-                        className="text-start"
                         className="text-start font-mono font-medium"
                         value={local.exchangeRate}
                         onChange={(e) => setLocal({ ...local, exchangeRate: e.target.value })}
                       />
-                      <span className="shrink-0 text-sm text-muted-foreground">
                       <span className="shrink-0 rounded-md bg-muted px-2.5 py-2 text-xs font-semibold text-muted-foreground">
                         {local.baseCurrency}
                       </span>
                     </div>
                   </SettingsField>
-                </AlignedFieldGrid>
                 </div>
 
-                <div className="flex min-w-0 flex-col gap-1.5">
-                  <Label className="leading-snug text-muted-foreground">
                 <div className="flex flex-col gap-1.5 lg:col-span-6">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {copy.finance.conversionPreview}
                   </Label>
-                  <div className="rounded-md border bg-muted/30 p-3">
-                    {/* `break-words`: near parity this line runs to two full
-                        amounts plus a currency code each, which overflows the
-                        panel on a phone rather than wrapping — it has no spaces
-                        the browser likes to break at. */}
-                    <p className="break-words text-sm tabular-nums" dir="ltr">
                   <div className="rounded-xl border border-border/70 bg-muted/30 p-4 shadow-sm">
                     <p className="break-words font-mono text-sm font-semibold tabular-nums" dir="ltr">
                       {exchangeValid && exchange
@@ -585,14 +527,8 @@ export function FinanceSection({
                           )}`
                         : '—'}
                     </p>
-                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                     <p className="mt-2 text-xs text-muted-foreground">
                       {copy.finance.exchangeRateUpdated}:{' '}
-                      {local.exchangeRateUpdatedAt
-                        ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
-                            locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
-                          )
-                        : copy.finance.exchangeRateNever}
                       <span className="font-medium text-foreground">
                         {local.exchangeRateUpdatedAt
                           ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
