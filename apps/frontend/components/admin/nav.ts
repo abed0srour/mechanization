@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Layers,
   Map as MapIcon,
-  Palette,
   Receipt,
   Settings,
   ShieldCheck,
@@ -123,14 +122,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'النظام',
     labelEn: 'System',
     items: [
-      {
-        path: '/appearance',
-        label: 'المظهر',
-        labelEn: 'Appearance',
-        icon: Palette,
-        roles: ['SUPER_ADMIN'],
-        keywords: ['ألوان', 'سمة', 'داكن', 'appearance', 'theme'],
-      },
       {
         path: '/audit',
         label: 'سجل النشاطات',

@@ -208,45 +208,6 @@
  * `:root` / `.dark` values, so an unset attribute renders correctly before the
  * pre-paint script runs.
  */
-@layer base {
-  [data-accent='emerald'] {
-    --primary: 152 58% 32%;
-    --ring: 152 58% 38%;
-  }
-  .dark[data-accent='emerald'] {
-    --primary: 152 52% 45%;
-    --ring: 152 52% 45%;
-  }
-
-  [data-accent='rose'] {
-    --primary: 347 68% 45%;
-    --ring: 347 68% 50%;
-  }
-  .dark[data-accent='rose'] {
-    --primary: 347 74% 59%;
-    --ring: 347 74% 59%;
-  }
-
-  [data-accent='violet'] {
-    --primary: 262 58% 47%;
-    --ring: 262 58% 53%;
-  }
-  .dark[data-accent='violet'] {
-    --primary: 262 68% 66%;
-    --ring: 262 68% 66%;
-  }
-
-  /* 40%, not the 44% this palette is usually written at: orange is nearly as
-     luminous as amber, and 44% leaves `text-primary` at 3.9:1 on the cream. */
-  [data-accent='sunset'] {
-    --primary: 24 82% 40%;
-    --ring: 24 82% 46%;
-  }
-  .dark[data-accent='sunset'] {
-    --primary: 24 88% 55%;
-    --ring: 24 88% 55%;
-  }
-}
 
 @layer base {
   * {
