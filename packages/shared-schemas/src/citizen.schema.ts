@@ -9,7 +9,7 @@ import {
   arabicOrLatinName,
   civilRecordNumber,
   documentNumber,
-  lebanesePhone,
+  contactPhone,
 } from './primitives';
 
 /**
@@ -95,9 +95,9 @@ export type PersonalDetails = z.infer<typeof personalDetailsSchema>;
 export const contactDetailsSchema = z
   .object({
     maritalStatus: maritalStatusSchema,
-    phone: lebanesePhone,
+    phone: contactPhone,
     whatsappSameAsPhone: z.boolean().default(true),
-    whatsapp: lebanesePhone.optional(),
+    whatsapp: contactPhone.optional(),
     familySize: z.coerce
       .number({
         required_error: 'عدد أفراد الأسرة مطلوب',

@@ -1,3 +1,4 @@
+import type { VisitDisposition, VisitOutcome } from './field-work.schema';
 import type {
   DocumentType,
   Gender,
@@ -120,6 +121,37 @@ export const ar = {
     RESIDENCY_PROOF: 'إثبات الإقامة',
     EXTRA_PHOTO: 'صورة إضافية',
   } satisfies Record<DocumentType, string>,
+
+  /**
+   * نتيجة الزيارة — why a door did not produce a finished record. Worded as the
+   * worker would say it out loud, because this is a list they pick from while
+   * standing on a doorstep, not a report heading.
+   */
+  visitOutcome: {
+    COMPLETED: 'اكتمل التسجيل',
+    PARTIAL: 'بيانات ناقصة',
+    NOBODY_HOME: 'لا أحد في المنزل',
+    ACCESS_BLOCKED: 'تعذّر الوصول',
+    NOT_DECISION_MAKER: 'الموجود لا يملك صلاحية',
+    SEASONAL: 'إقامة موسمية',
+    ABROAD: 'مقيم خارج لبنان',
+    DOCUMENTS_MISSING: 'المستندات غير متوفرة',
+    ESTATE_UNSETTLED: 'إرث غير مقسوم',
+    DISPUTED: 'ملكية متنازع عليها',
+    REFUSED: 'رفض التعاون',
+    ALREADY_REGISTERED: 'مسجّل مسبقاً',
+    DEMOLISHED: 'مهدوم',
+    ADDRESS_INVALID: 'العنوان غير صحيح',
+    MERGED_PARCEL: 'مدموج بعقار آخر',
+  } satisfies Record<VisitOutcome, string>,
+
+  /** What the municipality does next about an outcome. */
+  visitDisposition: {
+    DONE: 'منجز',
+    RETRY: 'يحتاج زيارة أخرى',
+    WAITING: 'بانتظار طرف آخر',
+    CLOSED: 'مغلق نهائياً',
+  } satisfies Record<VisitDisposition, string>,
 } as const;
 
 export const en = {
@@ -224,6 +256,31 @@ export const en = {
     RESIDENCY_PROOF: 'Residency Verification',
     EXTRA_PHOTO: 'Additional Photograph',
   } satisfies Record<DocumentType, string>,
+
+  visitOutcome: {
+    COMPLETED: 'Registered',
+    PARTIAL: 'Partial data',
+    NOBODY_HOME: 'Nobody home',
+    ACCESS_BLOCKED: 'Could not reach',
+    NOT_DECISION_MAKER: 'Not the decision maker',
+    SEASONAL: 'Seasonal resident',
+    ABROAD: 'Lives abroad',
+    DOCUMENTS_MISSING: 'Documents unavailable',
+    ESTATE_UNSETTLED: 'Estate undivided',
+    DISPUTED: 'Ownership disputed',
+    REFUSED: 'Refused',
+    ALREADY_REGISTERED: 'Already registered',
+    DEMOLISHED: 'Demolished',
+    ADDRESS_INVALID: 'Invalid address',
+    MERGED_PARCEL: 'Merged into another parcel',
+  } satisfies Record<VisitOutcome, string>,
+
+  visitDisposition: {
+    DONE: 'Done',
+    RETRY: 'Needs another visit',
+    WAITING: 'Blocked on someone else',
+    CLOSED: 'Closed',
+  } satisfies Record<VisitDisposition, string>,
 } as const;
 
 export function getLabels(locale: string = 'ar') {

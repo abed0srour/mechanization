@@ -15,6 +15,7 @@ import { RegistrationService } from './features/registration/registration.servic
 import { ReportingService } from './features/reporting/reporting.service';
 import { TenantService } from './features/tenant/tenant.service';
 import { FeesService } from './features/fees/fees.service';
+import { FieldWorkService } from './features/field-work/field-work.service';
 import { PaymentLedgerService } from './features/fees/payment-ledger.service';
 import { StaffService } from './features/staff/staff.service';
 import { ZonesService } from './features/zones/zones.service';
@@ -50,6 +51,7 @@ import { ZonesService } from './features/zones/zones.service';
     PaymentLedgerService,
     StaffService,
     ZonesService,
+    FieldWorkService,
     BackupService,
     OtpCleanupJob,
     RecurringBillingJob,
@@ -69,6 +71,7 @@ import { ZonesService } from './features/zones/zones.service';
     PaymentLedgerService,
     StaffService,
     ZonesService,
+    FieldWorkService,
     BackupService,
     OtpCleanupJob,
     RecurringBillingJob,

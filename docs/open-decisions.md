@@ -4,7 +4,7 @@ Things this codebase cannot decide for itself. Each one is flagged in the
 architecture spec; this file is where they are tracked to a resolution, with
 what the code currently does in the meantime.
 
-**Four of these block handling real citizen data.** They are marked 🔴. The
+**Five of these block handling real citizen data.** They are marked 🔴. The
 system is buildable and demoable without them; it should not collect a real
 person's national ID number until they are answered.
 
@@ -109,6 +109,50 @@ displaced person turned away at the form because their paperwork does not match
 what the municipality has on file? That is a policy call about fraud tolerance
 versus access, and it should be made by the municipality rather than defaulted
 in a schema.
+
+---
+
+## 🔴 4b. Field-visit notes, location capture, and escalation
+
+**Status:** unanswered. Raised by the field-work feature (migration 0019).
+Owner: the municipality, not engineering.
+
+Door-to-door collection introduced three questions the code deliberately
+answers as conservatively as it can while leaving the real decision open.
+
+**Visit notes.** `field_visits.note` is a record *about a person*, written by a
+stranger standing at their door, with no declaration behind it — the one place
+in this system where that is true. `Registration` at least rests on an الإقرار
+the citizen made; a note saying "رفض التعاون" rests on nothing. What is built:
+capped at 500 characters, required only where a parcel is being closed or
+someone is being recorded as refusing, and the field itself tells the worker on
+screen that it is for the visit and not for the household.
+
+- **Needed:** a retention period *shorter* than the register's. A note about a
+  refusal in 2026 should not still be readable in 2036. There is no retention
+  job (question 1), so today these live forever, which is the wrong answer.
+- **Needed:** whether a citizen may see the notes written about their own
+  address, and whether those notes belong in a CSV export at all. They are
+  currently excluded from every export by omission rather than by rule.
+
+**Location capture.** `field_visits.latitude/longitude` is nullable, the UI
+requests it only when the worker taps for it, and `captureLocation` is hardcoded
+`false` on the field screen. That is a placeholder for a decision, not a
+setting: stamping coordinates on every visit is the obvious defence against a
+worker marking doors "not home" from a café, and it is also surveillance of
+municipal employees. It needs the municipality's decision, taken openly with the
+staff it affects, before the flag is turned on — and if it is turned on, those
+staff should be told, not discover it.
+
+**Escalation.** `REFUSED` maps to `WAITING`, not `CLOSED`, on the reasoning that
+a refusal is where a case stops being field work and becomes the municipality's.
+But nothing decides *what* the municipality then does, or after how many
+attempts. `FollowUpItem.attempts` is surfaced on the coverage screen precisely
+so this policy has something to hang on when it exists.
+
+**Current behaviour:** notes retained indefinitely and excluded from exports;
+location capture off; no escalation rule — a refused parcel simply stays in the
+follow-up queue with its attempt count rising.
 
 ---
 

@@ -1,5 +1,7 @@
 import {
   ArrowLeftRight,
+  ClipboardList,
+  Gauge,
   LayoutDashboard,
   Layers,
   Map as MapIcon,
@@ -107,6 +109,38 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: MapIcon,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['عقارات', 'مواقع', 'مسح', 'map', 'cadastre'],
+      },
+      // Under «الأرض» rather than «السجل»: field work is organised by sector,
+      // and a worker opening this is thinking about territory, not about a
+      // person they have not met yet.
+      //
+      // FIELD_INSPECTOR alone, deliberately. This screen is "the doors assigned
+      // to you", which is not a thing a SUPER_ADMIN or an ADMINISTRATIVE_OFFICER
+      // has — nobody assigns them a sector, so they would open it to an empty
+      // list that reads as a broken page rather than as one that was never
+      // theirs. They supervise the survey from «تغطية المسح» below.
+      {
+        path: '/field',
+        label: 'العمل الميداني',
+        labelEn: 'Field Work',
+        icon: ClipboardList,
+        roles: ['FIELD_INSPECTOR'],
+        keywords: ['زيارة', 'مسح', 'ميداني', 'جولة', 'field', 'visits', 'survey'],
+      },
+      // Next to the field screen it reports on: one is the work, the other is
+      // how far along it is.
+      //
+      // Supervision only — deliberately NOT the inspector. This screen reports
+      // named employees' progress against each other, which is a management
+      // view rather than a working one; the person being measured by it should
+      // not be reading it, and their own next door is «العمل الميداني» above.
+      {
+        path: '/coverage',
+        label: 'تغطية المسح',
+        labelEn: 'Survey Coverage',
+        icon: Gauge,
+        roles: ['SUPER_ADMIN', 'ADMINISTRATIVE_OFFICER', 'AUDITOR'],
+        keywords: ['تغطية', 'متابعة', 'تكليف', 'coverage', 'assignments', 'follow-up'],
       },
       {
         path: '/zones',

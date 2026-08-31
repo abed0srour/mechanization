@@ -10,3 +10,4 @@ export * from './fee.schema';
 export * from './auth.schema';
 export * from './tenant.schema';
 export * from './zone.schema';
+export * from './field-work.schema';

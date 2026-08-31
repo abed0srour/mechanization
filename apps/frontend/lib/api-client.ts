@@ -8,6 +8,13 @@ import type {
   ImportRow,
   NumberingSequence,
   SequenceKey,
+  AssignZoneInput,
+  FieldDraftPayload,
+  SyncBatchInput,
+  SyncBatchResult,
+  VisitDisposition,
+  VisitOutcome,
+  ZoneCoverage,
 } from '@mechanization/shared-schemas';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
@@ -375,8 +382,8 @@ export function getZones(tenant: string, token: string) {
 }
 
 /** One sector including the parcel numbers it owns, for the editor. */
-export function getZone(tenant: string, token: string, id: string) {
-  return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, { token });
+export function getZone(tenant: string, token: string, id: string, signal?: AbortSignal) {
+  return apiFetch<ZoneDetail>(tenant, `/zones/${encodeURIComponent(id)}`, { token, signal });
 }
 
 /** SUPER_ADMIN only, server-enforced. */
@@ -1493,4 +1500,147 @@ export async function restoreSnapshot(
     );
   }
   return payload as RestoreReport;
+}
+
+// ─────────────────────────────  Field work  ──────────────────────────────
+
+export interface WorklistParcelDto {
+  parcelNumber: string;
+  zoneId: string;
+  zoneCode: string;
+  latitude: number | null;
+  longitude: number | null;
+  registered: boolean;
+  lastOutcome: VisitOutcome | null;
+  lastDisposition: VisitDisposition | null;
+  lastVisitedAt: string | null;
+  nextVisitAt: string | null;
+  visitCount: number;
+  draft: { clientId: string; payload: FieldDraftPayload; gaps: string[] } | null;
+}
+
+export interface WorklistDto {
+  generatedAt: string;
+  zones: Array<{ id: string; name: string; code: string; color: string; dueAt: string | null }>;
+  parcels: WorklistParcelDto[];
+}
+
+export interface AssignmentDto {
+  id: string;
+  zoneId: string;
+  zoneName: string;
+  zoneCode: string;
+  /** Parcels in the whole zone. */
+  zoneParcelCount: number;
+  /** Parcels in this worker's share of it. */
+  parcelCount: number;
+  /** Holder of everything no other active share explicitly claimed. */
+  isRemainder: boolean;
+  inspectorId: string;
+  inspectorName: string;
+  note: string | null;
+  dueAt: string | null;
+  releasedAt: string | null;
+  createdAt: string;
+}
+
+export interface FollowUpDto {
+  parcelNumber: string;
+  outcome: VisitOutcome;
+  disposition: VisitDisposition;
+  visitedAt: string;
+  nextVisitAt: string | null;
+  note: string | null;
+  proxyName: string | null;
+  proxyPhone: string | null;
+  inspectorId: string;
+  inspectorName: string;
+  attempts: number;
+  draftGapCount: number | null;
+}
+
+/**
+ * The offline bundle. Deliberately not run through `cachedRequest`: this is the
+ * one request whose result is cached *on purpose and visibly*, in IndexedDB with
+ * a "synced at" timestamp the worker can see, and a second invisible in-memory
+ * cache on top of that would only make the displayed timestamp a lie.
+ */
+export function getWorklist(tenant: string, token: string) {
+  return apiFetch<WorklistDto>(tenant, '/field-work/worklist', { token });
+}
+
+/** Push a batch of offline work. Idempotent on each record's `clientId`. */
+export function syncFieldWork(tenant: string, token: string, batch: SyncBatchInput) {
+  return apiFetch<SyncBatchResult>(tenant, '/field-work/sync', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(batch),
+  });
+}
+
+/** File a completed draft as a real citizen record. */
+export async function promoteDraft(tenant: string, token: string, draftId: string) {
+  const result = await apiFetch<{ citizenId: string; referenceNumber: string }>(
+    tenant,
+    `/field-work/drafts/${encodeURIComponent(draftId)}/promote`,
+    { token, method: 'POST' },
+  );
+  invalidateRequests(`citizens:${tenant}`);
+  return result;
+}
+
+/**
+ * Not wrapped in `cachedRequest`: React Query already caches this screen, and a
+ * second cache underneath it would keep serving stale zones after a mutation
+ * invalidated the query — the assign button would appear to do nothing.
+ */
+export function getCoverage(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<{ zones: ZoneCoverage[] }>(tenant, '/field-work/coverage', { token, signal });
+}
+
+export function getFollowUps(
+  tenant: string,
+  token: string,
+  filter: { disposition?: VisitDisposition; limit?: number } = {},
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams();
+  if (filter.disposition) params.set('disposition', filter.disposition);
+  if (filter.limit) params.set('limit', String(filter.limit));
+  const query = params.toString();
+  return apiFetch<{ items: FollowUpDto[] }>(
+    tenant,
+    `/field-work/follow-ups${query ? `?${query}` : ''}`,
+    { token, signal },
+  );
+}
+
+export function getAssignments(
+  tenant: string,
+  token: string,
+  includeReleased = false,
+  signal?: AbortSignal,
+) {
+  return apiFetch<{ assignments: AssignmentDto[] }>(
+    tenant,
+    `/field-work/assignments${includeReleased ? '?includeReleased=true' : ''}`,
+    { token, signal },
+  );
+}
+
+/** Hands a sector — or shares of it — to one or several workers at once. */
+export function createAssignment(tenant: string, token: string, input: AssignZoneInput) {
+  return apiFetch<{ assignments: AssignmentDto[] }>(tenant, '/field-work/assignments', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function releaseAssignment(tenant: string, token: string, id: string) {
+  return apiFetch<{ released: boolean }>(
+    tenant,
+    `/field-work/assignments/${encodeURIComponent(id)}`,
+    { token, method: 'DELETE' },
+  );
 }

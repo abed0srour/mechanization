@@ -16,64 +16,15 @@ import type { PublicTenantConfig } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
-import type { PropertyDraft, UnitDraft } from '@/components/citizen/property-card';
 import { LoadingState } from '@/components/ui/states';
 import {
   CitizenForm,
   EMPTY_CITIZEN,
   toPayloadProperty,
+  toPropertyDraft,
+  text,
   type CitizenFormValues,
 } from './citizen-form';
-
-/** `null`/`undefined` → absent; a number → the string an `<input>` holds. */
-function text(value: unknown): string | undefined {
-  return value === null || value === undefined || value === '' ? undefined : String(value);
-}
-
-/**
- * A stored property row as the form's draft shape.
- *
- * The inputs are all text, so every number crosses back as a string here and
- * returns coerced by `toPayloadProperty`. Nulls become `undefined` rather than
- * surviving as `null`: a controlled `<input value={null}>` is React's
- * uncontrolled-to-controlled warning, and `PROPERTY_FIELD_MAP` decides what
- * renders from presence, not from truthiness.
- */
-function toDraft(property: Record<string, unknown>): PropertyDraft {
-  const units = Array.isArray(property.units) ? property.units : [];
-
-  return {
-    id: text(property.id),
-    occupancyType: property.occupancyType as PropertyDraft['occupancyType'],
-    landlordName: text(property.landlordName),
-    landlordPhone: text(property.landlordPhone),
-    propertyType: property.propertyType as PropertyDraft['propertyType'],
-    neighborhood: text(property.neighborhood),
-    propertyNumber: text(property.propertyNumber),
-    landType: property.landType as PropertyDraft['landType'],
-    buildingName: text(property.buildingName),
-    side: text(property.side),
-    tentLocation: text(property.tentLocation),
-    unitArea: text(property.unitArea),
-    sharedRights: (property.sharedRights as string[] | null) ?? [],
-    // Only a building carries units; leaving an empty array on the others
-    // would make `PropertyCard` render a units editor the schema rejects.
-    ...(units.length > 0
-      ? {
-          units: units.map(
-            (unit): UnitDraft => ({
-              unitType: (unit as Record<string, unknown>).unitType as UnitDraft['unitType'],
-              floor: text((unit as Record<string, unknown>).floor),
-              side: text((unit as Record<string, unknown>).side),
-              unitArea: text((unit as Record<string, unknown>).unitArea),
-              sharedRights:
-                ((unit as Record<string, unknown>).sharedRights as string[] | null) ?? [],
-            }),
-          ),
-        }
-      : {}),
-  };
-}
 
 /**
  * Create or correct one citizen, on a page of its own.
@@ -171,7 +122,9 @@ export function CitizenEditor({
             familySize: text(form.contact.familySize) ?? '',
           },
           properties:
-            form.properties.length > 0 ? form.properties.map(toDraft) : EMPTY_CITIZEN.properties,
+            form.properties.length > 0
+              ? form.properties.map(toPropertyDraft)
+              : EMPTY_CITIZEN.properties,
         });
       } catch (caught) {
         if (cancelled) return;

@@ -89,6 +89,57 @@ export function toPayloadProperty(property: PropertyDraft): Record<string, unkno
   };
 }
 
+/** `null`/`undefined` → absent; a number → the string an `<input>` holds. */
+export function text(value: unknown): string | undefined {
+  return value === null || value === undefined || value === '' ? undefined : String(value);
+}
+
+/**
+ * A stored property row as the form's draft shape — the inverse of
+ * `toPayloadProperty` above, and kept beside it so the two cannot drift.
+ *
+ * The inputs are all text, so every number crosses back as a string here and
+ * returns coerced by `toPayloadProperty`. Nulls become `undefined` rather than
+ * surviving as `null`: a controlled `<input value={null}>` is React's
+ * uncontrolled-to-controlled warning, and `PROPERTY_FIELD_MAP` decides what
+ * renders from presence, not from truthiness.
+ */
+export function toPropertyDraft(property: Record<string, unknown>): PropertyDraft {
+  const units = Array.isArray(property.units) ? property.units : [];
+
+  return {
+    id: text(property.id),
+    occupancyType: property.occupancyType as PropertyDraft['occupancyType'],
+    landlordName: text(property.landlordName),
+    landlordPhone: text(property.landlordPhone),
+    propertyType: property.propertyType as PropertyDraft['propertyType'],
+    neighborhood: text(property.neighborhood),
+    propertyNumber: text(property.propertyNumber),
+    landType: property.landType as PropertyDraft['landType'],
+    buildingName: text(property.buildingName),
+    side: text(property.side),
+    tentLocation: text(property.tentLocation),
+    unitArea: text(property.unitArea),
+    sharedRights: (property.sharedRights as string[] | null) ?? [],
+    // Only a building carries units; leaving an empty array on the others
+    // would make `PropertyCard` render a units editor the schema rejects.
+    ...(units.length > 0
+      ? {
+          units: units.map(
+            (unit): UnitDraft => ({
+              unitType: (unit as Record<string, unknown>).unitType as UnitDraft['unitType'],
+              floor: text((unit as Record<string, unknown>).floor),
+              side: text((unit as Record<string, unknown>).side),
+              unitArea: text((unit as Record<string, unknown>).unitArea),
+              sharedRights:
+                ((unit as Record<string, unknown>).sharedRights as string[] | null) ?? [],
+            }),
+          ),
+        }
+      : {}),
+  };
+}
+
 /** Coerces one building unit's numeric strings for the wire. */
 function toPayloadUnit(unit: UnitDraft): Record<string, unknown> {
   const { unitArea, ...rest } = unit;
@@ -153,6 +204,8 @@ export function CitizenForm({
   onSubmit,
   onCancel,
   locale = 'ar',
+  allowIncomplete = false,
+  submitLabel,
 }: {
   tenant: string;
   config: PublicTenantConfig;
@@ -164,6 +217,23 @@ export function CitizenForm({
   onSubmit: (values: CitizenFormValues) => void;
   onCancel: () => void;
   locale?: string;
+  /**
+   * Save what is here instead of refusing what is missing.
+   *
+   * The register's own entry points must refuse — a half-filled citizen is not
+   * a citizen. A field worker at a door is the one case where refusing is
+   * worse: they have three of the nine answers, the person has gone back
+   * inside, and throwing those three away means asking for them again next
+   * week. So the field draft passes this, and the same validation still runs
+   * and still lists every gap — it just reads as "what is still needed" rather
+   * than "fix this before you may continue", and «حفظ» goes through either way.
+   *
+   * The register keeps its guarantees regardless: a draft is stored as JSON and
+   * only becomes a citizen by passing this identical schema at promotion.
+   */
+  allowIncomplete?: boolean;
+  /** Overrides the primary button's text where "إنشاء الملف" would be a lie. */
+  submitLabel?: string;
 }) {
   const [values, setValues] = useState<CitizenFormValues>(initial);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -283,7 +353,7 @@ export function CitizenForm({
     setFieldErrors(errors);
     setShowErrors(true);
 
-    if (Object.keys(errors).length > 0) {
+    if (Object.keys(errors).length > 0 && !allowIncomplete) {
       // Straight to the first thing that is wrong. On a page this long the
       // banner alone can be off-screen from the field it is describing.
       document
@@ -507,13 +577,25 @@ export function CitizenForm({
         {messages.length > 0 ? (
           <div
             role="alert"
-            className="mb-3 space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            className={cn(
+              'mb-3 space-y-2 rounded-lg border p-3 text-sm',
+              // Amber, not red, when nothing is being refused: an incomplete
+              // field draft is the expected outcome of a doorstep, not an
+              // error the worker made.
+              allowIncomplete
+                ? 'border-warning/40 bg-warning/10 text-foreground'
+                : 'border-destructive/40 bg-destructive/5 text-destructive',
+            )}
           >
             <p className="flex items-center gap-2 font-medium">
               <TriangleAlert className="size-4 shrink-0" aria-hidden />
-              {locale === 'en'
-                ? 'Please correct the following fields before saving:'
-                : 'يرجى تصحيح الحقول التالية قبل الحفظ:'}
+              {allowIncomplete
+                ? locale === 'en'
+                  ? `Still missing (${messages.length}) — saving is fine, collect the rest next visit:`
+                  : `ما زال ناقصاً (${messages.length}) — يمكنك الحفظ الآن وجمع الباقي في زيارة قادمة:`
+                : locale === 'en'
+                  ? 'Please correct the following fields before saving:'
+                  : 'يرجى تصحيح الحقول التالية قبل الحفظ:'}
             </p>
             <ul className="list-inside list-disc ps-1">
               {messages.map((message) => (
@@ -533,9 +615,10 @@ export function CitizenForm({
             ) : (
               <Save className="size-5" aria-hidden />
             )}
-            {mode === 'edit'
-              ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
-              : (locale === 'en' ? 'Save & Create Record' : 'حفظ وإنشاء الملف')}
+            {submitLabel ??
+              (mode === 'edit'
+                ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+                : (locale === 'en' ? 'Save & Create Record' : 'حفظ وإنشاء الملف'))}
           </Button>
         </div>
       </div>

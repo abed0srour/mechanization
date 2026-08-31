@@ -1,4 +1,5 @@
 import { AdminShell } from '@/components/admin/admin-shell';
+import { ServiceWorkerRegistration } from '@/components/field/service-worker';
 import { QueryProvider } from '@/components/query-provider';
 import { StaffRouteGuard } from '@/components/admin/staff-route-guard';
 import { ToastProvider } from '@/components/ui/toast';
@@ -62,6 +63,10 @@ export default async function ProtectedAdminLayout({
        reason it exists. See `QueryProvider` for why it is mounted here rather
        than at the root. */
     <QueryProvider>
+      {/* Registers the offline shell for the field screen. Renders nothing, and
+          is mounted here rather than at the root so the citizen portal — which
+          must never serve a cached balance — is left alone. */}
+      <ServiceWorkerRegistration />
       {/* One provider for every staff screen — Radix requires an ancestor
           provider, and it is also what keeps the hint delay consistent rather
           than per-table. 200ms: long enough not to fire while the cursor crosses

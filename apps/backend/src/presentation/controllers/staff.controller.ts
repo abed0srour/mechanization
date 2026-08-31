@@ -20,7 +20,7 @@ import type { StaffRole } from '../../domain/entities/user.entity';
  * what. No password hash ever leaves here — the list projection has no such
  * field to accidentally include.
  */
-@Roles('SUPER_ADMIN')
+@Roles('SUPER_ADMIN', 'ADMINISTRATIVE_OFFICER')
 @Controller('t/:tenantSlug/staff')
 export class StaffController {
   constructor(private readonly staff: StaffService) {}
@@ -31,6 +31,7 @@ export class StaffController {
     return { items: await this.staff.list() };
   }
 
+  @Roles('SUPER_ADMIN')
   @Post()
   async create(
     @Param('tenantSlug') tenantSlug: string,
@@ -51,6 +52,7 @@ export class StaffController {
     });
   }
 
+  @Roles('SUPER_ADMIN')
   @Patch(':id')
   async update(
     @Param('tenantSlug') tenantSlug: string,
@@ -75,6 +77,7 @@ export class StaffController {
   }
 
   /** Soft delete, and its undo — one route because they are one decision. */
+  @Roles('SUPER_ADMIN')
   @Patch(':id/active')
   async setActive(
     @Param('tenantSlug') tenantSlug: string,
@@ -92,6 +95,7 @@ export class StaffController {
   }
 
   /** Permanent, and refused for any account that has already acted. */
+  @Roles('SUPER_ADMIN')
   @Delete(':id')
   async remove(
     @Param('tenantSlug') tenantSlug: string,
