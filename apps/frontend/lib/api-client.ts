@@ -1555,6 +1555,22 @@ export async function sendStaffPasswordResetEmail(
   });
 }
 
+/**
+ * Public — reached from the reset-password landing page before any session
+ * exists. `accessToken` is the Supabase recovery token the email link's own
+ * redirect appends to that page's URL, not this app's session token.
+ */
+export async function confirmStaffPasswordReset(
+  tenant: string,
+  accessToken: string,
+  newPassword: string,
+): Promise<{ confirmed: boolean }> {
+  return apiFetch<{ confirmed: boolean }>(tenant, '/auth/staff/confirm-password-reset', {
+    method: 'POST',
+    body: JSON.stringify({ accessToken, newPassword }),
+  });
+}
+
 export async function beginStaffTotpEnrolment(
   tenant: string,
   token: string,

@@ -164,3 +164,17 @@ export const changeEmailSchema = z.object({
 });
 export type ChangeEmail = z.infer<typeof changeEmailSchema>;
 
+/**
+ * Setting a new password from the link in a "send-reset-password-email".
+ *
+ * `accessToken` is the Supabase recovery session token Supabase's own
+ * `/auth/v1/verify` redirect appends to the landing page's URL fragment —
+ * proof the link's owner passed Supabase's own OTP check, not a password the
+ * server can verify on its own the way `changePasswordSchema` does.
+ */
+export const confirmPasswordResetSchema = z.object({
+  accessToken: z.string().min(1, 'رابط إعادة التعيين غير صالح أو منتهي الصلاحية'),
+  newPassword: staffPassword,
+});
+export type ConfirmPasswordReset = z.infer<typeof confirmPasswordResetSchema>;
+

@@ -4,6 +4,7 @@ import { Request } from 'express';
 import {
   changeEmailSchema,
   changePasswordSchema,
+  confirmPasswordResetSchema,
   referenceLoginSchema,
   referenceOnlyLoginSchema,
   requestOtpSchema,
@@ -119,6 +120,28 @@ export class AuthController {
     @Body() body?: { redirectTo?: string },
   ) {
     return this.identity.sendStaffPasswordResetEmail(user.sub, body?.redirectTo);
+  }
+
+  /**
+   * Public: reached from the reset-password landing page, before any session
+   * exists. `accessToken` — the Supabase recovery token the email link's own
+   * redirect appended to that page's URL — is what proves the caller owns the
+   * inbox; see `IdentityService.confirmStaffPasswordReset`.
+   */
+  @Public()
+  @Post('staff/confirm-password-reset')
+  @Throttle({
+    default: {
+      limit: APP_CONFIG.throttle.staffLogin.limit,
+      ttl: APP_CONFIG.throttle.staffLogin.ttlSeconds * 1000,
+    },
+  })
+  async confirmPasswordReset(
+    @Body(new ZodValidationPipe(confirmPasswordResetSchema))
+    body: { accessToken: string; newPassword: string },
+  ) {
+    await this.identity.confirmStaffPasswordReset(body.accessToken, body.newPassword);
+    return { confirmed: true };
   }
 
   // ───────────────────────────  Citizens  ───────────────────────────

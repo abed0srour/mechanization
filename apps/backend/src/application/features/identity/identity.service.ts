@@ -399,6 +399,44 @@ export class IdentityService {
     return { message: 'تم إرسال بريد إعادة تعيين كلمة المرور بنجاح' };
   }
 
+  /**
+   * Sets a new password from the reset-password landing page.
+   *
+   * `accessToken` is not this account's session — it is the short-lived
+   * Supabase token minted by the recovery link's own `/auth/v1/verify` step,
+   * proof the caller owns the inbox the email went to. `verifyToken` is the
+   * same call `JwtAuthGuard` never uses for staff (staff sessions are this
+   * app's own JWT); here it is the *only* thing standing in for a password,
+   * so an invalid or expired token is refused exactly like a wrong one.
+   */
+  async confirmStaffPasswordReset(accessToken: string, newPassword: string): Promise<void> {
+    const supabaseUser = await this.supabaseAuth.verifyToken(accessToken);
+    if (!supabaseUser?.email) {
+      throw new UnauthorizedError('رابط إعادة التعيين غير صالح أو منتهي الصلاحية');
+    }
+
+    const user = await this.users.findStaffByEmail(supabaseUser.email);
+    if (!user) {
+      throw new NotFoundError('Staff user', supabaseUser.email);
+    }
+
+    const passwordHash = await this.hasher.hash(newPassword);
+    await this.users.updateStaff(user.id, { passwordHash });
+
+    await this.supabaseAuth.updateStaffUser({
+      email: supabaseUser.email,
+      password: newPassword,
+    });
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_PASSWORD_CHANGED',
+      tenantSlug: user.tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+  }
+
   // ───────────────────────────  Citizens  ───────────────────────────
 
   async requestOtp(phone: string, attempt = 1) {

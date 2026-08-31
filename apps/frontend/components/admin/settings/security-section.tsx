@@ -79,12 +79,15 @@ export function SecuritySection({
   userId,
   copy,
   locale,
+  base,
 }: {
   tenant: string;
   token: string;
   userId: string;
   copy: SettingsCopy;
   locale: string;
+  /** `/{tenant}/{locale}/{adminPath}` — where the reset-password link lands. */
+  base: string;
 }) {
   const toast = useToast();
   const [email, setEmail] = useState('');
@@ -199,7 +202,11 @@ export function SecuritySection({
     if (sendingResetEmail || !email) return;
     setSendingResetEmail(true);
     try {
-      await sendStaffPasswordResetEmail(tenant, token);
+      await sendStaffPasswordResetEmail(
+        tenant,
+        token,
+        `${window.location.origin}${base}/reset-password`,
+      );
       toast.success(
         locale === 'en' ? 'Reset link sent' : 'تم إرسال رابط إعادة التعيين',
         {

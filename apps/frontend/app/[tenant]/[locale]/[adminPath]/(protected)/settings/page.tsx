@@ -163,6 +163,7 @@ export default function SettingsPage({
               userId={userId}
               locale={locale}
               copy={copy}
+              base={base}
             />
           ) : null}
           {active === 'backup' ? (
