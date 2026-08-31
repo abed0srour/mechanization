@@ -1,3 +1,4 @@
+import '@/app/globals.css';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import type { PublicTenantConfig } from '@/lib/api-client';
