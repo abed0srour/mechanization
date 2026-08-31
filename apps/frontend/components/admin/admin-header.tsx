@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { activeNavItem } from '@/components/admin/nav';
+import { activeNavItem, localizedLabel } from '@/components/admin/nav';
 import { NotificationsBell } from '@/components/admin/notifications-bell';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -153,7 +154,7 @@ export function AdminHeader({
                   href={`${base}${active.path}`}
                   className="truncate text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  {active.label}
+                  {localizedLabel(active, locale)}
                 </Link>
                 <ChevronLeft
                   aria-hidden
@@ -162,7 +163,7 @@ export function AdminHeader({
                 <span className="truncate font-semibold text-foreground">{leafLabel}</span>
               </>
             ) : (
-              <span className="truncate font-semibold text-foreground">{active.label}</span>
+              <span className="truncate font-semibold text-foreground">{localizedLabel(active, locale)}</span>
             )}
           </>
         ) : null}
@@ -194,6 +195,8 @@ export function AdminHeader({
       >
         <Search className="size-5" />
       </Button>
+
+      <LanguageSwitcher currentLocale={locale} />
 
       {/* Sits before the account menu rather than after it: this is work
           arriving, and the account menu is the one control on this bar

@@ -144,7 +144,7 @@ export function AdminShell({
                 <X className="size-5" />
               </button>
             </div>
-            <SidebarNav base={base} role={role} onNavigate={() => setDrawerOpen(false)} />
+            <SidebarNav base={base} role={role} locale={locale} onNavigate={() => setDrawerOpen(false)} />
           </aside>
         </div>
       ) : null}

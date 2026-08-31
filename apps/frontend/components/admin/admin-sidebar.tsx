@@ -4,7 +4,13 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
-import { activeNavItem, visibleGroups, type NavItem } from '@/components/admin/nav';
+import {
+  activeNavItem,
+  localizedGroupLabel,
+  localizedLabel,
+  visibleGroups,
+  type NavItem,
+} from '@/components/admin/nav';
 import { cn } from '@/lib/utils';
 
 const COLLAPSE_STORAGE_KEY = 'mechanization.sidebar.collapsed';
@@ -173,7 +179,7 @@ export function AdminSidebar({
         </button>
       </div>
 
-      <SidebarNav base={base} role={role} collapsed={collapsed} />
+      <SidebarNav base={base} role={role} collapsed={collapsed} locale={locale} />
     </aside>
   );
 }
@@ -192,11 +198,13 @@ export function SidebarNav({
   base,
   role,
   collapsed = false,
+  locale = 'ar',
   onNavigate,
 }: {
   base: string;
   role: string | undefined;
   collapsed?: boolean;
+  locale?: string;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -226,13 +234,14 @@ export function SidebarNav({
           const href = `${base}${item.path}`;
           const isActive = active?.path === item.path;
           const Icon = item.icon;
+          const itemLabel = localizedLabel(item, locale);
           return (
             <Link
               key={item.path}
               href={href}
               onClick={onNavigate}
               aria-current={isActive ? 'page' : undefined}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? itemLabel : undefined}
               className={cn(
                 // 44px tall below `lg` rather than the rail's 36: in the
                 // drawer these are thumb targets, not cursor targets.
@@ -247,13 +256,13 @@ export function SidebarNav({
               )}
             >
               <Icon className="size-[18px] shrink-0" />
-              {!collapsed ? <span className="truncate">{item.label}</span> : null}
+              {!collapsed ? <span className="truncate">{itemLabel}</span> : null}
             </Link>
           );
         })}
       </div>
     ),
-    [active?.path, base, collapsed, onNavigate],
+    [active?.path, base, collapsed, locale, onNavigate],
   );
 
   return (
@@ -298,7 +307,7 @@ export function SidebarNav({
                 '[&::-webkit-details-marker]:hidden',
               )}
             >
-              <span className="min-w-0 flex-1 truncate">{group.label}</span>
+              <span className="min-w-0 flex-1 truncate">{localizedGroupLabel(group, locale)}</span>
               {/* The one thing a folded group must still say: your current
                   section is in here. Without it, folding «السجل» while on the
                   dashboard leaves nothing on screen saying where you are. */}

@@ -4,6 +4,8 @@ import type { PublicTenantConfig } from '@/lib/api-client';
 import { ACCENT_INIT_SCRIPT } from '@/lib/accents';
 import { AccentProvider } from '@/components/accent-provider';
 import { ThemeProvider } from '@/components/theme-provider';
+import { NextIntlClientProvider } from 'next-intl';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 
 /**
  * Validates a municipality's brand colour before it reaches a `<style>` tag.
@@ -66,7 +68,8 @@ export default async function TenantLayout({
   params: Promise<{ tenant: string; locale: string }>;
 }) {
   const { tenant, locale } = await params;
-  const config = await getTenant(tenant);
+  setRequestLocale(locale);
+  const [config, messages] = await Promise.all([getTenant(tenant), getMessages()]);
 
   // An unknown municipality is a 404, not a generic error page: the slug is the
   // tenant, so a wrong slug means the visitor — citizen or staff — is in the
@@ -146,9 +149,11 @@ export default async function TenantLayout({
         ) : null}
       </head>
       <body className="min-h-screen bg-muted/30 font-sans antialiased">
-        <ThemeProvider>
-          <AccentProvider>{children}</AccentProvider>
-        </ThemeProvider>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <ThemeProvider>
+            <AccentProvider>{children}</AccentProvider>
+          </ThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

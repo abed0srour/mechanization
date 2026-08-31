@@ -26,6 +26,7 @@ export interface NavItem {
   /** Appended to the tenant's admin base path. */
   path: string;
   label: string;
+  labelEn?: string;
   icon: LucideIcon;
   /** Omitted = every staff role can see it. */
   roles?: string[];
@@ -36,6 +37,7 @@ export interface NavItem {
 export interface NavGroup {
   /** Shown as a small caps heading; hidden when the rail is folded. */
   label: string;
+  labelEn?: string;
   /** Omitted = every staff role can see it. */
   roles?: string[];
   items: NavItem[];
@@ -237,4 +239,12 @@ export function activeNavItem(
     })
     .sort((a, b) => b.path.length - a.path.length);
   return candidates[0];
+}
+
+export function localizedLabel(item: NavItem, locale: string = 'ar'): string {
+  return locale === 'en' && item.labelEn ? item.labelEn : item.label;
+}
+
+export function localizedGroupLabel(group: NavGroup, locale: string = 'ar'): string {
+  return locale === 'en' && group.labelEn ? group.labelEn : group.label;
 }

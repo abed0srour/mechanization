@@ -22,6 +22,7 @@ import { LoadingState } from '@/components/ui/states';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LanguageSwitcher } from '@/components/language-switcher';
 
 /**
  * Staff sign-in.
@@ -240,7 +241,10 @@ export default function StaffLogin({
       </aside>
 
       {/* Form column */}
-      <main className="flex flex-1 items-center justify-center px-5 py-12 sm:px-10">
+      <main className="relative flex flex-1 items-center justify-center px-5 py-12 sm:px-10">
+        <div className="absolute top-6 end-6">
+          <LanguageSwitcher currentLocale={locale} variant="dropdown" />
+        </div>
         <div className="w-full max-w-[400px]">
           <div className="mb-9 space-y-2.5">
             <div

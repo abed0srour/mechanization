@@ -8,6 +8,7 @@ import { loadSession, saveSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useTranslations } from 'next-intl';
 
 import {
   formatReference,
@@ -38,6 +39,7 @@ export default function TenantHome({
   const { tenant, locale } = use(params);
   const router = useRouter();
   const base = `/${tenant}/${locale}`;
+  const tCitizen = useTranslations('citizen');
 
   const [reference, setReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -82,11 +84,11 @@ export default function TenantHome({
         >
           <FileSearch className="size-8" />
         </span>
-        <h1 className="text-2xl font-bold leading-snug tracking-tight sm:text-3xl">
-          أدخل رقمك المرجعي
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          {tCitizen('enterReference')}
         </h1>
         <p className="text-muted-foreground">
-          لعرض عقاراتك والرسوم المستحقة عليك وما سدّدته.
+          {tCitizen('enterReferenceHint')}
         </p>
       </div>
 
@@ -103,7 +105,7 @@ export default function TenantHome({
 
           <div className="space-y-2">
             <label htmlFor="reference" className="sr-only">
-              الرقم المرجعي
+              {tCitizen('referenceNumber')}
             </label>
             <Input
               id="reference"
@@ -137,7 +139,7 @@ export default function TenantHome({
               }}
             />
             <p className="text-center text-xs text-muted-foreground">
-              مطبوع على وصل الدفع وعلى إفادة التسجيل. الشرطات تُضاف تلقائياً.
+              {tCitizen('autoDashHint')}
             </p>
           </div>
 
@@ -150,19 +152,18 @@ export default function TenantHome({
             {submitting ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
-              <ArrowLeft className="size-4" aria-hidden />
+              <ArrowLeft className="size-4 rtl:rotate-0 ltr:rotate-180" aria-hidden />
             )}
-            عرض ملفّي
+            {tCitizen('viewMyFile')}
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">
-            لا تعرف رقمك المرجعي؟{' '}
+            {tCitizen('dontKnowReference')}{' '}
             <button
               type="button"
               onClick={() => router.push(`${base}/login`)}
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
-              ادخل برمز يصلك برسالة نصية
             </button>
           </p>
         </CardContent>
