@@ -243,7 +243,7 @@ export function CitizenEditor({
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="w-full space-y-4 px-4 py-6 sm:px-6 lg:px-8">
         <p
           role="alert"
           className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
@@ -266,7 +266,7 @@ export function CitizenEditor({
   const Icon = editing ? UserRoundPen : UserPlus;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <Link
         href={cancelHref}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -277,21 +277,21 @@ export function CitizenEditor({
           : (locale === 'en' ? 'Back to Citizens Registry' : 'رجوع إلى سجل المواطنين')}
       </Link>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-6">
-        <div className="flex min-w-0 items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+        <div className="flex min-w-0 items-center gap-3">
           <span
             aria-hidden
-            className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/20"
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
           >
-            <Icon className="size-7" />
+            <Icon className="size-5" />
           </span>
-          <div className="min-w-0 space-y-1.5">
-            <h1 className="truncate text-3xl font-bold tracking-tight">
+          <div className="min-w-0 space-y-0.5">
+            <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl text-foreground">
               {editing
                 ? (locale === 'en' ? 'Edit Citizen Information' : 'تعديل بيانات مواطن')
                 : (locale === 'en' ? 'Register New Citizen' : 'تسجيل مواطن جديد')}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {editing
                 ? (locale === 'en'
                     ? "Edits apply to this citizen's latest application. Prior submissions are preserved in their history."
@@ -304,7 +304,7 @@ export function CitizenEditor({
         </div>
 
         {reference ? (
-          <Badge variant="outline" className="font-mono" dir="ltr">
+          <Badge variant="outline" className="font-mono text-xs" dir="ltr">
             {reference}
           </Badge>
         ) : null}

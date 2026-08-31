@@ -24,6 +24,7 @@ import { BackupSection } from '@/components/admin/settings/backup-section';
 import { UsersSection } from '@/components/admin/settings/users-section';
 import { CadastreSection } from '@/components/admin/settings/cadastre-section';
 import { SettingsTabs } from '@/components/admin/settings/settings-ui';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 type SectionId =
@@ -104,10 +105,26 @@ export default function SettingsPage({
     setUserId(session.user.id);
   }, [tenant, base, router]);
 
-  if (!token) return null;
+  if (!token) {
+    return (
+      <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-10 rounded-xl" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+        </div>
+        <div className="space-y-4">
+          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-[28rem] w-full rounded-xl" />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         icon={SettingsIcon}
         title={copy.page.title}

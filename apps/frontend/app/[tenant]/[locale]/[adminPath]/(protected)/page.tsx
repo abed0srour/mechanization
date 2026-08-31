@@ -4,25 +4,8 @@ import { use, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { defaultPathFor } from '@/components/admin/nav';
 import { loadSession } from '@/lib/session';
-import { LoadingState } from '@/components/ui/states';
+import { Skeleton } from '@/components/ui/skeleton';
 
-/**
- * The admin base path itself — `/{tenant}/{locale}/{adminPath}`.
- *
- * There was no page here, so the one URL a staff member is actually given (the
- * admin link `tenant:provision` prints) rendered Next's 404 inside the admin
- * chrome. Everyone learned to type `/dashboard` on the end.
- *
- * It resolves rather than redirects blindly: `/dashboard` is restricted to
- * SUPER_ADMIN, AUDITOR and FIELD_INSPECTOR, so sending every role there would
- * bounce a COLLECTOR straight back out again. `defaultPathFor` reads the same
- * nav the sidebar does and returns the first section this role can actually
- * open.
- *
- * Sitting inside `(protected)` means `StaffRouteGuard` has already handled the
- * signed-out case by the time this renders — it redirects to `/login` before
- * this component is reached.
- */
 export default function AdminIndexPage({
   params,
 }: {
@@ -45,5 +28,19 @@ export default function AdminIndexPage({
     router.replace(`${base}${defaultPathFor(session.user.role)}`);
   }, [tenant, base, router]);
 
-  return <LoadingState fullHeight label="جارٍ فتح لوحة الإدارة…" />;
+  return (
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-10 rounded-xl" />
+        <div className="space-y-1.5">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+      </div>
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full rounded-lg" />
+        <Skeleton className="h-[28rem] w-full rounded-xl" />
+      </div>
+    </div>
+  );
 }

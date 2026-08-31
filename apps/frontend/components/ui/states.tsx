@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils';
  * zero-height container.
  */
 export function LoadingState({
-  label = 'جارٍ التحميل…',
+  label,
   className,
   compact = false,
   fullHeight = false,
@@ -58,7 +58,7 @@ export function LoadingState({
       )}
     >
       <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
-      <p className="text-sm text-muted-foreground">{label}</p>
+      {label ? <p className="text-sm text-muted-foreground">{label}</p> : null}
     </div>
   );
 }

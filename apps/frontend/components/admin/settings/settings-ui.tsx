@@ -92,7 +92,7 @@ export function AlignedFieldGrid({
 export function SettingsField({
   label,
   htmlFor,
-  hint,
+  hint: _hint,
   error,
   required,
   className,
@@ -123,18 +123,14 @@ export function SettingsField({
     <p role="alert" className="text-xs leading-relaxed text-destructive">
       {error}
     </p>
-  ) : hint ? (
-    <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
   ) : null;
 
   if (aligned) {
     return (
-      <div className={cn('row-span-3 grid min-w-0 grid-rows-subgrid gap-1.5', className)}>
-        {/* Anchored to the bottom of their tracks so a short label stays beside
-            its control when a neighbour's label wraps to two lines. */}
-        <div className="self-end">{caption}</div>
-        <div className="min-w-0 self-end">{children}</div>
-        {footnote ?? <span />}
+      <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
+        {caption}
+        {children}
+        {footnote}
       </div>
     );
   }

@@ -1,4 +1,5 @@
 import type {
+  BloodType,
   DocumentType,
   Gender,
   IdentityDocType,
@@ -14,6 +15,17 @@ import type {
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
   gender: { MALE: 'ذكر', FEMALE: 'أنثى' } satisfies Record<Gender, string>,
+
+  bloodType: {
+    A_POSITIVE: 'A+',
+    A_NEGATIVE: 'A-',
+    B_POSITIVE: 'B+',
+    B_NEGATIVE: 'B-',
+    AB_POSITIVE: 'AB+',
+    AB_NEGATIVE: 'AB-',
+    O_POSITIVE: 'O+',
+    O_NEGATIVE: 'O-',
+  } satisfies Record<BloodType, string>,
 
   /** How often a fee recurs. */
   feeFrequency: {
@@ -124,6 +136,17 @@ export const ar = {
 
 export const en = {
   gender: { MALE: 'Male', FEMALE: 'Female' } satisfies Record<Gender, string>,
+
+  bloodType: {
+    A_POSITIVE: 'A+',
+    A_NEGATIVE: 'A-',
+    B_POSITIVE: 'B+',
+    B_NEGATIVE: 'B-',
+    AB_POSITIVE: 'AB+',
+    AB_NEGATIVE: 'AB-',
+    O_POSITIVE: 'O+',
+    O_NEGATIVE: 'O-',
+  } satisfies Record<BloodType, string>,
 
   feeFrequency: {
     ONCE: 'Once',

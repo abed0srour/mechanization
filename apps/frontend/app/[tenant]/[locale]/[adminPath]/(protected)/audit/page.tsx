@@ -208,7 +208,7 @@ export default function AuditTrailPage({
   if (!session) return null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <div className="border-b pb-6">
         <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
           <ShieldCheck className="size-7 text-primary" aria-hidden />

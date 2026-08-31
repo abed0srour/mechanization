@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ar } from './labels';
 import {
+  BLOOD_TYPE,
   GENDER,
   IDENTITY_DOC_TYPE,
   LAND_TYPE,
@@ -40,6 +41,7 @@ export const IMPORT_COLUMN_KEYS = [
   'middleName',
   'lastName',
   'gender',
+  'bloodType',
   'isLebanese',
   'nationality',
   'residentStatus',
@@ -88,12 +90,18 @@ export interface ImportColumn {
  */
 export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   { key: 'firstName', header: 'الاسم الأول', hint: 'إلزامي', always: true },
-  { key: 'middleName', header: 'اسم الأب', hint: 'اختياري' },
+  { key: 'middleName', header: 'اسم الأب', hint: 'إلزامي', always: true },
   { key: 'lastName', header: 'الشهرة', hint: 'إلزامي', always: true },
   {
     key: 'gender',
     header: 'الجنس',
     hint: Object.values(ar.gender).join(' / '),
+    always: true,
+  },
+  {
+    key: 'bloodType',
+    header: 'فئة الدم',
+    hint: Object.values(ar.bloodType).join(' / '),
     always: true,
   },
   { key: 'isLebanese', header: 'لبناني', hint: 'نعم / لا', always: true },
@@ -288,6 +296,9 @@ export function buildCitizenPayload(row: ImportRow): unknown {
       middleName: text(row.middleName),
       lastName: text(row.lastName),
       gender: toEnum(GENDER, ar.gender, row.gender ?? ''),
+      bloodType:
+        toEnum(BLOOD_TYPE, ar.bloodType, row.bloodType ?? '') ??
+        (row.bloodType?.trim().toUpperCase() as never),
       identityDocType: toEnum(IDENTITY_DOC_TYPE, ar.identityDocType, row.identityDocType ?? ''),
       identityDocNumber: text(row.identityDocNumber),
       civilRecordNumber: text(row.civilRecordNumber)

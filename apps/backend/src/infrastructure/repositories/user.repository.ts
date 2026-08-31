@@ -228,6 +228,14 @@ export class PrismaUserRepository implements UserRepository {
     });
   }
 
+  /** Clears enrolment and secrets so the second factor is no longer requested. */
+  async disableTotp(userId: string): Promise<void> {
+    await this.db.user.update({
+      where: { id: userId },
+      data: { totpSecret: null, totpConfirmedAt: null, lastTotpStep: null },
+    });
+  }
+
   /** Staff rows plus the audit/review counts a permanent delete depends on. */
   async listStaff(): Promise<StaffSummary[]> {
     const rows = await this.db.user.findMany({
@@ -241,6 +249,7 @@ export class PrismaUserRepository implements UserRepository {
         isActive: true,
         createdAt: true,
         lastLoginAt: true,
+        totpConfirmedAt: true,
         // Counted in the same query rather than per row: the alternative is
         // a history lookup per staff member, and this list is rendered in
         // full on every visit to the page.
@@ -268,6 +277,7 @@ export class PrismaUserRepository implements UserRepository {
       lastName: row.lastName,
       role: row.role as StaffRole,
       isActive: row.isActive,
+      hasConfirmedTotp: Boolean(row.totpConfirmedAt),
       historyCount:
         row._count.reviewedRegistrations + (auditByActor.get(row.id) ?? 0),
       createdAt: row.createdAt.toISOString(),

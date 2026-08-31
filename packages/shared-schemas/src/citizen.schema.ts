@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  bloodTypeSchema,
   genderSchema,
   identityDocTypeSchema,
   maritalStatusSchema,
@@ -36,9 +37,10 @@ import {
 export const personalDetailsSchema = z
   .object({
     firstName: arabicOrLatinName,
-    middleName: arabicOrLatinName.optional().or(z.literal('')),
+    middleName: arabicOrLatinName,
     lastName: arabicOrLatinName,
     gender: genderSchema,
+    bloodType: bloodTypeSchema,
     identityDocType: identityDocTypeSchema,
     identityDocNumber: documentNumber.optional().or(z.literal('')),
     civilRecordNumber: civilRecordNumber.optional().or(z.literal('')),

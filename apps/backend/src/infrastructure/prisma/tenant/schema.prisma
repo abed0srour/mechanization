@@ -108,6 +108,7 @@ model User {
   civilRecordNumber String?
   familySize        Int?
   maritalStatus     MaritalStatus?
+  bloodType         BloodType?
 
   /// رقم مرجعي — usable when a phone is lost or shared.
   referenceNumber String? @unique
@@ -727,6 +728,9 @@ model CitizenPayment {
   /// see. The payer is reached through the join, not copied in here.
   searchText String?
 
+  /// Whether a staff member has marked this pending verification notification as seen.
+  isSeen Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -814,4 +818,15 @@ model PaymentTransaction {
   /// What the municipality took today, across every collector and clerk.
   @@index([occurredAt])
   @@map("payment_transactions")
+}
+
+enum BloodType {
+  A_POSITIVE
+  A_NEGATIVE
+  B_POSITIVE
+  B_NEGATIVE
+  AB_POSITIVE
+  AB_NEGATIVE
+  O_POSITIVE
+  O_NEGATIVE
 }

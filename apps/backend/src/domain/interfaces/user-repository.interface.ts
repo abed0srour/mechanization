@@ -17,6 +17,7 @@ export interface CitizenIdentityInput {
   civilRecordNumber?: string;
   familySize: number;
   maritalStatus: string;
+  bloodType?: string;
 }
 
 /**
@@ -57,6 +58,8 @@ export interface UserRepository {
   saveTotpSecret(userId: string, secret: string): Promise<void>;
   /** Marks enrolment complete once the admin has proved the app works. */
   confirmTotp(userId: string): Promise<void>;
+  /** Clears TOTP enrolment and secrets. */
+  disableTotp(userId: string): Promise<void>;
 
   /** Every staff account with the history count that gates a hard delete. */
   listStaff(): Promise<StaffSummary[]>;
@@ -103,6 +106,7 @@ export interface StaffSummary {
   lastName: string;
   role: StaffRole;
   isActive: boolean;
+  hasConfirmedTotp?: boolean;
   /** Drives whether the UI may offer a permanent delete. */
   historyCount: number;
   createdAt: string;

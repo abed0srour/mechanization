@@ -26,6 +26,7 @@ import {
 import {
   ApiRequestError,
   deleteCitizen,
+  getTenantConfig,
   importCitizens,
   listCitizens,
   logApiError,
@@ -46,6 +47,7 @@ import { useToast } from '@/components/ui/toast';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
+import { buildCitizenWelcomeMessage, buildWhatsappHref } from '@/lib/whatsapp';
 import { getLabels } from '@mechanization/shared-schemas';
 
 /** Roles allowed to write. Mirrors the server; the server is the enforcement. */
@@ -146,6 +148,8 @@ export default function CitizensPage({
   /** The row whose deletion is being confirmed, or null. */
   const [pendingDelete, setPendingDelete] = useState<CitizenListItem | null>(null);
   const toast = useToast();
+  /** Prefixed with «بلدية» in the WhatsApp reference-number message below. */
+  const [municipalityName, setMunicipalityName] = useState('');
 
   const canWrite = role ? CAN_WRITE.includes(role) : false;
   const canDelete = role === 'SUPER_ADMIN';
@@ -158,6 +162,12 @@ export default function CitizensPage({
     }
     setToken(session.accessToken);
     setRole(session.user.role);
+
+    // Public endpoint, and non-blocking: the registry renders fine without it,
+    // the WhatsApp message just falls back to a generic «البلدية».
+    getTenantConfig(tenant)
+      .then((config) => setMunicipalityName(config.nameAr || config.name))
+      .catch(() => setMunicipalityName(tenant));
   }, [tenant, base, router]);
 
   /*
@@ -531,6 +541,13 @@ export default function CitizensPage({
         cell: ({ row }) => {
           const citizen = row.original;
           const busy = busyId === citizen.id;
+          const waMessage = buildCitizenWelcomeMessage({
+            fullName: citizen.fullName,
+            gender: citizen.gender,
+            referenceNumber: citizen.referenceNumber,
+            municipalityName,
+          });
+          const waHref = buildWhatsappHref(citizen.whatsapp || citizen.phone, waMessage);
 
           return (
             <div className="flex items-center gap-1.5">
@@ -543,6 +560,25 @@ export default function CitizensPage({
                   <UserRound className="size-4" aria-hidden />
                 </Link>
               </ActionTooltip>
+
+              {waHref ? (
+                <ActionTooltip label={locale === 'en' ? 'Send reference number via WhatsApp' : 'إرسال الرقم المرجعي عبر واتساب'}>
+                  <a
+                    href={waHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={locale === 'en' ? 'Send via WhatsApp' : 'إرسال عبر واتساب'}
+                    className={buttonVariants({
+                      variant: 'outline',
+                      size: 'icon-sm',
+                      className:
+                        'border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70',
+                    })}
+                  >
+                    <MessageCircle className="size-4" aria-hidden />
+                  </a>
+                </ActionTooltip>
+              ) : null}
 
               {canWrite ? (
                 <ActionTooltip label={locale === 'en' ? 'Edit information' : 'تعديل البيانات'}>
@@ -601,7 +637,7 @@ export default function CitizensPage({
         },
       },
     ],
-    [base, busyId, canWrite, canDelete, toggleActive, locale, labels],
+    [base, busyId, canWrite, canDelete, toggleActive, locale, labels, municipalityName],
   );
 
   if (!token) return null;
@@ -609,7 +645,7 @@ export default function CitizensPage({
   const tableLabels = getTableLabels(locale);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         icon={Users}
         title={locale === 'en' ? 'Citizens' : 'المواطنون'}

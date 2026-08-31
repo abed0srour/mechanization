@@ -323,7 +323,7 @@ export default function StaffDashboard({
   if (!token) return null;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-10 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="w-full space-y-8 px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">

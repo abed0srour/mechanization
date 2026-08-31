@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
-import { getLabels } from '@mechanization/shared-schemas';
+import { BLOOD_TYPE, getLabels } from '@mechanization/shared-schemas';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChoiceCard, Field } from '@/components/ui/field';
+import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -62,8 +62,8 @@ export function PersonalStep({
     (locale === 'en' ? 'Document Number' : 'رقم الوثيقة');
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-5 sm:grid-cols-3">
+    <div className="space-y-4">
+      <div className="grid gap-3.5 sm:grid-cols-3">
         <Field
           label={locale === 'en' ? 'First Name' : 'الاسم الأول'}
           htmlFor="firstName"
@@ -81,10 +81,12 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? "Father's Name" : 'اسم الأب'}
           htmlFor="middleName"
+          required
           error={errors['personal.middleName']}
         >
           <Input
             id="middleName"
+            invalid={Boolean(errors['personal.middleName'])}
             value={str(value.middleName)}
             onChange={(e) => set({ middleName: e.target.value })}
           />
@@ -105,60 +107,114 @@ export function PersonalStep({
         </Field>
       </div>
 
-      <Field
-        label={locale === 'en' ? 'Gender' : 'الجنس'}
-        htmlFor="gender"
-        required
-        error={errors['personal.gender']}
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(['MALE', 'FEMALE'] as const).map((option) => (
-            <ChoiceCard
-              key={option}
-              name="gender"
-              value={option}
-              checked={value.gender === option}
-              onChange={(v) => set({ gender: v })}
-              title={labels.gender[option]}
-            />
-          ))}
-        </div>
-      </Field>
+      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+        <Field
+          label={locale === 'en' ? 'Gender' : 'الجنس'}
+          htmlFor="gender"
+          required
+          error={errors['personal.gender']}
+        >
+          <Select
+            value={str(value.gender)}
+            onValueChange={(next) => set({ gender: next })}
+          >
+            <SelectTrigger id="gender" className={errors['personal.gender'] ? 'border-destructive' : ''}>
+              <SelectValue placeholder={locale === 'en' ? 'Select gender…' : 'اختر الجنس…'} />
+            </SelectTrigger>
+            <SelectContent>
+              {(['MALE', 'FEMALE'] as const).map((option) => (
+                <SelectItem key={option} value={option}>
+                  {labels.gender[option]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
 
-      <Field
-        label={locale === 'en' ? 'Nationality' : 'الجنسية'}
-        htmlFor="isLebanese"
-        required
-        error={errors['personal.isLebanese']}
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ChoiceCard
-            name="isLebanese"
-            value="LEBANESE"
-            checked={isLebanese}
-            onChange={() => set({ isLebanese: true, residencyNumber: undefined })}
-            title={locale === 'en' ? 'Lebanese' : 'لبناني'}
-          />
-          <ChoiceCard
-            name="isLebanese"
-            value="FOREIGN"
-            checked={!isLebanese}
-            onChange={() => set({ isLebanese: false, civilRecordNumber: undefined })}
-            title={locale === 'en' ? 'Non-Lebanese / Foreign' : 'أجنبي'}
-          />
-        </div>
-      </Field>
+        <Field
+          label={locale === 'en' ? 'Blood Type' : 'فئة الدم'}
+          htmlFor="bloodType"
+          required
+          error={errors['personal.bloodType']}
+        >
+          <Select
+            value={str(value.bloodType)}
+            onValueChange={(next) => set({ bloodType: next })}
+          >
+            <SelectTrigger id="bloodType" className={errors['personal.bloodType'] ? 'border-destructive' : ''}>
+              <SelectValue placeholder={locale === 'en' ? 'Select blood type…' : 'اختر فئة الدم…'} />
+            </SelectTrigger>
+            <SelectContent side="bottom" position="popper">
+              {BLOOD_TYPE.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {labels.bloodType?.[type] ?? type}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field
+          label={locale === 'en' ? 'Nationality' : 'الجنسية'}
+          htmlFor="isLebanese"
+          required
+          error={errors['personal.isLebanese']}
+        >
+          <Select
+            value={isLebanese ? 'LEBANESE' : 'FOREIGN'}
+            onValueChange={(next) => {
+              const isLeb = next === 'LEBANESE';
+              if (isLeb) {
+                set({ isLebanese: true, residencyNumber: undefined });
+              } else {
+                set({ isLebanese: false, civilRecordNumber: undefined });
+              }
+            }}
+          >
+            <SelectTrigger id="isLebanese" className={errors['personal.isLebanese'] ? 'border-destructive' : ''}>
+              <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="LEBANESE">{locale === 'en' ? 'Lebanese' : 'لبناني'}</SelectItem>
+              <SelectItem value="FOREIGN">{locale === 'en' ? 'Non-Lebanese' : 'أجنبي'}</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field
+          label={locale === 'en' ? 'Residency Status' : 'صفة الإقامة'}
+          htmlFor="residentStatus"
+          required
+          error={errors['personal.residentStatus']}
+        >
+          <Select
+            value={str(value.residentStatus)}
+            onValueChange={(next) => set({ residentStatus: next })}
+          >
+            <SelectTrigger id="residentStatus" className={errors['personal.residentStatus'] ? 'border-destructive' : ''}>
+              <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+            </SelectTrigger>
+            <SelectContent>
+              {residentStatusOptions.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {labels.residentStatus[option]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
 
       {!isLebanese ? (
         <Field
-          label={locale === 'en' ? 'Nationality' : 'الجنسية'}
+          label={locale === 'en' ? 'Specific Nationality' : 'الجنسية بالتفصيل'}
           htmlFor="nationality"
           required
-          hint={locale === 'en' ? 'e.g. Syrian, Egyptian, Palestinian' : 'مثال: سوري، مصري، فلسطيني'}
           error={errors['personal.nationality']}
         >
           <Input
             id="nationality"
+            placeholder={locale === 'en' ? 'e.g. Syrian, Egyptian, Palestinian' : 'مثال: سوري، مصري، فلسطيني'}
             invalid={Boolean(errors['personal.nationality'])}
             value={value.nationality === 'لبناني' || value.nationality === 'Lebanese' ? '' : str(value.nationality)}
             onChange={(e) => set({ nationality: e.target.value })}
@@ -166,55 +222,33 @@ export function PersonalStep({
         </Field>
       ) : null}
 
-      <Field
-        label={locale === 'en' ? 'Residency Status' : 'صفة الإقامة'}
-        htmlFor="residentStatus"
-        required
-        error={errors['personal.residentStatus']}
-      >
-        <div className="grid gap-3">
-          {residentStatusOptions.map((option) => (
-            <ChoiceCard
-              key={option}
-              name="residentStatus"
-              value={option}
-              checked={value.residentStatus === option}
-              onChange={(v) => set({ residentStatus: v })}
-              title={labels.residentStatus[option]}
-            />
-          ))}
-        </div>
-      </Field>
-
       {isLebanese ? (
-        <Field
-          label={locale === 'en' ? 'ID Document Type' : 'نوع وثيقة الإثبات'}
-          htmlFor="identityDocType"
-          required
-          error={errors['personal.identityDocType']}
-        >
-          <Select
-            value={str(value.identityDocType)}
-            onValueChange={(next) => set({ identityDocType: next })}
+        <div className="grid gap-3.5 sm:grid-cols-3">
+          <Field
+            label={locale === 'en' ? 'ID Document Type' : 'نوع وثيقة الإثبات'}
+            htmlFor="identityDocType"
+            required
+            error={errors['personal.identityDocType']}
           >
-            <SelectTrigger id="identityDocType">
-              <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
-            </SelectTrigger>
-            <SelectContent>
-              {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map(
-                (o) => (
-                  <SelectItem key={o} value={o}>
-                    {labels.identityDocType[o]}
-                  </SelectItem>
-                ),
-              )}
-            </SelectContent>
-          </Select>
-        </Field>
-      ) : null}
+            <Select
+              value={str(value.identityDocType)}
+              onValueChange={(next) => set({ identityDocType: next })}
+            >
+              <SelectTrigger id="identityDocType">
+                <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+              </SelectTrigger>
+              <SelectContent>
+                {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map(
+                  (o) => (
+                    <SelectItem key={o} value={o}>
+                      {labels.identityDocType[o]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+          </Field>
 
-      {isLebanese ? (
-        <div className="grid gap-5 sm:grid-cols-2">
           <Field
             label={identityDocNumberLabel}
             htmlFor="identityDocNumber"
@@ -239,7 +273,7 @@ export function PersonalStep({
             <Input
               id="civilRecordNumber"
               inputMode="numeric"
-              placeholder={locale === 'en' ? 'Usually 1-3 digits' : '١-٣ أرقام عادةً'}
+              placeholder={locale === 'en' ? 'Usually 1-3 digits' : '١-٣ أرقام'}
               invalid={Boolean(errors['personal.civilRecordNumber'])}
               value={str(value.civilRecordNumber)}
               onChange={(e) => set({ civilRecordNumber: e.target.value })}
@@ -247,41 +281,33 @@ export function PersonalStep({
           </Field>
         </div>
       ) : (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            {locale === 'en'
-              ? 'Entering either passport number or residency number is sufficient.'
-              : 'يكفي إدخال رقم جواز السفر أو رقم الإقامة — لا حاجة لإدخال كليهما.'}
-          </p>
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <Field
+            label={identityDocNumberLabel}
+            htmlFor="identityDocNumber"
+            error={errors['personal.identityDocNumber']}
+          >
+            <Input
+              id="identityDocNumber"
+              inputMode="numeric"
+              invalid={Boolean(errors['personal.identityDocNumber'])}
+              value={str(value.identityDocNumber)}
+              onChange={(e) => set({ identityDocNumber: e.target.value })}
+            />
+          </Field>
 
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field
-              label={identityDocNumberLabel}
-              htmlFor="identityDocNumber"
-              error={errors['personal.identityDocNumber']}
-            >
-              <Input
-                id="identityDocNumber"
-                inputMode="numeric"
-                invalid={Boolean(errors['personal.identityDocNumber'])}
-                value={str(value.identityDocNumber)}
-                onChange={(e) => set({ identityDocNumber: e.target.value })}
-              />
-            </Field>
-
-            <Field
-              label={locale === 'en' ? 'Residency Permit No.' : 'رقم الإقامة'}
-              htmlFor="residencyNumber"
-              error={errors['personal.residencyNumber']}
-            >
-              <Input
-                id="residencyNumber"
-                invalid={Boolean(errors['personal.residencyNumber'])}
-                value={str(value.residencyNumber)}
-                onChange={(e) => set({ residencyNumber: e.target.value })}
-              />
-            </Field>
-          </div>
+          <Field
+            label={locale === 'en' ? 'Residency Permit No.' : 'رقم الإقامة'}
+            htmlFor="residencyNumber"
+            error={errors['personal.residencyNumber']}
+          >
+            <Input
+              id="residencyNumber"
+              invalid={Boolean(errors['personal.residencyNumber'])}
+              value={str(value.residencyNumber)}
+              onChange={(e) => set({ residencyNumber: e.target.value })}
+            />
+          </Field>
         </div>
       )}
     </div>
@@ -305,96 +331,108 @@ export function ContactStep({
   const sameAsPhone = value.whatsappSameAsPhone !== false;
 
   return (
-    <div className="space-y-6">
-      <Field
-        label={locale === 'en' ? 'Marital Status' : 'الحالة الاجتماعية'}
-        htmlFor="maritalStatus"
-        required
-        error={errors['contact.maritalStatus']}
-      >
-        <Select
-          value={str(value.maritalStatus)}
-          onValueChange={(next) => set({ maritalStatus: next })}
-        >
-          <SelectTrigger id="maritalStatus">
-            <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
-          </SelectTrigger>
-          <SelectContent>
-            {(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'] as const).map((o) => (
-              <SelectItem key={o} value={o}>
-                {labels.maritalStatus[o]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-
-      <Field
-        label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'}
-        htmlFor="phone"
-        required
-        hint={locale === 'en' ? 'We will send login code and reference number here' : 'سنرسل إليه رمز الدخول والرقم المرجعي'}
-        error={errors['contact.phone']}
-      >
-        <Input
-          id="phone"
-          type="tel"
-          inputMode="tel"
-          dir="ltr"
-          placeholder="03 123456"
-          className="text-start"
-          invalid={Boolean(errors['contact.phone'])}
-          value={str(value.phone)}
-          onChange={(e) => set({ phone: e.target.value })}
-        />
-      </Field>
-
-      <div className="flex min-h-touch items-center gap-3">
-        <Checkbox
-          id="whatsappSameAsPhone"
-          checked={sameAsPhone}
-          onCheckedChange={(checked) => set({ whatsappSameAsPhone: checked === true })}
-        />
-        <Label htmlFor="whatsappSameAsPhone">
-          {locale === 'en' ? 'WhatsApp number is the same' : 'رقم الواتساب هو نفسه'}
-        </Label>
-      </div>
-
-      {!sameAsPhone ? (
+    <div className="space-y-4">
+      <div className="grid gap-3.5 sm:grid-cols-2 items-start">
         <Field
-          label={locale === 'en' ? 'WhatsApp Number' : 'رقم الواتساب'}
-          htmlFor="whatsapp"
+          label={locale === 'en' ? 'Marital Status' : 'الحالة الاجتماعية'}
+          htmlFor="maritalStatus"
           required
-          error={errors['contact.whatsapp']}
+          error={errors['contact.maritalStatus']}
+        >
+          <Select
+            value={str(value.maritalStatus)}
+            onValueChange={(next) => set({ maritalStatus: next })}
+          >
+            <SelectTrigger id="maritalStatus">
+              <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+            </SelectTrigger>
+            <SelectContent>
+              {(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'] as const).map((o) => (
+                <SelectItem key={o} value={o}>
+                  {labels.maritalStatus[o]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field
+          label={locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة'}
+          htmlFor="familySize"
+          required
+          error={errors['contact.familySize']}
         >
           <Input
-            id="whatsapp"
+            id="familySize"
+            inputMode="numeric"
+            placeholder={locale === 'en' ? 'Including yourself' : 'بمن فيهم أنت'}
+            invalid={Boolean(errors['contact.familySize'])}
+            value={str(value.familySize)}
+            onChange={(e) => set({ familySize: e.target.value })}
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3.5 sm:grid-cols-2 items-start">
+        <Field
+          label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'}
+          htmlFor="phone"
+          required
+          error={errors['contact.phone']}
+        >
+          <Input
+            id="phone"
             type="tel"
             inputMode="tel"
             dir="ltr"
+            placeholder="03 123456"
             className="text-start"
-            invalid={Boolean(errors['contact.whatsapp'])}
-            value={str(value.whatsapp)}
-            onChange={(e) => set({ whatsapp: e.target.value })}
+            invalid={Boolean(errors['contact.phone'])}
+            value={str(value.phone)}
+            onChange={(e) => set({ phone: e.target.value })}
           />
         </Field>
-      ) : null}
 
-      <Field
-        label={locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة'}
-        htmlFor="familySize"
-        required
-        hint={locale === 'en' ? 'Including yourself' : 'بمن فيهم أنت'}
-        error={errors['contact.familySize']}
-      >
-        <Input
-          id="familySize"
-          inputMode="numeric"
-          invalid={Boolean(errors['contact.familySize'])}
-          value={str(value.familySize)}
-          onChange={(e) => set({ familySize: e.target.value })}
-        />
-      </Field>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between h-[18px]">
+            <Label htmlFor="whatsapp" className="flex items-baseline gap-1.5 text-xs font-medium text-foreground/90">
+              <span>{locale === 'en' ? 'WhatsApp Number' : 'رقم الواتساب'}</span>
+              <span className="text-xs font-bold text-destructive" aria-label="حقل إلزامي">*</span>
+            </Label>
+            <label htmlFor="whatsappSameAsPhone" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer select-none">
+              <Checkbox
+                id="whatsappSameAsPhone"
+                checked={sameAsPhone}
+                onCheckedChange={(checked) => set({ whatsappSameAsPhone: checked === true })}
+              />
+              <span>{locale === 'en' ? 'Same as phone' : 'نفس رقم الهاتف'}</span>
+            </label>
+          </div>
+
+          {!sameAsPhone ? (
+            <Input
+              id="whatsapp"
+              type="tel"
+              inputMode="tel"
+              dir="ltr"
+              placeholder="03 123456"
+              className="text-start"
+              invalid={Boolean(errors['contact.whatsapp'])}
+              value={str(value.whatsapp)}
+              onChange={(e) => set({ whatsapp: e.target.value })}
+            />
+          ) : (
+            <div className="flex h-10 items-center rounded-md border border-dashed border-border/70 bg-muted/20 px-3 text-xs text-muted-foreground">
+              {locale === 'en' ? 'Using main phone number' : 'يتم استخدام رقم الهاتف الأساسي'}
+            </div>
+          )}
+          {errors['contact.whatsapp'] ? (
+            <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1 text-xs text-destructive">
+              {errors['contact.whatsapp']}
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

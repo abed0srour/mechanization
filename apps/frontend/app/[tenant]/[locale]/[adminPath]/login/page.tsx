@@ -127,9 +127,24 @@ export default function StaffLogin({
       );
     } catch (caught) {
       logApiError(caught);
-      setError(
-        caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدخول.',
-      );
+      const isEn = locale === 'en';
+      if (caught instanceof ApiRequestError) {
+        if (caught.status === 401) {
+          if (totpStage) {
+            setError(
+              isEn
+                ? 'Invalid verification code. Please check your authenticator app.'
+                : 'رمز التحقق غير صحيح. يرجى مراجعة تطبيق المصادقة.',
+            );
+          } else {
+            setError(isEn ? 'Invalid email or password.' : 'بيانات الدخول غير صحيحة.');
+          }
+        } else {
+          setError(caught.message);
+        }
+      } else {
+        setError(isEn ? 'Unable to sign in.' : 'تعذّر تسجيل الدخول.');
+      }
       // A rejected code is retried on its own; a rejected password sends the
       // form back to the start rather than leaving a code box above a
       // credential the server has already refused.

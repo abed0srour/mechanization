@@ -9,9 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChoiceCard, Field } from '@/components/ui/field';
+import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -125,56 +124,81 @@ export function PropertyCard({
       </CardHeader>
 
       {collapsed ? null : (
-        <CardContent className="space-y-6 pt-6">
-          <Field
-            label={locale === 'en' ? 'Neighborhood' : 'الحي'}
-            htmlFor={`nb-${index}`}
-            required
-            error={errors.neighborhood}
-          >
-            <Input
-              id={`nb-${index}`}
-              invalid={Boolean(errors.neighborhood)}
-              value={draft.neighborhood ?? ''}
-              onChange={(e) => set({ neighborhood: e.target.value })}
+        <CardContent className="space-y-4 pt-4">
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <Field
+              label={locale === 'en' ? 'Neighborhood' : 'الحي'}
+              htmlFor={`nb-${index}`}
+              required
+              error={errors.neighborhood}
+            >
+              <Input
+                id={`nb-${index}`}
+                invalid={Boolean(errors.neighborhood)}
+                value={draft.neighborhood ?? ''}
+                onChange={(e) => set({ neighborhood: e.target.value })}
+              />
+            </Field>
+
+            <PropertyNumberField
+              tenant={tenant}
+              index={index}
+              value={draft.propertyNumber ?? ''}
+              onChange={(propertyNumber) => set({ propertyNumber })}
+              locale={locale}
             />
-          </Field>
+          </div>
 
-          <PropertyNumberField
-            tenant={tenant}
-            index={index}
-            value={draft.propertyNumber ?? ''}
-            onChange={(propertyNumber) => set({ propertyNumber })}
-            locale={locale}
-          />
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <Field
+              label={locale === 'en' ? 'Occupancy Type' : 'نوع الإشغال'}
+              htmlFor={`occ-${index}`}
+              required
+              error={errors.occupancyType}
+            >
+              <Select
+                value={draft.occupancyType ?? ''}
+                onValueChange={(v) => set({ occupancyType: v as OccupancyType })}
+              >
+                <SelectTrigger id={`occ-${index}`} className={errors.occupancyType ? 'border-destructive' : ''}>
+                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['OWNER', 'TENANT'] as const).map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {labels.occupancyType[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
 
-          <Field
-            label={locale === 'en' ? 'Occupancy Type' : 'نوع الإشغال'}
-            htmlFor={`occ-${index}`}
-            required
-            error={errors.occupancyType}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(['OWNER', 'TENANT'] as const).map((option) => (
-                <ChoiceCard
-                  key={option}
-                  name={`occupancy-${index}`}
-                  value={option}
-                  checked={draft.occupancyType === option}
-                  onChange={(v) => set({ occupancyType: v as OccupancyType })}
-                  title={labels.occupancyType[option]}
-                  description={
-                    locale === 'en'
-                      ? (option === 'OWNER' ? 'Property registered in your name' : 'Rented from another owner')
-                      : (option === 'OWNER' ? 'العقار مسجّل باسمك' : 'تستأجر من مالك آخر')
-                  }
-                />
-              ))}
-            </div>
-          </Field>
+            <Field
+              label={locale === 'en' ? 'Property Type' : 'نوع العقار'}
+              htmlFor={`pt-${index}`}
+              required
+              error={errors.propertyType}
+            >
+              <Select
+                value={draft.propertyType ?? ''}
+                onValueChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}
+              >
+                <SelectTrigger id={`pt-${index}`} className={errors.propertyType ? 'border-destructive' : ''}>
+                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {allowedTypes.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {labels.propertyType[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
 
           {draft.occupancyType === 'TENANT' ? (
-            <div className="grid gap-5 border-s-2 border-primary/20 ps-4 sm:grid-cols-2">
+            <div className="grid gap-3.5 sm:grid-cols-2">
               <Field
                 label={locale === 'en' ? 'Landlord Name' : 'اسم المالك'}
                 htmlFor={`ln-${index}`}
@@ -199,6 +223,8 @@ export function PropertyCard({
                   type="tel"
                   inputMode="tel"
                   dir="ltr"
+                  placeholder="03 123456"
+                  className="text-start"
                   invalid={Boolean(errors.landlordPhone)}
                   value={draft.landlordPhone ?? ''}
                   onChange={(e) => set({ landlordPhone: e.target.value })}
@@ -207,118 +233,100 @@ export function PropertyCard({
             </div>
           ) : null}
 
-          <Field
-            label={locale === 'en' ? 'Property Type' : 'نوع العقار'}
-            htmlFor={`pt-${index}`}
-            required
-            error={errors.propertyType}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {allowedTypes.map((option) => (
-                <ChoiceCard
-                  key={option}
-                  name={`propertyType-${index}`}
-                  value={option}
-                  checked={draft.propertyType === option}
-                  onChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}
-                  title={labels.propertyType[option]}
-                />
-              ))}
-            </div>
-          </Field>
-
-          {visible.includes('buildingName') ? (
-            <Field
-              label={
-                isBuilding
-                  ? (locale === 'en' ? 'Building Name' : 'اسم المبنى')
-                  : (locale === 'en' ? 'Building / House Name' : 'اسم المبنى/المنزل')
-              }
-              htmlFor={`bn-${index}`}
-              required
-              error={errors.buildingName}
-            >
-              <Input
-                id={`bn-${index}`}
-                invalid={Boolean(errors.buildingName)}
-                value={draft.buildingName ?? ''}
-                onChange={(e) => set({ buildingName: e.target.value })}
-              />
-            </Field>
-          ) : null}
-
-          {visible.includes('landType') ? (
-            <Field
-              label={locale === 'en' ? 'Land Type' : 'نوع الأرض'}
-              htmlFor={`lt-${index}`}
-              required
-              error={errors.landType}
-            >
-              <Select
-                value={draft.landType ?? ''}
-                onValueChange={(next) => set({ landType: next as LandType })}
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            {visible.includes('buildingName') ? (
+              <Field
+                label={
+                  isBuilding
+                    ? (locale === 'en' ? 'Building Name' : 'اسم المبنى')
+                    : (locale === 'en' ? 'Building / House Name' : 'اسم المبنى/المنزل')
+                }
+                htmlFor={`bn-${index}`}
+                required
+                error={errors.buildingName}
               >
-                <SelectTrigger id={`lt-${index}`}>
-                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(['AGRICULTURAL', 'INDUSTRIAL'] as const).map((o) => (
-                    <SelectItem key={o} value={o}>
-                      {labels.landType[o]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
+                <Input
+                  id={`bn-${index}`}
+                  invalid={Boolean(errors.buildingName)}
+                  value={draft.buildingName ?? ''}
+                  onChange={(e) => set({ buildingName: e.target.value })}
+                />
+              </Field>
+            ) : null}
 
-          {visible.includes('side') ? (
-            <Field
-              label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
-              htmlFor={`sd-${index}`}
-              hint={locale === 'en' ? 'e.g. North, South, East, West' : 'مثال: شمالي، جنوبي'}
-            >
-              <Input
-                id={`sd-${index}`}
-                value={draft.side ?? ''}
-                onChange={(e) => set({ side: e.target.value })}
-              />
-            </Field>
-          ) : null}
+            {visible.includes('landType') ? (
+              <Field
+                label={locale === 'en' ? 'Land Type' : 'نوع الأرض'}
+                htmlFor={`lt-${index}`}
+                required
+                error={errors.landType}
+              >
+                <Select
+                  value={draft.landType ?? ''}
+                  onValueChange={(next) => set({ landType: next as LandType })}
+                >
+                  <SelectTrigger id={`lt-${index}`}>
+                    <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['AGRICULTURAL', 'INDUSTRIAL'] as const).map((o) => (
+                      <SelectItem key={o} value={o}>
+                        {labels.landType[o]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
 
-          {visible.includes('tentLocation') ? (
-            <Field
-              label={locale === 'en' ? 'Tent Location Description' : 'وصف موقع الخيمة'}
-              htmlFor={`tl-${index}`}
-              required
-              hint={locale === 'en' ? 'e.g. North Camp — Plot 4' : 'مثال: المخيم الشمالي — قطعة ٤'}
-              error={errors.tentLocation}
-            >
-              <Input
-                id={`tl-${index}`}
-                invalid={Boolean(errors.tentLocation)}
-                value={draft.tentLocation ?? ''}
-                onChange={(e) => set({ tentLocation: e.target.value })}
-              />
-            </Field>
-          ) : null}
+            {visible.includes('side') ? (
+              <Field
+                label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
+                htmlFor={`sd-${index}`}
+              >
+                <Input
+                  id={`sd-${index}`}
+                  placeholder={locale === 'en' ? 'e.g. North, South, East, West' : 'مثال: شمالي، جنوبي'}
+                  value={draft.side ?? ''}
+                  onChange={(e) => set({ side: e.target.value })}
+                />
+              </Field>
+            ) : null}
 
-          {visible.includes('unitArea') ? (
-            <Field
-              label={locale === 'en' ? 'Unit Area (sq. meters)' : 'مساحة الوحدة (متر مربع)'}
-              htmlFor={`ua-${index}`}
-              required
-              error={errors.unitArea}
-            >
-              <Input
-                id={`ua-${index}`}
-                inputMode="decimal"
-                invalid={Boolean(errors.unitArea)}
-                value={draft.unitArea ?? ''}
-                onChange={(e) => set({ unitArea: e.target.value })}
-              />
-            </Field>
-          ) : null}
+            {visible.includes('tentLocation') ? (
+              <Field
+                label={locale === 'en' ? 'Tent Location Description' : 'وصف موقع الخيمة'}
+                htmlFor={`tl-${index}`}
+                required
+                error={errors.tentLocation}
+              >
+                <Input
+                  id={`tl-${index}`}
+                  placeholder={locale === 'en' ? 'e.g. North Camp — Plot 4' : 'مثال: المخيم الشمالي — قطعة ٤'}
+                  invalid={Boolean(errors.tentLocation)}
+                  value={draft.tentLocation ?? ''}
+                  onChange={(e) => set({ tentLocation: e.target.value })}
+                />
+              </Field>
+            ) : null}
+
+            {visible.includes('unitArea') ? (
+              <Field
+                label={locale === 'en' ? 'Unit Area (sq. meters)' : 'مساحة الوحدة (متر مربع)'}
+                htmlFor={`ua-${index}`}
+                required
+                error={errors.unitArea}
+              >
+                <Input
+                  id={`ua-${index}`}
+                  inputMode="decimal"
+                  invalid={Boolean(errors.unitArea)}
+                  value={draft.unitArea ?? ''}
+                  onChange={(e) => set({ unitArea: e.target.value })}
+                />
+              </Field>
+            ) : null}
+          </div>
 
           {visible.includes('sharedRights') ? (
             <SharedRightsField
@@ -437,14 +445,17 @@ function SharedRightsField({
     <Field
       label={locale === 'en' ? 'Shared Rights' : 'حقوق مشتركة'}
       htmlFor={idPrefix}
-      hint={locale === 'en' ? 'Select applicable' : 'حدد ما ينطبق'}
     >
-      <div className="space-y-1">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 pt-1">
         {sharedRightsOptions.map((right, rightIndex) => {
           const checked = selected.includes(right);
           const id = `${idPrefix}-${rightIndex}`;
           return (
-            <div key={right} className="flex min-h-touch items-center gap-3">
+            <label
+              key={right}
+              htmlFor={id}
+              className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-2.5 py-1.5 text-xs text-foreground cursor-pointer select-none hover:bg-muted/40 transition-colors"
+            >
               <Checkbox
                 id={id}
                 checked={checked}
@@ -454,8 +465,8 @@ function SharedRightsField({
                   )
                 }
               />
-              <Label htmlFor={id}>{right}</Label>
-            </div>
+              <span className="truncate">{right}</span>
+            </label>
           );
         })}
       </div>
@@ -585,30 +596,30 @@ function UnitsEditor({
 
             {unitCollapsed ? null : (
               <>
-                <Field
-                  label={locale === 'en' ? 'Unit Type' : 'نوع الوحدة'}
-                  htmlFor={`ut-${index}-${unitIndex}`}
-                  required
-                  error={unitErrors.unitType}
-                >
-                  <Select
-                    value={unit.unitType ?? ''}
-                    onValueChange={(next) => setUnit(unitIndex, { unitType: next as UnitType })}
+                <div className="grid gap-3.5 sm:grid-cols-2">
+                  <Field
+                    label={locale === 'en' ? 'Unit Type' : 'نوع الوحدة'}
+                    htmlFor={`ut-${index}-${unitIndex}`}
+                    required
+                    error={unitErrors.unitType}
                   >
-                    <SelectTrigger id={`ut-${index}-${unitIndex}`}>
-                      <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
-                        <SelectItem key={o} value={o}>
-                          {labels.unitType[o]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
+                    <Select
+                      value={unit.unitType ?? ''}
+                      onValueChange={(next) => setUnit(unitIndex, { unitType: next as UnitType })}
+                    >
+                      <SelectTrigger id={`ut-${index}-${unitIndex}`}>
+                        <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
+                          <SelectItem key={o} value={o}>
+                            {labels.unitType[o]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
 
-                <div className="grid gap-5 sm:grid-cols-2">
                   <Field
                     label={locale === 'en' ? 'Floor' : 'الطابق'}
                     htmlFor={`fl-${index}-${unitIndex}`}
@@ -622,7 +633,9 @@ function UnitsEditor({
                       onChange={(e) => setUnit(unitIndex, { floor: e.target.value })}
                     />
                   </Field>
+                </div>
 
+                <div className="grid gap-3.5 sm:grid-cols-2">
                   <Field
                     label={locale === 'en' ? 'Unit Area (sq. meters)' : 'مساحة الوحدة (متر مربع)'}
                     htmlFor={`ua-${index}-${unitIndex}`}
@@ -637,19 +650,19 @@ function UnitsEditor({
                       onChange={(e) => setUnit(unitIndex, { unitArea: e.target.value })}
                     />
                   </Field>
-                </div>
 
-                <Field
-                  label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
-                  htmlFor={`sd-${index}-${unitIndex}`}
-                  hint={locale === 'en' ? 'e.g. North, South' : 'مثال: شمالي، جنوبي'}
-                >
-                  <Input
-                    id={`sd-${index}-${unitIndex}`}
-                    value={unit.side ?? ''}
-                    onChange={(e) => setUnit(unitIndex, { side: e.target.value })}
-                  />
-                </Field>
+                  <Field
+                    label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
+                    htmlFor={`sd-${index}-${unitIndex}`}
+                  >
+                    <Input
+                      id={`sd-${index}-${unitIndex}`}
+                      placeholder={locale === 'en' ? 'e.g. North, South' : 'مثال: شمالي، جنوبي'}
+                      value={unit.side ?? ''}
+                      onChange={(e) => setUnit(unitIndex, { side: e.target.value })}
+                    />
+                  </Field>
+                </div>
 
                 <SharedRightsField
                   idPrefix={`sr-${index}-${unitIndex}`}
@@ -747,17 +760,13 @@ function PropertyNumberField({
       label={locale === 'en' ? 'Property Number' : 'رقم العقار'}
       htmlFor={`pn-${index}`}
       required
-      hint={
-        locale === 'en'
-          ? 'As written on title deed. Automatically verified in municipal records.'
-          : 'كما هو مدوّن على سند الملكية. يتم التحقق منه تلقائياً في سجل البلدية.'
-      }
       error={error}
     >
       <Input
         id={`pn-${index}`}
         inputMode="numeric"
         dir="ltr"
+        placeholder={locale === 'en' ? 'e.g. 1024' : 'مثال: ١٠٢٤'}
         className="text-start"
         invalid={unknown}
         value={value}

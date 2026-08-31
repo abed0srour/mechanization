@@ -181,23 +181,6 @@ export class IdentityService {
     const secret = user.totpSecret;
 
     if (!user.hasConfirmedTotp || !secret) {
-      /**
-       * A SUPER_ADMIN reads every citizen's national ID number, residency
-       * status and scanned documents, and can export the register or restore
-       * over it. Enrolment for that role is a precondition of holding the
-       * account, not a setting inside it — so an incomplete one is refused
-       * here rather than waved through with a warning.
-       *
-       * The account is not stranded: `pnpm staff:create` enrols the first
-       * administrator of a municipality at creation time, and
-       * `StaffService.create` returns an enrolment URI for every SUPER_ADMIN
-       * invited afterwards.
-       */
-      if (user.requiresTotp) {
-        throw new UnauthorizedError(
-          'هذا الحساب يتطلّب التحقق بخطوتين، ولم يكتمل تسجيل تطبيق المصادقة. يرجى مراجعة مدير النظام.',
-        );
-      }
       return null;
     }
 
@@ -269,6 +252,37 @@ export class IdentityService {
     this.events.emit('staff.changed', {
       action: 'TOTP_CONFIRMED',
       tenantSlug: user.tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+  }
+
+  /**
+   * Disable TOTP enrolment for a staff user.
+   */
+  async disableTotp(
+    userId: string,
+    tenantSlug: string,
+    currentPassword?: string,
+  ): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user || user.kind !== 'STAFF') {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    if (currentPassword && user.passwordHash) {
+      const match = await this.hasher.verify(currentPassword, user.passwordHash);
+      if (!match) {
+        throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+      }
+    }
+
+    await this.users.disableTotp(user.id);
+
+    this.events.emit('staff.changed', {
+      action: 'TOTP_DISABLED',
+      tenantSlug,
       staffId: user.id,
       actorId: user.id,
       actorRole: user.role ?? '',

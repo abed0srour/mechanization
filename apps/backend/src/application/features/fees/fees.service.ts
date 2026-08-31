@@ -619,6 +619,7 @@ export class FeesService {
         paymentStatus: 'PENDING_REVIEW',
         paymentMethod: input.method as never,
         whishTransactionRef: input.whishTransactionRef ?? null,
+        isSeen: false,
         // Cleared so a previous rejection's note does not sit alongside a
         // fresh claim as though it applied to it.
         reviewNote: null,
@@ -636,11 +637,14 @@ export class FeesService {
   }
 
   /** The clerk's verification queue: everything claimed but not yet confirmed. */
-  async listPendingReview() {
+  async listPendingReview(unseenOnly: boolean = false) {
     const rows = await withConnectionRetry(() =>
       this.db.citizenPayment.findMany({
-        where: { paymentStatus: 'PENDING_REVIEW' },
-        orderBy: { updatedAt: 'asc' },
+        where: {
+          paymentStatus: 'PENDING_REVIEW',
+          ...(unseenOnly ? { isSeen: false } : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
         include: {
           citizen: {
             select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
@@ -659,11 +663,43 @@ export class FeesService {
       dueDate: row.dueDate.toISOString(),
       paymentMethod: row.paymentMethod,
       whishTransactionRef: row.whishTransactionRef,
+      isSeen: row.isSeen,
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       citizenPhone: row.citizen.phone,
       citizenReference: row.citizen.referenceNumber,
     }));
+  }
+
+  /** Marks a pending payment notification as seen. */
+  async markAsSeen(paymentId: string) {
+    const payment = await this.db.citizenPayment.findUnique({
+      where: { id: paymentId },
+      select: { id: true, paymentStatus: true },
+    });
+    if (!payment) throw new NotFoundError('Payment', paymentId);
+
+    const updated = await withConnectionRetry(() =>
+      this.db.citizenPayment.update({
+        where: { id: paymentId },
+        data: { isSeen: true },
+        select: { id: true, isSeen: true },
+      }),
+    );
+
+    return { id: updated.id, isSeen: updated.isSeen };
+  }
+
+  /** Marks all pending payment notifications as seen. */
+  async markAllPendingAsSeen() {
+    const result = await withConnectionRetry(() =>
+      this.db.citizenPayment.updateMany({
+        where: { paymentStatus: 'PENDING_REVIEW', isSeen: false },
+        data: { isSeen: true },
+      }),
+    );
+
+    return { updatedCount: result.count };
   }
 
   /**

@@ -529,6 +529,7 @@ export interface CitizenProfile {
   civilRecordNumber: string | null;
   familySize: number | null;
   maritalStatus: string | null;
+  bloodType: string | null;
   referenceNumber: string | null;
   registeredAt: string;
   /** False for a deactivated record — kept for its history, refused a session. */
@@ -567,6 +568,7 @@ export interface MyCitizenSummary {
   isLebanese: boolean | null;
   residentStatus: string | null;
   maritalStatus: string | null;
+  bloodType: string | null;
   familySize: number | null;
   identityDocType: string | null;
   /**
@@ -593,6 +595,7 @@ export interface CitizenListItem {
   fullName: string;
   phone: string | null;
   whatsapp: string | null;
+  gender: string | null;
   referenceNumber: string | null;
   identityDocType: string | null;
   identityDocNumber: string | null;
@@ -813,6 +816,7 @@ export interface StaffSummary {
   lastName: string;
   role: string;
   isActive: boolean;
+  hasConfirmedTotp?: boolean;
   /** Audit entries + reviewed registrations. A permanent delete needs zero. */
   historyCount: number;
   createdAt: string;
@@ -1155,6 +1159,7 @@ export interface PendingPayment {
   dueDate: string;
   paymentMethod: string | null;
   whishTransactionRef: string | null;
+  isSeen?: boolean;
   citizenId: string;
   citizenName: string;
   citizenPhone: string | null;
@@ -1162,8 +1167,27 @@ export interface PendingPayment {
 }
 
 /** The clerk's queue: money claimed but not yet confirmed. */
-export function getPendingPayments(tenant: string, token: string) {
-  return apiFetch<{ items: PendingPayment[] }>(tenant, '/fees/payments/pending', { token });
+export function getPendingPayments(tenant: string, token: string, unseenOnly?: boolean) {
+  const query = unseenOnly ? '?unseenOnly=true' : '';
+  return apiFetch<{ items: PendingPayment[] }>(tenant, `/fees/payments/pending${query}`, { token });
+}
+
+/** Mark a pending payment notification as seen. */
+export function markPaymentAsSeen(tenant: string, token: string, id: string) {
+  return apiFetch<{ id: string; isSeen: boolean }>(
+    tenant,
+    `/fees/payments/${encodeURIComponent(id)}/seen`,
+    { token, method: 'PATCH' },
+  );
+}
+
+/** Mark all pending payment notifications as seen. */
+export function markAllPendingPaymentsAsSeen(tenant: string, token: string) {
+  return apiFetch<{ updatedCount: number }>(
+    tenant,
+    '/fees/payments/pending/mark-all-seen',
+    { token, method: 'POST' },
+  );
 }
 
 export async function reviewPayment(
@@ -1528,6 +1552,40 @@ export async function sendStaffPasswordResetEmail(
     method: 'POST',
     token,
     body: JSON.stringify({ redirectTo }),
+  });
+}
+
+export async function beginStaffTotpEnrolment(
+  tenant: string,
+  token: string,
+): Promise<{ secret: string; keyUri: string }> {
+  return apiFetch<{ secret: string; keyUri: string }>(tenant, '/auth/staff/totp/enrol', {
+    method: 'POST',
+    token,
+  });
+}
+
+export async function confirmStaffTotpEnrolment(
+  tenant: string,
+  token: string,
+  input: { token: string },
+): Promise<{ confirmed: boolean }> {
+  return apiFetch<{ confirmed: boolean }>(tenant, '/auth/staff/totp/confirm', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function disableStaffTotp(
+  tenant: string,
+  token: string,
+  input: { currentPassword?: string },
+): Promise<{ disabled: boolean }> {
+  return apiFetch<{ disabled: boolean }>(tenant, '/auth/staff/totp/disable', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
   });
 }
 

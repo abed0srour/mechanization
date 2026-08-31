@@ -741,7 +741,6 @@ export function BackupSection({
             <SettingsField
               label={copy.backup.keepCopies}
               htmlFor="backup-keep"
-              hint={copy.backup.keepCopiesHint}
             >
               <Input
                 id="backup-keep"

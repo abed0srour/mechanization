@@ -259,8 +259,22 @@ export class FeesController {
 
   @Roles('SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT')
   @Get('payments/pending')
-  async pending() {
-    return { items: await this.fees.listPendingReview() };
+  async pending(@Query('unseenOnly') unseenOnly?: string) {
+    return { items: await this.fees.listPendingReview(unseenOnly === 'true') };
+  }
+
+  /** Marks a pending payment notification as seen. */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT')
+  @Patch('payments/:id/seen')
+  async markAsSeen(@Param('id') id: string) {
+    return this.fees.markAsSeen(id);
+  }
+
+  /** Marks all pending payment notifications as seen. */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT')
+  @Post('payments/pending/mark-all-seen')
+  async markAllAsSeen() {
+    return this.fees.markAllPendingAsSeen();
   }
 
   /** Confirming money arrived is a financial act — SUPER_ADMIN and ACCOUNTANT. */

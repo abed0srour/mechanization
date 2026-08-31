@@ -24,26 +24,26 @@ export function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={htmlFor} className="flex items-baseline gap-2">
+    <div className="space-y-1.5">
+      <Label htmlFor={htmlFor} className="flex items-baseline gap-1.5 text-xs font-medium text-foreground/90">
         <span>{label}</span>
         {required ? (
-          <span className="text-sm font-semibold text-destructive" aria-label="حقل إلزامي">
+          <span className="text-xs font-bold text-destructive" aria-label="حقل إلزامي">
             *
           </span>
         ) : (
-          <span className="text-sm font-normal text-muted-foreground">اختياري</span>
+          <span className="text-xs font-normal text-muted-foreground">(اختياري)</span>
         )}
       </Label>
 
-      {hint ? <p className="text-sm text-muted-foreground">{hint}</p> : null}
+      {hint ? <p className="text-xs text-muted-foreground leading-normal">{hint}</p> : null}
 
       {children}
 
       {error ? (
         <p
           role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          className="rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1 text-xs text-destructive"
         >
           {error}
         </p>
@@ -53,9 +53,7 @@ export function Field({
 }
 
 /**
- * Large card-style choice, used instead of a dropdown wherever there are four
- * or fewer options: a native select is a poor target on a phone held by someone
- * with limited dexterity.
+ * Compact card-style choice for radio options.
  */
 export function ChoiceCard({
   name,
@@ -65,6 +63,7 @@ export function ChoiceCard({
   title,
   description,
   icon: Icon,
+  className,
 }: {
   name: string;
   value: string;
@@ -72,23 +71,17 @@ export function ChoiceCard({
   onChange: (value: string) => void;
   title: string;
   description?: string;
-  /**
-   * Optional glyph between the radio and the caption.
-   *
-   * Purely additive — the citizen wizard's choices (ذكر/أنثى، لبناني/أجنبي)
-   * are read, not scanned, and gain nothing from one. It exists for lists like
-   * الفئة المستهدفة, where three similar-length Arabic phrases are told apart
-   * faster by shape than by reading each in full.
-   */
   icon?: React.ComponentType<{ className?: string }>;
+  className?: string;
 }) {
   return (
     <label
       className={cn(
-        'flex min-h-touch cursor-pointer items-center gap-3 rounded-lg border p-4 transition-colors',
+        'flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition-all select-none',
         checked
-          ? 'border-primary bg-primary/5 ring-1 ring-primary'
-          : 'border-input bg-background hover:bg-accent',
+          ? 'border-primary/80 bg-primary/5 ring-1 ring-primary/40 shadow-2xs font-medium text-foreground'
+          : 'border-border/80 bg-card hover:bg-muted/40 hover:border-border text-foreground/80',
+        className,
       )}
     >
       <input
@@ -97,21 +90,21 @@ export function ChoiceCard({
         value={value}
         checked={checked}
         onChange={() => onChange(value)}
-        className="h-5 w-5 accent-[hsl(var(--primary))]"
+        className="size-4 shrink-0 accent-[hsl(var(--primary))]"
       />
       {Icon ? (
         <Icon
           className={cn(
-            'size-5 shrink-0',
+            'size-4 shrink-0',
             checked ? 'text-primary' : 'text-muted-foreground',
           )}
           aria-hidden
         />
       ) : null}
-      <span>
-        <span className="block font-medium">{title}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs sm:text-sm font-medium leading-tight">{title}</span>
         {description ? (
-          <span className="block text-sm text-muted-foreground">{description}</span>
+          <span className="block text-xs text-muted-foreground leading-normal mt-0.5">{description}</span>
         ) : null}
       </span>
     </label>

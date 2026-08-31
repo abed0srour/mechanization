@@ -51,6 +51,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
             civilRecordNumber: input.citizen.civilRecordNumber,
             familySize: input.citizen.familySize,
             maritalStatus: input.citizen.maritalStatus as never,
+            bloodType: (input.citizen.bloodType ?? null) as never,
           },
           create: {
             kind: 'CITIZEN',
@@ -70,6 +71,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
             civilRecordNumber: input.citizen.civilRecordNumber,
             familySize: input.citizen.familySize,
             maritalStatus: input.citizen.maritalStatus as never,
+            bloodType: (input.citizen.bloodType ?? null) as never,
             referenceNumber: input.citizenReference,
           },
           select: { id: true },

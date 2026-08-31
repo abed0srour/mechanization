@@ -139,6 +139,7 @@ export class RegistrationService {
         civilRecordNumber: input.payload.personal.civilRecordNumber || undefined,
         familySize: input.payload.contact.familySize,
         maritalStatus: input.payload.contact.maritalStatus,
+        bloodType: input.payload.personal.bloodType,
       },
       citizenReference,
       registrationReference,

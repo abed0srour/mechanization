@@ -60,6 +60,7 @@ export interface CitizenListItem {
   fullName: string;
   phone: string | null;
   whatsapp: string | null;
+  gender: string | null;
   referenceNumber: string | null;
   identityDocType: string | null;
   identityDocNumber: string | null;
@@ -101,6 +102,7 @@ interface CitizenListRow {
   lastName: string;
   phone: string | null;
   whatsapp: string | null;
+  gender: string | null;
   referenceNumber: string | null;
   identityDocType: string | null;
   identityDocNumber: string | null;
@@ -230,6 +232,7 @@ export class CitizensService {
           u."lastName",
           u.phone,
           u.whatsapp,
+          u.gender::text AS gender,
           u."referenceNumber",
           u."identityDocType"::text  AS "identityDocType",
           u."identityDocNumber",
@@ -316,6 +319,7 @@ export class CitizensService {
         fullName: [row.firstName, row.middleName, row.lastName].filter(Boolean).join(' '),
         phone: row.phone,
         whatsapp: row.whatsapp,
+        gender: row.gender,
         referenceNumber: row.referenceNumber,
         identityDocType: row.identityDocType,
         identityDocNumber: row.identityDocNumber,
@@ -372,6 +376,7 @@ export class CitizensService {
           whatsapp: true,
           maritalStatus: true,
           familySize: true,
+          bloodType: true,
           registrations: {
             orderBy: { submittedAt: 'desc' },
             take: 1,
@@ -403,6 +408,7 @@ export class CitizensService {
         middleName: citizen.middleName ?? '',
         lastName: citizen.lastName,
         gender: citizen.gender,
+        bloodType: citizen.bloodType ?? '',
         nationality: citizen.nationality,
         isLebanese: citizen.isLebanese,
         residencyNumber: citizen.residencyNumber ?? '',
@@ -682,6 +688,7 @@ export class CitizensService {
           whatsapp: input.payload.contact.whatsapp ?? input.payload.contact.phone,
           maritalStatus: input.payload.contact.maritalStatus as never,
           familySize: input.payload.contact.familySize,
+          bloodType: input.payload.personal.bloodType as never,
         },
       });
 

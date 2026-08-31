@@ -233,6 +233,7 @@ export interface CitizenProfile {
   civilRecordNumber: string | null;
   familySize: number | null;
   maritalStatus: string | null;
+  bloodType: string | null;
   referenceNumber: string | null;
   registeredAt: string;
   /** False for a deactivated record — kept for its history, refused a session. */
@@ -532,6 +533,7 @@ export class ReportingService {
         civilRecordNumber: true,
         familySize: true,
         maritalStatus: true,
+        bloodType: true,
         referenceNumber: true,
         isActive: true,
         createdAt: true,
@@ -672,6 +674,7 @@ export class ReportingService {
       civilRecordNumber: citizen.civilRecordNumber,
       familySize: citizen.familySize,
       maritalStatus: citizen.maritalStatus,
+      bloodType: citizen.bloodType,
       referenceNumber: citizen.referenceNumber,
       registeredAt: citizen.createdAt.toISOString(),
       isActive: citizen.isActive,

@@ -81,6 +81,16 @@ export class AuthController {
     return { confirmed: true };
   }
 
+  @Post('staff/totp/disable')
+  async disableTotp(
+    @Param('tenantSlug') tenantSlug: string,
+    @CurrentUser() user: SessionClaims,
+    @Body() body: { currentPassword?: string },
+  ) {
+    await this.identity.disableTotp(user.sub, tenantSlug, body?.currentPassword);
+    return { disabled: true };
+  }
+
   @Post('staff/change-password')
   async changePassword(
     @Param('tenantSlug') tenantSlug: string,

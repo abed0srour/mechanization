@@ -16,9 +16,9 @@ const STEP_SECONDS = 30;
 export class OtplibTotpService implements TotpService {
   constructor() {
     authenticator.options = {
-      // One step of tolerance each way: phone clocks drift, and the alternative
-      // is locking an admin out of their own dashboard over a few seconds.
-      window: 1,
+      // Two steps of tolerance each way (60s past & 60s future): phone clocks drift,
+      // and the alternative is locking an admin out over a few seconds of clock skew.
+      window: 2,
       step: STEP_SECONDS,
     };
   }
@@ -42,7 +42,12 @@ export class OtplibTotpService implements TotpService {
 
   verify(token: string, secret: string): boolean {
     try {
-      return authenticator.verify({ token: token.replace(/\s/g, ''), secret });
+      const cleanToken = token.replace(/[\s-]/g, '').trim();
+      const cleanSecret = secret.replace(/\s/g, '').trim();
+      return (
+        authenticator.verify({ token: cleanToken, secret: cleanSecret }) ||
+        authenticator.check(cleanToken, cleanSecret)
+      );
     } catch {
       // A malformed token is a failed check, not a 500.
       return false;

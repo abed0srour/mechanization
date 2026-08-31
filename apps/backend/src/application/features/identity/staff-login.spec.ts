@@ -211,25 +211,24 @@ describe('loginStaff — the second factor is actually checked', () => {
     expect(result.accessToken).toBe('jwt-token');
   });
 
-  it('refuses a SUPER_ADMIN whose enrolment is incomplete', async () => {
-    // The role that can export the register and restore over it does not get a
-    // session on a password alone — and cannot quietly opt out by never
-    // finishing enrolment.
+  it('allows a SUPER_ADMIN whose enrolment is not yet complete to sign in to set it up', async () => {
     const { service } = build({
       findStaffByEmail: jest.fn().mockResolvedValue(
         staff({ totpSecret: null, totpConfirmedAt: null }),
       ),
     });
 
-    await expect(service.loginStaff(LOGIN)).rejects.toThrow(/التحقق بخطوتين/);
+    const result = (await service.loginStaff(LOGIN)) as SessionResult;
+    expect(result.accessToken).toBe('jwt-token');
   });
 
-  it('refuses a SUPER_ADMIN whose secret was issued but never confirmed', async () => {
+  it('allows a SUPER_ADMIN whose secret was issued but unconfirmed to sign in to finish setup', async () => {
     const { service } = build({
       findStaffByEmail: jest.fn().mockResolvedValue(staff({ totpConfirmedAt: null })),
     });
 
-    await expect(service.loginStaff(LOGIN)).rejects.toThrow(/التحقق بخطوتين/);
+    const result = (await service.loginStaff(LOGIN)) as SessionResult;
+    expect(result.accessToken).toBe('jwt-token');
   });
 });
 

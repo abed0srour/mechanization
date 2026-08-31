@@ -9,6 +9,7 @@ import {
   Building2,
   Calendar,
   Clock3,
+  Droplet,
   ExternalLink,
   FileDigit,
   FileText,
@@ -66,6 +67,7 @@ import {
 } from '@/components/admin/settle-payment-dialog';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
+import { buildCitizenWelcomeMessage, buildWhatsappHref, formatWhatsappNumber } from '@/lib/whatsapp';
 
 /** One glyph per property branch, so a card's kind is readable before its text. */
 const PROPERTY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -181,7 +183,7 @@ export default function CitizenProfilePage({
 
   if (error) {
     return (
-      <div className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="w-full space-y-4 px-4 py-6 sm:px-6 lg:px-8">
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive">
           {error}
         </p>
@@ -233,8 +235,16 @@ export default function CitizenProfilePage({
     }
   };
 
+  const waMessage = buildCitizenWelcomeMessage({
+    fullName: citizen.fullName,
+    gender: citizen.gender,
+    referenceNumber: citizen.referenceNumber,
+    municipalityName,
+  });
+  const waHref = buildWhatsappHref(citizen.whatsapp || citizen.phone, waMessage);
+
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <Link
         href={`${base}/citizens`}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -265,6 +275,12 @@ export default function CitizenProfilePage({
               {citizen.gender ? (
                 <Badge variant="outline">{labels.gender[citizen.gender as never] ?? citizen.gender}</Badge>
               ) : null}
+              {citizen.bloodType ? (
+                <Badge variant="outline" className="border-red-500/30 bg-red-500/5 text-red-700 dark:text-red-400">
+                  <Droplet className="me-1 size-3" />
+                  {labels.bloodType?.[citizen.bloodType as never] ?? citizen.bloodType}
+                </Badge>
+              ) : null}
               {citizen.residentStatus ? (
                 <Badge variant="outline">
                   {labels.residentStatus[citizen.residentStatus as never] ?? citizen.residentStatus}
@@ -274,7 +290,28 @@ export default function CitizenProfilePage({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {waHref ? (
+            <a
+              href={waHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants({
+                variant: 'outline',
+                className:
+                  'border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70',
+              })}
+              title={
+                locale === 'en'
+                  ? 'Send reference number and registration confirmation via WhatsApp'
+                  : 'إرسال الرقم المرجعي وتأكيد التسجيل عبر واتساب'
+              }
+            >
+              <MessageCircle className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              <span>{locale === 'en' ? 'Send via WhatsApp' : 'إرسال عبر واتساب'}</span>
+            </a>
+          ) : null}
+
           {canEdit ? (
             <Link href={`${base}/citizens/${citizen.id}/edit`} className={buttonVariants()}>
               <Pencil className="size-4" aria-hidden />
@@ -326,6 +363,13 @@ export default function CitizenProfilePage({
                 value: labels.gender[citizen.gender as never] ?? citizen.gender,
               },
               {
+                icon: Droplet,
+                label: locale === 'en' ? 'Blood Type' : 'فئة الدم',
+                value: citizen.bloodType
+                  ? (labels.bloodType?.[citizen.bloodType as never] ?? citizen.bloodType)
+                  : undefined,
+              },
+              {
                 icon: Flag,
                 label: locale === 'en' ? 'Nationality' : 'الجنسية',
                 value: citizen.nationality,
@@ -375,7 +419,9 @@ export default function CitizenProfilePage({
                 {
                   icon: MessageCircle,
                   label: locale === 'en' ? 'WhatsApp' : 'واتساب',
-                  value: citizen.whatsapp ? <PhoneLink phone={citizen.whatsapp} /> : null,
+                  value: citizen.whatsapp ? (
+                    <WhatsAppPhoneLink phone={citizen.whatsapp} message={waMessage} />
+                  ) : null,
                 },
               ]}
             />
@@ -1034,6 +1080,27 @@ function PhoneLink({ phone }: { phone: string }) {
   return (
     <a href={`tel:${phone}`} dir="ltr" className="font-medium text-primary hover:underline">
       {phone}
+    </a>
+  );
+}
+
+/** Click-to-chat WhatsApp link, kept LTR with emerald accent. */
+function WhatsAppPhoneLink({ phone, message }: { phone: string; message?: string }) {
+  const digits = formatWhatsappNumber(phone);
+  const href = digits
+    ? `https://web.whatsapp.com/send?phone=${digits}${message ? `&text=${encodeURIComponent(message)}` : ''}`
+    : `https://web.whatsapp.com/send?phone=${phone.replace(/\D/g, '')}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      dir="ltr"
+      className="inline-flex items-center gap-1.5 font-medium text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:underline"
+      title="فتح في واتساب"
+    >
+      <MessageCircle className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+      <span>{phone}</span>
     </a>
   );
 }

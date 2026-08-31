@@ -120,6 +120,7 @@ export class CitizenController {
       isLebanese: citizen.isLebanese,
       residentStatus: citizen.residentStatus,
       maritalStatus: citizen.maritalStatus,
+      bloodType: citizen.bloodType,
       familySize: citizen.familySize,
       identityDocType: citizen.identityDocType,
 

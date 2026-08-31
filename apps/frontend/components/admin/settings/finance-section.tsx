@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, Coins, Percent, Smartphone } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { ArrowLeftRight, Coins, Smartphone } from 'lucide-react';
 import {
   ApiRequestError,
   getMunicipalitySettings,
@@ -11,10 +10,13 @@ import {
 } from '@/lib/api-client';
 import type { MunicipalitySettings } from '@/lib/api-client';
 import { CURRENCY_NAMES, type SettingsCopy } from '@/lib/settings-i18n';
-import { CURRENCY_CODES as CURRENCIES, type CurrencyCode } from '@mechanization/shared-schemas';
+import {
+  CURRENCY_CODES as CURRENCIES,
+  type CurrencyCode,
+  type FeeFrequency,
+} from '@mechanization/shared-schemas';
 
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -24,7 +26,6 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { cn } from '@/lib/utils';
 import {
   AlignedFieldGrid,
   SectionSaveRow,
@@ -33,22 +34,12 @@ import {
   SettingsField,
 } from './settings-ui';
 
-const FREQUENCIES = ['ONCE', 'MONTHLY', 'HALF_YEARLY', 'ANNUALLY'] as const;
-
 /**
  * The finance form's working copy.
- *
- * The numeric fields are held as **strings** even though the endpoint takes
- * numbers. A number in state cannot represent the states a text input passes
- * through on the way to a value: `''` while it is being cleared, `'1.'` while a
- * decimal is being typed. Parsing on each keystroke turns an emptied field into
- * `0` under the cursor and makes the box impossible to type a new figure into.
- * They are parsed once, at save, where a bad value is a validation error rather
- * than a fight with the caret.
  */
 interface FinanceDraft {
   whishMoneyNumber: string;
-  defaultFrequency: (typeof FREQUENCIES)[number];
+  defaultFrequency: FeeFrequency;
   dueDays: string;
   priceDisplay: 'compact' | 'exact';
   defaultRatePercent: string;
@@ -86,9 +77,6 @@ function toDraft(settings: MunicipalitySettings): FinanceDraft {
   };
 }
 
-/** A round figure to demonstrate the rate against — never a stored value. */
-const RATE_PREVIEW_BASE = 1_000_000;
-
 /** `'12.5'` → `12.5`, and anything unparseable → `null`. */
 function parseNumber(raw: string): number | null {
   const trimmed = raw.trim();
@@ -97,32 +85,16 @@ function parseNumber(raw: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function formatAmount(amount: number, currency: CurrencyCode): string {
-  // LBP has no minor unit in practice; the other two do.
+function formatNumber(amount: number, currency: CurrencyCode): string {
   const digits = currency === 'LBP' ? 0 : 2;
-  return `${amount.toLocaleString('en-US', {
+  return amount.toLocaleString('en-US', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
-  })} ${currency}`;
+  });
 }
 
 /**
  * المالية — what a new invoice assumes before anyone edits it.
- *
- * Everything here is a *default*, and the section says so twice: once in the
- * card hint and once beside the rate. That distinction is the whole risk of
- * this screen — an administrator who believes changing the rate re-prices the
- * ledger has been misled into thinking they fixed something they did not, and
- * the fees already issued carry their own rate by design.
- *
- * The Whish number moved here from the old flat settings form — it is a payment
- * channel, not a contact detail. Everything else got its column in migration
- * 0015 and saves through the same `PATCH /fees/settings`.
- *
- * `exchangeRateUpdatedAt` is never written by this form. The server stamps it,
- * and only when the rate actually moves: a browser's clock is not evidence of
- * when a value was accepted, and re-saving an unchanged rate must not make a
- * month-old figure look refreshed.
  */
 export function FinanceSection({
   tenant,
@@ -167,8 +139,6 @@ export function FinanceSection({
     };
   }, [tenant, token, copy.common.loadError]);
 
-  const rate = parseNumber(local.defaultRatePercent);
-  const rateValid = rate !== null && rate >= 0 && rate <= 100;
   const exchange = parseNumber(local.exchangeRate);
   const exchangeValid = !local.secondaryCurrency || (exchange !== null && exchange > 0);
   const dueDays = parseNumber(local.dueDays);
@@ -180,10 +150,6 @@ export function FinanceSection({
   );
 
   const save = useCallback(async () => {
-    if (!rateValid) {
-      toast.error(copy.finance.invalidRate);
-      return;
-    }
     if (!exchangeValid) {
       toast.error(copy.finance.invalidExchange);
       return;
@@ -200,17 +166,11 @@ export function FinanceSection({
         defaultFeeFrequency: local.defaultFrequency,
         defaultDueDays: dueDays,
         priceDisplay: local.priceDisplay,
-        defaultRatePercent: rate,
+        defaultRatePercent: Number(local.defaultRatePercent) || 0,
         baseCurrency: local.baseCurrency,
-        // `null`, not omitted: "no secondary currency" is a value to store, and
-        // leaving the key out would mean "keep whatever is there".
         secondaryCurrency: local.secondaryCurrency === '' ? null : local.secondaryCurrency,
         exchangeRate: local.secondaryCurrency === '' ? null : exchange,
       });
-      // `exchangeRateUpdatedAt` comes back from the server, which stamps it and
-      // only when the rate actually moved — a browser clock is not evidence of
-      // when a value was accepted, and re-saving an unchanged rate must not
-      // make a month-old figure look fresh.
       const next = toDraft(result);
       setSaved(next);
       setLocal(next);
@@ -228,10 +188,8 @@ export function FinanceSection({
     tenant,
     token,
     local,
-    rate,
     exchange,
     dueDays,
-    rateValid,
     exchangeValid,
     dueDaysValid,
     toast,
@@ -243,7 +201,6 @@ export function FinanceSection({
   }, [saved]);
 
   const currencyNames = CURRENCY_NAMES[locale === 'en' ? 'en' : 'ar'];
-  const rateCharge = rateValid ? (RATE_PREVIEW_BASE * (rate ?? 0)) / 100 : 0;
 
   if (loading) {
     return <Skeleton className="h-[34rem] rounded-lg" />;
@@ -263,52 +220,10 @@ export function FinanceSection({
       <SettingsCard icon={Coins} title={copy.finance.title} hint={copy.finance.description}>
         <div className="space-y-5">
           <FieldGroup icon={Coins} title={copy.finance.defaultsHeading}>
-            <AlignedFieldGrid columns={3}>
-              <SettingsField
-                label={copy.finance.defaultFrequency}
-                htmlFor="default-frequency"
-                hint={copy.finance.defaultFrequencyHint}
-              >
-                <Select
-                  value={local.defaultFrequency}
-                  onValueChange={(next) =>
-                    setLocal({ ...local, defaultFrequency: next as FinanceDraft['defaultFrequency'] })
-                  }
-                >
-                  <SelectTrigger id="default-frequency">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {FREQUENCIES.map((frequency) => (
-                      <SelectItem key={frequency} value={frequency}>
-                        {ar.feeFrequency?.[frequency as never] ?? frequency}
-                      </SelectItem>
-                    ))}
-                    {FREQUENCIES.map((frequency) => {
-                      const label =
-                        locale === 'en'
-                          ? (frequency === 'ONCE'
-                              ? 'One-time'
-                              : frequency === 'MONTHLY'
-                                ? 'Monthly'
-                                : frequency === 'HALF_YEARLY'
-                                  ? 'Semi-Annually'
-                                  : 'Annually')
-                          : (ar.feeFrequency?.[frequency as never] ?? frequency);
-                      return (
-                        <SelectItem key={frequency} value={frequency}>
-                          {label}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </SettingsField>
-
+            <AlignedFieldGrid>
               <SettingsField
                 label={copy.finance.dueDays}
                 htmlFor="due-days"
-                hint={copy.finance.dueDaysHint}
                 error={dueDaysValid ? undefined : copy.finance.invalidDueDays}
               >
                 <Input
@@ -327,7 +242,6 @@ export function FinanceSection({
               <SettingsField
                 label={copy.finance.priceDisplay}
                 htmlFor="price-display"
-                hint={copy.finance.priceDisplayHint}
               >
                 <Select
                   value={local.priceDisplay}
@@ -347,97 +261,11 @@ export function FinanceSection({
             </AlignedFieldGrid>
           </FieldGroup>
 
-          <FieldGroup icon={Percent} title={copy.finance.rateHeading}>
-            <div className="grid items-start gap-5 lg:grid-cols-12">
-              <div className="space-y-3 lg:col-span-6">
-                <SettingsField
-                  label={copy.finance.defaultRate}
-                  htmlFor="default-rate"
-                  hint={rateValid ? copy.finance.rateAppliesTo : undefined}
-                  error={rateValid ? undefined : copy.finance.invalidRate}
-                >
-                  <div className="relative" dir="ltr">
-                    <Input
-                      id="default-rate"
-                      inputMode="decimal"
-                      dir="ltr"
-                      invalid={!rateValid}
-                      className="pe-10 text-start font-mono font-medium"
-                      value={local.defaultRatePercent}
-                      onChange={(e) => setLocal({ ...local, defaultRatePercent: e.target.value })}
-                    />
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-y-0 end-3 flex items-center text-sm font-semibold text-muted-foreground"
-                    >
-                      %
-                    </span>
-                  </div>
-                </SettingsField>
-
-                {/* Quick Presets */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-xs text-muted-foreground">{locale === 'en' ? 'Quick presets:' : 'خيارات سريعة:'}</span>
-                  {['0', '5', '10', '15', '20'].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setLocal({ ...local, defaultRatePercent: preset })}
-                      className={cn(
-                        'rounded-md border px-2.5 py-0.5 text-xs font-medium transition-colors',
-                        local.defaultRatePercent === preset
-                          ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                          : 'border-border/60 bg-muted/40 hover:bg-accent hover:text-accent-foreground',
-                      )}
-                    >
-                      {preset}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Rate Breakdown Card */}
-              <div className="flex flex-col gap-1.5 lg:col-span-6">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {copy.finance.ratePreview}
-                </Label>
-                <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-4 text-sm shadow-sm backdrop-blur-sm">
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between text-muted-foreground">
-                      <span className="text-xs">{copy.finance.ratePreviewBase}</span>
-                      <span className="font-mono text-xs tabular-nums" dir="ltr">
-                        {formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        {copy.finance.ratePreviewCharge}
-                        <span className="inline-flex rounded bg-primary/15 px-1.5 py-0.2 text-[11px] font-semibold text-primary">
-                          +{rateValid ? rate : 0}%
-                        </span>
-                      </span>
-                      <span className="font-mono text-xs font-semibold text-primary tabular-nums" dir="ltr">
-                        +{formatAmount(rateCharge, local.baseCurrency)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-border/60 pt-2 text-sm font-bold">
-                      <span>{copy.finance.ratePreviewTotal}</span>
-                      <span className="font-mono text-base text-foreground tabular-nums" dir="ltr">
-                        {formatAmount(RATE_PREVIEW_BASE + rateCharge, local.baseCurrency)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </FieldGroup>
-
           <FieldGroup icon={ArrowLeftRight} title={copy.finance.currencyHeading}>
             <AlignedFieldGrid>
               <SettingsField
                 label={copy.finance.baseCurrency}
                 htmlFor="base-currency"
-                hint={copy.finance.baseCurrencyHint}
               >
                 <Select
                   value={local.baseCurrency}
@@ -459,7 +287,6 @@ export function FinanceSection({
               <SettingsField
                 label={copy.finance.secondaryCurrency}
                 htmlFor="secondary-currency"
-                hint={copy.finance.secondaryCurrencyHint}
               >
                 <Select
                   value={local.secondaryCurrency || 'NONE'}
@@ -491,7 +318,6 @@ export function FinanceSection({
                   <SettingsField
                     label={copy.finance.exchangeRate}
                     htmlFor="exchange-rate"
-                    hint={copy.finance.exchangeRateHint}
                     error={exchangeValid ? undefined : copy.finance.invalidExchange}
                   >
                     <div className="flex items-center gap-2">
@@ -514,30 +340,35 @@ export function FinanceSection({
                   </SettingsField>
                 </div>
 
-                <div className="flex flex-col gap-1.5 lg:col-span-6">
-                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {copy.finance.conversionPreview}
-                  </Label>
-                  <div className="rounded-xl border border-border/70 bg-muted/30 p-4 shadow-sm">
-                    <p className="break-words font-mono text-sm font-semibold tabular-nums" dir="ltr">
-                      {exchangeValid && exchange
-                        ? `${formatAmount(RATE_PREVIEW_BASE, local.baseCurrency)} ≈ ${formatAmount(
-                            RATE_PREVIEW_BASE / exchange,
-                            local.secondaryCurrency,
-                          )}`
-                        : '—'}
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {copy.finance.exchangeRateUpdated}:{' '}
-                      <span className="font-medium text-foreground">
-                        {local.exchangeRateUpdatedAt
-                          ? new Date(local.exchangeRateUpdatedAt).toLocaleString(
-                              locale === 'en' ? 'en-GB' : 'ar-LB-u-nu-latn',
-                            )
-                          : copy.finance.exchangeRateNever}
+                <div className="lg:col-span-6">
+                  <SettingsField
+                    label={copy.finance.conversionPreview}
+                    htmlFor="conversion-preview"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 rounded-md bg-muted px-2.5 py-2 text-xs font-semibold text-muted-foreground" dir="ltr">
+                        {local.baseCurrency === 'LBP' ? '1,000,000' : '1'} {local.baseCurrency} =
                       </span>
-                    </p>
-                  </div>
+                      <Input
+                        id="conversion-preview"
+                        readOnly
+                        dir="ltr"
+                        tabIndex={-1}
+                        className="text-start font-mono font-medium bg-muted/40 cursor-default"
+                        value={
+                          exchangeValid && exchange
+                            ? formatNumber(
+                                (local.baseCurrency === 'LBP' ? 1_000_000 : 1) / exchange,
+                                local.secondaryCurrency,
+                              )
+                            : '—'
+                        }
+                      />
+                      <span className="shrink-0 rounded-md bg-muted px-2.5 py-2 text-xs font-semibold text-muted-foreground">
+                        {local.secondaryCurrency}
+                      </span>
+                    </div>
+                  </SettingsField>
                 </div>
               </div>
             ) : null}
@@ -548,7 +379,6 @@ export function FinanceSection({
               <SettingsField
                 label={copy.finance.whishNumber}
                 htmlFor="whish-number"
-                hint={copy.finance.whishHint}
               >
                 <Input
                   id="whish-number"

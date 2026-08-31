@@ -338,12 +338,12 @@ export function CitizenForm({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <nav
         aria-label={locale === 'en' ? 'Form sections' : 'أقسام النموذج'}
-        className="sticky top-0 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
+        className="sticky top-0 z-20 rounded-xl border border-border/80 bg-background/95 p-1.5 shadow-2xs backdrop-blur supports-[backdrop-filter]:bg-background/80"
       >
-        <ul className="flex flex-wrap items-center gap-2">
+        <ul className="flex flex-wrap items-center gap-1.5">
           {sections.map((section) => {
             const Icon = section.icon;
             const invalid = sectionInvalid(section.id);
@@ -355,43 +355,38 @@ export function CitizenForm({
                   onClick={() => jumpTo(section.id as SectionId)}
                   aria-current={isActive ? 'true' : undefined}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors select-none',
                     isActive
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-transparent bg-muted/60 text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                      ? 'bg-primary text-primary-foreground shadow-2xs'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     invalid &&
                       !isActive &&
-                      'border-destructive/50 bg-destructive/10 text-destructive',
+                      'border border-destructive/30 bg-destructive/10 text-destructive',
                   )}
                 >
                   <span
                     aria-hidden
                     className={cn(
-                      'rounded px-1 text-xs font-semibold',
-                      isActive ? 'bg-primary-foreground/20' : 'bg-background/70',
+                      'rounded px-1 text-[10px] font-semibold',
+                      isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/10',
                     )}
                   >
                     {section.step}
                   </span>
-                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <Icon className="size-3.5 shrink-0" aria-hidden />
                   <span className="whitespace-nowrap">
                     {section.id === 'properties'
                       ? `${section.title} (${values.properties.length})`
                       : section.title}
                   </span>
                   {invalid ? (
-                    <>
-                      <TriangleAlert
-                        className={cn(
-                          'size-3.5 shrink-0',
-                          isActive ? 'text-primary-foreground' : 'text-destructive',
-                        )}
-                        aria-hidden
-                      />
-                      <span className="sr-only">
-                        {locale === 'en' ? 'Contains incomplete fields' : 'يحتوي على حقول غير مكتملة'}
-                      </span>
-                    </>
+                    <TriangleAlert
+                      className={cn(
+                        'size-3 shrink-0',
+                        isActive ? 'text-primary-foreground' : 'text-destructive',
+                      )}
+                      aria-hidden
+                    />
                   ) : null}
                 </button>
               </li>
@@ -456,7 +451,7 @@ export function CitizenForm({
         }
         invalid={sectionInvalid('properties')}
       >
-        <div className="space-y-6">
+        <div className="space-y-4">
           {values.properties.map((property, index) => (
             <PropertyCard
               key={property.id ?? index}
@@ -475,7 +470,7 @@ export function CitizenForm({
           ))}
 
           {mode === 'edit' && values.properties.some((property) => property.id) ? (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+            <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
               {locale === 'en'
                 ? 'Deleting a registered property will also delete associated attachments (title deed or lease).'
                 : 'حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).'}
@@ -484,21 +479,22 @@ export function CitizenForm({
 
           <Button
             variant="outline"
-            size="lg"
+            size="sm"
             onClick={addProperty}
-            className="w-full border-dashed border-primary text-primary hover:bg-primary/5"
+            className="w-full border-dashed border-primary/60 text-primary hover:bg-primary/5 h-9 text-xs sm:text-sm font-medium"
           >
-            <Plus className="size-5" aria-hidden />
+            <Plus className="size-4" aria-hidden />
             {locale === 'en' ? 'Add Another Property' : 'إضافة عقار آخر'}
           </Button>
         </div>
       </FormSection>
 
-      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6">
+      {/* Fixed Bottom Actions Bar */}
+      <div className="sticky bottom-0 z-30 -mx-4 -mb-6 mt-8 border-t border-border/80 bg-background/95 px-4 py-3 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         {error ? (
           <p
             role="alert"
-            className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            className="mb-2.5 rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
           >
             {error}
           </p>
@@ -507,15 +503,15 @@ export function CitizenForm({
         {messages.length > 0 ? (
           <div
             role="alert"
-            className="mb-3 space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            className="mb-2.5 space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive"
           >
-            <p className="flex items-center gap-2 font-medium">
-              <TriangleAlert className="size-4 shrink-0" aria-hidden />
+            <p className="flex items-center gap-1.5 font-semibold">
+              <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
               {locale === 'en'
                 ? 'Please correct the following fields before saving:'
-                : 'يرجى تصحيح الحقول التالية قبل الحفظ:'}
+                : 'يرجى إكمال وتصحيح الحقول التالية قبل الحفظ:'}
             </p>
-            <ul className="list-inside list-disc ps-1">
+            <ul className="list-inside list-disc ps-1 grid gap-0.5 sm:grid-cols-2">
               {messages.map((message) => (
                 <li key={message}>{message}</li>
               ))}
@@ -523,20 +519,44 @@ export function CitizenForm({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" onClick={onCancel} disabled={submitting}>
-            {locale === 'en' ? 'Cancel' : 'إلغاء'}
-          </Button>
-          <Button size="lg" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="size-5 animate-spin" aria-hidden />
-            ) : (
-              <Save className="size-5" aria-hidden />
-            )}
-            {mode === 'edit'
-              ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
-              : (locale === 'en' ? 'Save & Create Record' : 'حفظ وإنشاء الملف')}
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-block size-2 rounded-full bg-primary/60" />
+            <span>
+              {mode === 'edit'
+                ? (locale === 'en' ? 'Editing citizen record' : 'تعديل بيانات المواطن')
+                : (locale === 'en' ? 'New citizen registration' : 'تسجيل مواطن جديد')}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5 ms-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onCancel}
+              disabled={submitting}
+              className="h-8 px-4 text-xs font-medium rounded-lg hover:bg-muted"
+            >
+              {locale === 'en' ? 'Cancel' : 'إلغاء'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="h-8 px-4 text-xs font-medium rounded-lg shadow-2xs gap-1.5"
+            >
+              {submitting ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Save className="size-3.5" aria-hidden />
+              )}
+              {mode === 'edit'
+                ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+                : (locale === 'en' ? 'Save & Create' : 'حفظ وإنشاء')}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -545,12 +565,6 @@ export function CitizenForm({
 
 /**
  * One titled section of the form.
- *
- * The numbered chip is what replaces the progress bar: it keeps the wizard's
- * sense of "there are three things to fill in, and this is the second" without
- * the navigation that made them sequential. A section holding an error gets a
- * ring rather than only red text inside it, so a folded property card three
- * screens down is still findable from the top of the page.
  */
 function FormSection({
   id,
@@ -561,7 +575,6 @@ function FormSection({
   invalid,
   children,
 }: {
-  /** Anchor target for the jump bar; must match an entry in `SECTIONS`. */
   id: string;
   step: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -573,36 +586,33 @@ function FormSection({
   return (
     <Card
       id={id}
-      // `scroll-mt-24` clears the sticky jump bar: without it `scrollIntoView`
-      // aligns the card's top edge with the viewport's, putting the heading
-      // underneath the bar that was just used to reach it.
       data-section-invalid={invalid || undefined}
       className={cn(
-        'scroll-mt-24',
+        'scroll-mt-24 rounded-xl border border-border/80 bg-card shadow-2xs overflow-hidden',
         invalid && 'border-destructive/50 ring-1 ring-destructive/20',
       )}
     >
-      <CardHeader className="flex-row items-start gap-4 space-y-0 border-b">
+      <CardHeader className="flex-row items-center gap-3 space-y-0 border-b border-border/60 bg-muted/10 px-4 py-3 sm:px-5">
         <span
           aria-hidden
-          className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
         >
-          <Icon className="size-5" />
+          <Icon className="size-4" />
         </span>
-        <div className="min-w-0 flex-1 space-y-1">
-          <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
             <span
               aria-hidden
-              className="rounded-md bg-secondary px-1.5 py-0.5 text-sm font-semibold text-secondary-foreground"
+              className="rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground font-mono"
             >
               {step}
             </span>
             {title}
           </h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         </div>
       </CardHeader>
-      <CardContent className="pt-6">{children}</CardContent>
+      <CardContent className="p-4 sm:p-5">{children}</CardContent>
     </Card>
   );
 }
