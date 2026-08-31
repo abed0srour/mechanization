@@ -428,7 +428,7 @@ export default function StaffPage({
         },
       },
     ],
-    [selfId, busyId, toggleActive, removeStaff, locale, labels],
+    [selfId, busyId, toggleActive, locale, labels],
   );
 
   if (!token) return null;

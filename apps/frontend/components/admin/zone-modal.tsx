@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   Dialog,
@@ -55,16 +55,19 @@ export function ZoneModal({
   onOpenChange: (open: boolean) => void;
   locale?: string;
 }) {
-  const palette = [
-    { hex: '#3B82F6', label: locale === 'en' ? 'Blue' : 'أزرق' },
-    { hex: '#10B981', label: locale === 'en' ? 'Green' : 'أخضر' },
-    { hex: '#F59E0B', label: locale === 'en' ? 'Orange' : 'برتقالي' },
-    { hex: '#EF4444', label: locale === 'en' ? 'Red' : 'أحمر' },
-    { hex: '#8B5CF6', label: locale === 'en' ? 'Purple' : 'بنفسجي' },
-    { hex: '#EC4899', label: locale === 'en' ? 'Pink' : 'وردي' },
-    { hex: '#14B8A6', label: locale === 'en' ? 'Teal' : 'فيروزي' },
-    { hex: '#84CC16', label: locale === 'en' ? 'Lime' : 'ليموني' },
-  ];
+  const palette = useMemo(
+    () => [
+      { hex: '#3B82F6', label: locale === 'en' ? 'Blue' : 'أزرق' },
+      { hex: '#10B981', label: locale === 'en' ? 'Green' : 'أخضر' },
+      { hex: '#F59E0B', label: locale === 'en' ? 'Orange' : 'برتقالي' },
+      { hex: '#EF4444', label: locale === 'en' ? 'Red' : 'أحمر' },
+      { hex: '#8B5CF6', label: locale === 'en' ? 'Purple' : 'بنفسجي' },
+      { hex: '#EC4899', label: locale === 'en' ? 'Pink' : 'وردي' },
+      { hex: '#14B8A6', label: locale === 'en' ? 'Teal' : 'فيروزي' },
+      { hex: '#84CC16', label: locale === 'en' ? 'Lime' : 'ليموني' },
+    ],
+    [locale],
+  );
 
   const [values, setValues] = useState<ZoneFormValues>({
     name: '',
@@ -81,7 +84,7 @@ export function ZoneModal({
       color: zone?.color ?? palette[0].hex,
       description: zone?.description ?? '',
     });
-  }, [open, zone]);
+  }, [open, zone, palette]);
 
   const set = <K extends keyof ZoneFormValues>(key: K, value: ZoneFormValues[K]) =>
     setValues((prev) => ({ ...prev, [key]: value }));

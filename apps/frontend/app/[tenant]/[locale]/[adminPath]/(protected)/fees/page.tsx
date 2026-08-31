@@ -304,20 +304,23 @@ export default function FeesPage({
     [tenant, token, toast],
   );
 
-  const handleReview = async (paymentId: string, confirmed: boolean) => {
-    if (!token || busyPaymentId) return;
-    setBusyPaymentId(paymentId);
-    try {
-      await reviewPayment(tenant, token, paymentId, { confirmed });
-      toast.success(confirmed ? 'تم تأكيد الدفعة بنجاح.' : 'تم رفض الدفعة.');
-      void load();
-    } catch (caught) {
-      logApiError(caught);
-      toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر مراجعة الدفعة.');
-    } finally {
-      setBusyPaymentId(null);
-    }
-  };
+  const handleReview = useCallback(
+    async (paymentId: string, confirmed: boolean) => {
+      if (!token || busyPaymentId) return;
+      setBusyPaymentId(paymentId);
+      try {
+        await reviewPayment(tenant, token, paymentId, { confirmed });
+        toast.success(confirmed ? 'تم تأكيد الدفعة بنجاح.' : 'تم رفض الدفعة.');
+        void load();
+      } catch (caught) {
+        logApiError(caught);
+        toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر مراجعة الدفعة.');
+      } finally {
+        setBusyPaymentId(null);
+      }
+    },
+    [tenant, token, busyPaymentId, toast, load],
+  );
 
   const handleIssueNotice = async (values: IssueFeeValues) => {
     if (!token) return;
@@ -585,7 +588,7 @@ export default function FeesPage({
         },
       },
     ],
-    [base, canManage, busyPaymentId, openReceipt, locale, labels],
+    [base, canManage, busyPaymentId, openReceipt, handleReview, locale, labels],
   );
 
   if (!token) return null;

@@ -368,7 +368,7 @@ export class BackupService {
           // `createMany` in one call per table rather than a row at a time:
           // a register of ten thousand citizens is ten thousand round trips
           // otherwise, inside a transaction holding locks the whole while.
-          const result = await scoped(table).createMany({ data: rows as any });
+          const result = await scoped(table).createMany({ data: rows as never });
           written[table] = result.count;
         }
       },

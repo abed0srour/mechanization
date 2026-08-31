@@ -35,33 +35,39 @@ export default function AuditTrailPage({
   const base = `/${tenant}/${locale}/${adminPath}`;
   const labels = getLabels(locale);
 
-  const entityLabels: Record<string, string> = {
-    Registration: locale === 'en' ? 'Application' : 'طلب',
-    Document: locale === 'en' ? 'Document / Attachment' : 'مرفق',
-    User: locale === 'en' ? 'User' : 'مستخدم',
-    Zone: locale === 'en' ? 'Sector' : 'قطاع',
-    Parcel: locale === 'en' ? 'Parcel' : 'عقار',
-  };
+  const entityLabels: Record<string, string> = useMemo(
+    () => ({
+      Registration: locale === 'en' ? 'Application' : 'طلب',
+      Document: locale === 'en' ? 'Document / Attachment' : 'مرفق',
+      User: locale === 'en' ? 'User' : 'مستخدم',
+      Zone: locale === 'en' ? 'Sector' : 'قطاع',
+      Parcel: locale === 'en' ? 'Parcel' : 'عقار',
+    }),
+    [locale],
+  );
 
-  const actionLabels: Record<string, string> = {
-    REGISTRATION_SUBMITTED: locale === 'en' ? 'Submission' : 'تقديم طلب',
-    REGISTRATION_RESUBMITTED: locale === 'en' ? 'Resubmission' : 'إعادة تقديم بعد التصحيح',
-    STATUS_CHANGE: locale === 'en' ? 'Status Change' : 'تغيير حالة',
-    LOGIN: locale === 'en' ? 'Login' : 'تسجيل دخول',
-    DOCUMENT_VIEW: locale === 'en' ? 'View Document' : 'فتح مرفق',
-    CSV_EXPORT: locale === 'en' ? 'Export CSV' : 'تصدير CSV',
-    CADASTRE_IMPORT: locale === 'en' ? 'Cadastre Import' : 'استيراد خريطة',
-    STAFF_CREATED: locale === 'en' ? 'Create Staff' : 'إنشاء حساب موظف',
-    STAFF_UPDATED: locale === 'en' ? 'Update Staff' : 'تعديل حساب موظف',
-    STAFF_DEACTIVATED: locale === 'en' ? 'Deactivate Staff' : 'إلغاء تفعيل موظف',
-    STAFF_REACTIVATED: locale === 'en' ? 'Reactivate Staff' : 'إعادة تفعيل موظف',
-    STAFF_DELETED: locale === 'en' ? 'Delete Staff' : 'حذف حساب موظف',
-    TOTP_ENROLLED: locale === 'en' ? '2FA Enrollment' : 'تسجيل تحقق ثنائي',
-    TOTP_CONFIRMED: locale === 'en' ? '2FA Confirmed' : 'تأكيد التحقق الثنائي',
-    ZONE_CREATED: locale === 'en' ? 'Create Sector' : 'إنشاء قطاع',
-    ZONE_UPDATED: locale === 'en' ? 'Update Sector' : 'تعديل قطاع',
-    ZONE_DELETED: locale === 'en' ? 'Delete Sector' : 'حذف قطاع',
-  };
+  const actionLabels: Record<string, string> = useMemo(
+    () => ({
+      REGISTRATION_SUBMITTED: locale === 'en' ? 'Submission' : 'تقديم طلب',
+      REGISTRATION_RESUBMITTED: locale === 'en' ? 'Resubmission' : 'إعادة تقديم بعد التصحيح',
+      STATUS_CHANGE: locale === 'en' ? 'Status Change' : 'تغيير حالة',
+      LOGIN: locale === 'en' ? 'Login' : 'تسجيل دخول',
+      DOCUMENT_VIEW: locale === 'en' ? 'View Document' : 'فتح مرفق',
+      CSV_EXPORT: locale === 'en' ? 'Export CSV' : 'تصدير CSV',
+      CADASTRE_IMPORT: locale === 'en' ? 'Cadastre Import' : 'استيراد خريطة',
+      STAFF_CREATED: locale === 'en' ? 'Create Staff' : 'إنشاء حساب موظف',
+      STAFF_UPDATED: locale === 'en' ? 'Update Staff' : 'تعديل حساب موظف',
+      STAFF_DEACTIVATED: locale === 'en' ? 'Deactivate Staff' : 'إلغاء تفعيل موظف',
+      STAFF_REACTIVATED: locale === 'en' ? 'Reactivate Staff' : 'إعادة تفعيل موظف',
+      STAFF_DELETED: locale === 'en' ? 'Delete Staff' : 'حذف حساب موظف',
+      TOTP_ENROLLED: locale === 'en' ? '2FA Enrollment' : 'تسجيل تحقق ثنائي',
+      TOTP_CONFIRMED: locale === 'en' ? '2FA Confirmed' : 'تأكيد التحقق الثنائي',
+      ZONE_CREATED: locale === 'en' ? 'Create Sector' : 'إنشاء قطاع',
+      ZONE_UPDATED: locale === 'en' ? 'Update Sector' : 'تعديل قطاع',
+      ZONE_DELETED: locale === 'en' ? 'Delete Sector' : 'حذف قطاع',
+    }),
+    [locale],
+  );
 
   const tableLabels: DataTableLabels = {
     searchAriaLabel: locale === 'en' ? 'Search audit trail' : 'بحث في سجل النشاطات',
@@ -196,7 +202,7 @@ export default function AuditTrailPage({
           ),
       },
     ],
-    [labels, locale],
+    [actionLabels, entityLabels, labels, locale],
   );
 
   if (!session) return null;

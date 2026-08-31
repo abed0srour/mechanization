@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { getLabels } from '@mechanization/shared-schemas';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChoiceCard, Field } from '@/components/ui/field';
@@ -32,7 +33,7 @@ export function PersonalStep({
   locale?: string;
 }) {
   const labels = getLabels(locale);
-  const set = (patch: Values) => onChange({ ...value, ...patch });
+  const set = useCallback((patch: Values) => onChange({ ...value, ...patch }), [onChange, value]);
   const isLebanese = value.isLebanese !== false;
 
   /**
@@ -55,7 +56,7 @@ export function PersonalStep({
     } else if (value.identityDocType !== 'PASSPORT') {
       set({ identityDocType: 'PASSPORT' });
     }
-  }, [isLebanese, value.nationality, value.residentStatus, value.identityDocType, locale]);
+  }, [isLebanese, value.nationality, value.residentStatus, value.identityDocType, locale, set]);
 
   const identityDocNumberLabel =
     labels.identityDocNumberLabel?.[value.identityDocType as never] ??

@@ -43,19 +43,20 @@ export function CitizenDetailDrawer({
     if (!parcel) return;
     setQuery('');
     headingRef.current?.focus();
-  }, [parcel?.propertyNumber]);
+  }, [parcel]);
 
   const registrants = parcel?.registrants ?? [];
 
   const filtered = useMemo(() => {
+    const list = parcel?.registrants ?? [];
     const needle = query.trim().toLowerCase();
-    if (!needle) return registrants;
-    return registrants.filter(
+    if (!needle) return list;
+    return list.filter(
       (registrant) =>
         registrant.fullName.toLowerCase().includes(needle) ||
         (registrant.phone ?? '').includes(needle),
     );
-  }, [registrants, query]);
+  }, [parcel?.registrants, query]);
 
   if (!parcel) return null;
 

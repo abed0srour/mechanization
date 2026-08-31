@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { FileQuestion } from 'lucide-react';
-import '@/app/globals.css';
 
 /**
  * The portal's 404.
