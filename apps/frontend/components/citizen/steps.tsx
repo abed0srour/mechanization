@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useCallback, useEffect } from 'react';
 import { getLabels } from '@mechanization/shared-schemas';
 import { Checkbox } from '@/components/ui/checkbox';
