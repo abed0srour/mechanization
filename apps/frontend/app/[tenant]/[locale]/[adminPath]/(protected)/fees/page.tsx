@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -31,13 +32,11 @@ import {
 } from '@/lib/api-client';
 import type {
   AdminPaymentItem,
-  CitizenListItem,
   CitizenProfile,
   CitizenProfilePayment,
-  FeeSummary,
-  MunicipalitySettings,
 } from '@/lib/api-client';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatLbp } from '@/lib/currency';
 import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
@@ -56,6 +55,8 @@ const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في الرسوم والمطالبات',
   searchPlaceholder: 'ابحث باسم المواطن أو الرسم أو الرقم المرجعي…',
   clearSearch: 'مسح البحث',
+  searchHint: 'Enter',
+  searchApplied: 'بحث: «{term}»',
   empty: 'لا توجد رسوم أو مطالبات مسجّلة بعد.',
   emptyHint: 'أصدر أول رسم من زر «إصدار رسم جديد» أعلاه.',
   emptySearch: 'لا توجد نتائج مطابقة لبحثك.',
@@ -100,15 +101,8 @@ export default function FeesPage({
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Table Data State
-  const [items, setItems] = useState<AdminPaymentItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [summary, setSummary] = useState<FeeSummary | null>(null);
-  const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
@@ -126,8 +120,6 @@ export default function FeesPage({
     payment: CitizenProfilePayment;
     received: number;
   } | null>(null);
-  const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
-  const [municipalityName, setMunicipalityName] = useState('');
 
   const toast = useToast();
   const canManage = role === 'SUPER_ADMIN';
@@ -142,75 +134,114 @@ export default function FeesPage({
     setRole(session.user.role);
   }, [tenant, base, router]);
 
-  const load = useCallback(
-    async (isManualRefresh = false) => {
-      if (!token) return;
-      if (isManualRefresh) setRefreshing(true);
-      else setLoading(true);
-      setError(null);
+  /*
+    The ledger page, and only the ledger page.
 
-      try {
-        const [paymentsRes, summaryRes, settingsRes, configRes, citizensRes] =
-          await Promise.allSettled([
-            getAllPayments(tenant, token, {
-              status: statusFilter || undefined,
-              search: appliedSearch || undefined,
-              limit: pagination.pageSize,
-              offset: pagination.pageIndex * pagination.pageSize,
-            }),
-            getFeeSummary(tenant, token),
-            getMunicipalitySettings(tenant, token),
-            getTenantConfig(tenant),
-            listCitizens(tenant, token, { limit: 200 }),
-          ]);
+    These five reads were one `load`, which meant every page turn and every
+    search re-fetched the fee summary, the municipality's settings, the tenant
+    config and two hundred citizens — none of which depend on which slice of
+    the ledger is on screen. Splitting the parameterised read from the rest is
+    what stops a click on «التالي» costing five requests instead of one.
 
-        if (paymentsRes.status === 'fulfilled') {
-          setItems(paymentsRes.value.items);
-          setTotal(paymentsRes.value.total);
-        } else {
-          logApiError(paymentsRes.reason);
-          setError('تعذّر تحميل سجل الرسوم والمدفوعات.');
-        }
+    Cancellation comes with the key: changing the status tab while a search is
+    in flight abandons that request rather than racing it. The `useEffect` that
+    reset the page index is gone — `DataTable` already returns to page one when
+    a search is committed, and the status tabs do it explicitly below; having
+    both an effect and a handler doing it was what put two reads in flight at
+    once, with the slower one winning.
+  */
+  const paymentsQuery = useStaffQuery({
+    queryKey: [
+      'fees-payments',
+      tenant,
+      statusFilter,
+      appliedSearch,
+      pagination.pageIndex,
+      pagination.pageSize,
+    ],
+    queryFn: (accessToken, signal) =>
+      getAllPayments(
+        tenant,
+        accessToken,
+        {
+          status: statusFilter || undefined,
+          search: appliedSearch || undefined,
+          limit: pagination.pageSize,
+          offset: pagination.pageIndex * pagination.pageSize,
+        },
+        signal,
+      ),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
+    keepPrevious: true,
+  });
 
-        if (summaryRes.status === 'fulfilled') {
-          setSummary(summaryRes.value);
-        }
-
-        if (settingsRes.status === 'fulfilled') {
-          setSettings(settingsRes.value);
-        }
-
-        if (configRes.status === 'fulfilled') {
-          setMunicipalityName(configRes.value.nameAr || configRes.value.name);
-        }
-
-        if (citizensRes.status === 'fulfilled') {
-          setCitizens(citizensRes.value.items);
-        }
-      } catch (caught) {
-        logApiError(caught);
-        if (caught instanceof ApiRequestError && caught.status === 401) {
-          clearSession(tenant);
-          router.replace(`${base}/login`);
-          return;
-        }
-        setError('تعذّر تحميل بيانات الرسوم.');
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
+  /*
+    Everything on this screen that is not the ledger: the headline figures, the
+    citizen picker the two dialogs read, and the office details a reprinted وصل
+    carries. `allSettled` rather than `all`, kept from the original, because a
+    receipt's phone number failing to load must not blank the table beside it.
+  */
+  const contextQuery = useStaffQuery({
+    queryKey: ['fees-context', tenant],
+    queryFn: async (accessToken) => {
+      const [summaryRes, settingsRes, configRes, citizensRes] = await Promise.allSettled([
+        getFeeSummary(tenant, accessToken),
+        getMunicipalitySettings(tenant, accessToken),
+        getTenantConfig(tenant),
+        listCitizens(tenant, accessToken, { limit: 200 }),
+      ]);
+      for (const result of [summaryRes, settingsRes, configRes, citizensRes]) {
+        if (result.status === 'rejected') logApiError(result.reason);
       }
+      return {
+        summary: summaryRes.status === 'fulfilled' ? summaryRes.value : null,
+        settings: settingsRes.status === 'fulfilled' ? settingsRes.value : null,
+        municipalityName:
+          configRes.status === 'fulfilled'
+            ? configRes.value.nameAr || configRes.value.name
+            : '',
+        citizens: citizensRes.status === 'fulfilled' ? citizensRes.value.items : [],
+      };
     },
-    [tenant, token, base, router, statusFilter, appliedSearch, pagination],
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل بيانات الرسوم.',
+  });
+
+  const items = paymentsQuery.data?.items ?? [];
+  const total = paymentsQuery.data?.total ?? 0;
+  const summary = contextQuery.data?.summary ?? null;
+  const citizens = contextQuery.data?.citizens ?? [];
+  const settings = contextQuery.data?.settings ?? null;
+  const municipalityName = contextQuery.data?.municipalityName ?? '';
+  const loading = paymentsQuery.loading;
+  const refreshing = paymentsQuery.fetching || contextQuery.fetching;
+  /*
+    The banner above the page and the state inside the table say different
+    things, and used to say the same one twice.
+
+    A failed *read* belongs to the table: it is the table that has no rows to
+    show, it is the table that needs the retry button, and a table rendering
+    «لا توجد نتائج» after a request failed is telling the reader the register is
+    empty when it is only unreachable. A failed *write* has no such home — the
+    rows are fine, an action was refused — so that is what the banner is for.
+  */
+  const error = contextQuery.error;
+
+  /** Re-reads both halves of the screen after a write. */
+  const queryClient = useQueryClient();
+  const load = useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['fees-payments', tenant] }),
+        queryClient.invalidateQueries({ queryKey: ['fees-context', tenant] }),
+      ]),
+    [queryClient, tenant],
   );
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Reset page index on search or filter change
-  useEffect(() => {
-    setPagination((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
-  }, [statusFilter, appliedSearch]);
 
   const openReceipt = useCallback(
     async (citizenId: string, paymentId: string, receivedAmount: number) => {
@@ -532,7 +563,7 @@ export default function FeesPage({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void load(true)}
+              onClick={() => void load()}
               disabled={refreshing}
             >
               <RefreshCw
@@ -616,7 +647,26 @@ export default function FeesPage({
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setStatusFilter(tab.id)}
+                  /*
+                    Narrowing the ledger returns to the first page, in the
+                    handler that narrows it rather than in an effect watching
+                    for the change. Without it, ticking «المسدّدة» on page 7
+                    asks for rows 60–70 of a set that now has nine, and the
+                    table goes blank with no clue that the rows are behind you.
+
+                    An effect did this until React Query took over the reads,
+                    and it had to stop: `setStatusFilter` and the effect's
+                    `setPagination` land in different renders, so the query key
+                    changed twice and the first read — the one at the stale
+                    offset — was fired for nothing. Setting both here makes it
+                    one render, one key, one request.
+                  */
+                  onClick={() => {
+                    setStatusFilter(tab.id);
+                    setPagination((previous) =>
+                      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+                    );
+                  }}
                   className={cn(
                     'rounded-lg px-3 py-1 text-xs font-semibold transition-all',
                     statusFilter === tab.id
@@ -636,9 +686,11 @@ export default function FeesPage({
             columns={columns}
             data={items}
             labels={TABLE_LABELS}
+            columnStorageKey="fees"
             getRowId={(row) => row.id}
             loading={loading}
-            onRetry={() => void load()}
+            error={paymentsQuery.error}
+            onRetry={paymentsQuery.refetch}
             emptyIcon={<Receipt className="size-10 text-muted-foreground/60" />}
             manualPagination
             manualFiltering

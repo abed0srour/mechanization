@@ -88,7 +88,6 @@ export default function PaymentsLogin({
           >
             <Input
               id="reference"
-              dir="ltr"
               className="text-start font-mono"
               placeholder="ABC-123456"
               value={referenceNumber}
@@ -101,8 +100,7 @@ export default function PaymentsLogin({
               id="phone"
               type="tel"
               inputMode="tel"
-              dir="ltr"
-              className="text-start"
+              className="text-start font-mono"
               placeholder="03 123456"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}

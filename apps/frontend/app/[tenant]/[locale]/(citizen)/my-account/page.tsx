@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
+import { LoadingState } from '@/components/ui/states';
 
 /** One glyph per property branch, so a card's kind reads before its text. */
 const PROPERTY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -109,7 +110,7 @@ export default function MyAccount({
       ) : null}
 
       {summary === null && !error ? (
-        <p className="text-muted-foreground">جارٍ التحميل…</p>
+        <LoadingState />
       ) : null}
 
       {summary ? (

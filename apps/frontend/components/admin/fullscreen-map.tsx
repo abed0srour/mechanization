@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import type { FeatureCollection } from 'geojson';
@@ -13,6 +13,7 @@ import {
   type RegisteredParcel,
   type ZoneSummary,
 } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MapLayerControl } from './map-layer-control';
@@ -38,6 +39,43 @@ const PARCEL_LABEL_MIN_ZOOM = 16;
 /** Albazourieh's cadastre sits here; the fallback view before data loads. */
 const FALLBACK_CENTER: [number, number] = [35.2654, 33.2539];
 const FALLBACK_ZOOM = 13.5;
+
+const SOURCE = {
+  cadastre: 'cadastre',
+  parcels: 'parcels',
+  zones: 'zones',
+  registered: 'registered-parcels',
+} as const;
+const LAYER = {
+  cadastreLines: 'cadastre-lines',
+  parcelLabels: 'parcel-labels',
+  zoneFills: 'zone-fills',
+  zoneLines: 'zone-lines',
+  zoneLabels: 'zone-labels',
+  registeredHalo: 'registered-halo',
+  registeredDots: 'registered-dots',
+  registeredCount: 'registered-count',
+} as const;
+
+/**
+ * Lifts the registration dots back above everything else.
+ *
+ * Layer order in Mapbox is insertion order, and the three things drawn here
+ * arrive independently: the dots come from `parcels` (already in memory), the
+ * cadastre from a static GeoJSON fetch, the zones from an authenticated
+ * request. Whichever resolves last sits on top — so on a slow connection the
+ * zone fills would land over the dots and swallow the clicks meant for them.
+ *
+ * Called at the end of each of the other attach paths, so the dots end up on
+ * top no matter which order the three finish in. Silently tolerant of a layer
+ * that is not there yet: this runs during exactly the window in which some of
+ * them are still missing.
+ */
+function raiseRegistered(map: mapboxgl.Map): void {
+  for (const id of [LAYER.registeredHalo, LAYER.registeredDots, LAYER.registeredCount]) {
+    if (map.getLayer(id)) map.moveLayer(id);
+  }
+}
 
 /**
  * Adds layers to the map, deferring if the style is not ready to take them.
@@ -81,14 +119,51 @@ function zoneFillOpacity(activeZoneId: string | null): mapboxgl.ExpressionSpecif
   return ['case', ['==', ['get', 'zoneId'], activeZoneId], 0.4, 0.06];
 }
 
-const SOURCE = { cadastre: 'cadastre', parcels: 'parcels', zones: 'zones' } as const;
-const LAYER = {
-  cadastreLines: 'cadastre-lines',
-  parcelLabels: 'parcel-labels',
-  zoneFills: 'zone-fills',
-  zoneLines: 'zone-lines',
-  zoneLabels: 'zone-labels',
+
+/**
+ * Marker colours, as literals.
+ *
+ * Mapbox paint properties are evaluated by the GL renderer, not the CSS
+ * cascade, so `hsl(var(--primary))` resolves to nothing here. These track the
+ * palette in `globals.css` by hand — the civic blue and the amber the rest of
+ * the admin uses — and are the one place in this component where a colour is
+ * not a token.
+ */
+const DOT = {
+  fill: '#1d4ed8',
+  fillDark: '#3b82f6',
+  focus: '#b45309',
+  focusDark: '#f59e0b',
+  stroke: '#ffffff',
 } as const;
+
+/**
+ * How far above its coordinate a registration dot is drawn, in pixels.
+ *
+ * The dot and the cadastre's parcel number occupy the same point — the number
+ * is drawn at the parcel centroid and so is the dot — so a dot sitting exactly
+ * on its coordinate covers the very number that identifies it. The DOM markers
+ * this replaced carried `offset: [0, -18]` for that reason, and moving them
+ * onto the GPU dropped it.
+ *
+ * Interpolated rather than fixed, because the dots themselves grow with zoom:
+ * a constant lift that clears a 4px dot at zoom 14 is swallowed by a 15px one
+ * at zoom 18. These values keep the *bottom edge* of even the largest
+ * co-ownership dot clear of the top of the label beneath it.
+ *
+ * Every layer below shares this. They must: the count sits inside its dot, and
+ * a lift applied to one and not the other would peel the number off the circle
+ * it belongs to.
+ */
+const DOT_LIFT: mapboxgl.ExpressionSpecification = [
+  'interpolate',
+  ['linear'],
+  ['zoom'],
+  14,
+  ['literal', [0, -14]],
+  18,
+  ['literal', [0, -26]],
+];
 
 /**
  * Fullscreen cadastral map using Mapbox GL JS.
@@ -158,7 +233,18 @@ export function FullscreenMap({
    * call a no-op, because nothing has in fact changed.
    */
   const appliedBasemapRef = useRef<BasemapId>(DEFAULT_BASEMAP);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
+
+  /**
+   * The dot-layer attach, reachable from the basemap effect above it.
+   *
+   * `attachRegistered` is a `useCallback` declared further down — after the
+   * memo it closes over — and the basemap switch has to call it. Holding it
+   * here rather than reordering the file keeps each piece next to the state it
+   * belongs to; the effect only ever reads this inside a `style.load` handler,
+   * long after render has assigned it.
+   */
+  const attachRegisteredRef = useRef<((map: mapboxgl.Map) => void) | null>(null);
+
   const searchMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const citizenPinRef = useRef<mapboxgl.Marker | null>(null);
   const selectedPinRef = useRef<mapboxgl.Marker | null>(null);
@@ -168,6 +254,17 @@ export function FullscreenMap({
   const [basemap, setBasemap] = useState<BasemapId>(DEFAULT_BASEMAP);
   const [selected, setSelected] = useState<RegisteredParcel | null>(null);
   const [cadastreReady, setCadastreReady] = useState(false);
+
+  /**
+   * Whether the map is a finished picture rather than one mid-assembly.
+   *
+   * Gates the cover below. Set once, on the first paint that has both a
+   * rendered style and the cadastre attached — never cleared afterwards,
+   * including on a basemap switch: by then the reader is looking at a working
+   * map, and dropping a full-screen "loading" over it because they changed the
+   * imagery would be a worse flicker than the one this removes.
+   */
+  const [mapReady, setMapReady] = useState(false);
 
   /** Read inside the marker effect without making it depend on the selection —
    *  see the `fitBounds` guard there. */
@@ -275,6 +372,10 @@ export function FullscreenMap({
         });
       }
 
+      // The dots may already be attached; whatever was just added went on
+      // top of them, so put them back.
+      raiseRegistered(map);
+
       setCadastreReady(Boolean(cadastre || parcelPoints));
     },
     [tenant, dark, refreshToken],
@@ -369,6 +470,10 @@ export function FullscreenMap({
         map.setLayoutProperty(id, 'visibility', visibility);
       }
       map.setPaintProperty(LAYER.zoneFills, 'fill-opacity', zoneFillOpacity(activeZoneIdRef.current));
+
+      // Zone fills are translucent polygons covering whole neighbourhoods —
+      // left on top they would take every click aimed at a dot underneath.
+      raiseRegistered(map);
     },
     [dark],
   );
@@ -405,8 +510,6 @@ export function FullscreenMap({
 
     return () => {
       mapRef.current = null;
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
       searchMarkerRef.current?.remove();
       searchMarkerRef.current = null;
       citizenPinRef.current?.remove();
@@ -457,7 +560,14 @@ export function FullscreenMap({
     map.setStyle(styleFor(basemap));
     // `style.load` rather than `load`: the map is long since loaded, and this is
     // the event that fires once the *replacement* style is in place.
-    map.once('style.load', () => attachCadastreSafely(map));
+    map.once('style.load', () => {
+      attachCadastreSafely(map);
+      // The dots are GL layers now, so they go with the old style document
+      // exactly like the cadastre does and have to be rebuilt beside it. As
+      // DOM markers they survived a basemap switch on their own; this is the
+      // one thing that regressed in moving them onto the GPU, and it is a line.
+      attachRegisteredRef.current?.(map);
+    });
   }, [basemap, attachCadastreSafely]);
 
   // ── Cadastre refresh (after an admin upload) ───────────────────────
@@ -578,67 +688,260 @@ export function FullscreenMap({
     });
   }, []);
 
-  // ── Registration markers ───────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = [];
-
+  // ── Registration dots ──────────────────────────────────────────────
+  /**
+   * The registered parcels, as a GeoJSON source and three GL layers.
+   *
+   * These used to be `mapboxgl.Marker`s — one `<button>` element per parcel,
+   * which mapbox-gl repositions from JavaScript on *every frame* of every pan
+   * and zoom. At a few hundred registered parcels that is a few hundred style
+   * recalculations a frame, and it is why the map stuttered while the cadastre
+   * lines and the zone fills beside it stayed smooth: those were always GL
+   * layers, and only the dots were DOM.
+   *
+   * On the GPU the cost stops scaling with the number of parcels, and three
+   * things that were awkward with DOM markers come free: the dots grow with
+   * zoom through an interpolation rather than sitting at a fixed pixel size,
+   * the count label is a real symbol, and a filter change is a `setData` rather
+   * than removing and rebuilding every marker.
+   */
+  const registeredGeoJson = useMemo<FeatureCollection>(() => {
     // Filtering to a sector narrows the dots to its parcels, so "12 registered"
     // in the legend and the dots on screen are counting the same thing.
     const visible = zoneParcelNumbers
       ? parcels.filter((parcel) => zoneParcelNumbers.has(parcel.propertyNumber))
       : parcels;
 
-    if (visible.length === 0) return;
+    return {
+      type: 'FeatureCollection',
+      features: visible.map((parcel) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [parcel.longitude, parcel.latitude] },
+        properties: {
+          propertyNumber: parcel.propertyNumber,
+          registrants: parcel.registrants.length,
+          // A number, not a boolean: GL expressions compare numbers reliably
+          // and booleans carried through GeoJSON less so.
+          focused: parcel.propertyNumber === focusParcelNumber ? 1 : 0,
+          // Only a co-owned parcel carries a count; an empty string is how
+          // `text-field` is told to draw nothing.
+          label: parcel.registrants.length > 1 ? String(parcel.registrants.length) : '',
+        },
+      })),
+    };
+  }, [parcels, zoneParcelNumbers, focusParcelNumber]);
 
-    const bounds = new mapboxgl.LngLatBounds();
+  /** Read inside the click handler, so a refetch does not rebind listeners. */
+  const parcelsRef = useRef(parcels);
+  parcelsRef.current = parcels;
 
-    for (const parcel of visible) {
-      const element = document.createElement('button');
-      element.type = 'button';
-      element.setAttribute(
-        'aria-label',
-        `العقار ${parcel.propertyNumber} — ${parcel.registrants.length} مسجّل`,
-      );
-      element.className = 'map-parcel-dot';
-      // A parcel with several people on it earns a visibly bigger dot and a
-      // count: co-ownership is the thing staff most need to spot from afar.
-      if (parcel.registrants.length > 1) {
-        element.classList.add('map-parcel-dot--many');
-        element.textContent = String(parcel.registrants.length);
+  /** Whether the opening `fitBounds` has already run — see the effect below. */
+  const fittedRef = useRef(false);
+
+  /**
+   * Adds the dot layers to whichever style is loaded, or updates their data if
+   * they are already there. Re-run after a basemap switch for the same reason
+   * the cadastre is: `setStyle` discards every custom source and layer.
+   */
+  const attachRegistered = useCallback(
+    (map: mapboxgl.Map) => {
+      const existing = map.getSource(SOURCE.registered) as mapboxgl.GeoJSONSource | undefined;
+      if (existing) {
+        existing.setData(registeredGeoJson);
+        return;
       }
-      // Arrived here from a citizen's profile: this is their parcel, marked in
-      // a colour no other dot on the map uses.
-      if (parcel.propertyNumber === focusParcelNumber) {
-        element.classList.add('map-parcel-dot--focus');
-      }
 
-      element.addEventListener('click', (event) => {
-        event.stopPropagation();
-        openParcel(parcel);
+      map.addSource(SOURCE.registered, { type: 'geojson', data: registeredGeoJson });
+
+      const fill: mapboxgl.ExpressionSpecification = [
+        'case',
+        ['==', ['get', 'focused'], 1],
+        dark ? DOT.focusDark : DOT.focus,
+        dark ? DOT.fillDark : DOT.fill,
+      ];
+
+      /**
+       * The soft outer glow. Its own layer rather than `circle-blur` on the dot
+       * itself, because blurring the dot also blurs its white stroke — and that
+       * stroke is the whole reason a dot stays legible over satellite imagery.
+       */
+      map.addLayer({
+        id: LAYER.registeredHalo,
+        type: 'circle',
+        source: SOURCE.registered,
+        paint: {
+          'circle-color': fill,
+          'circle-blur': 0.65,
+          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.18, 17, 0.35],
+          'circle-translate': DOT_LIFT,
+          'circle-radius': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            12,
+            ['case', ['>', ['get', 'registrants'], 1], 11, 8],
+            18,
+            ['case', ['>', ['get', 'registrants'], 1], 26, 19],
+          ],
+        },
       });
 
-      markersRef.current.push(
-        new mapboxgl.Marker({ element, offset: [0, -18] })
-          .setLngLat([parcel.longitude, parcel.latitude])
-          .addTo(map),
-      );
+      map.addLayer({
+        id: LAYER.registeredDots,
+        type: 'circle',
+        source: SOURCE.registered,
+        paint: {
+          'circle-color': fill,
+          'circle-stroke-color': DOT.stroke,
+          // Grows with zoom rather than sitting at a fixed 16px: far out these
+          // are a density read, close in they are targets to click.
+          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 1.2, 17, 2.4],
+          'circle-translate': DOT_LIFT,
+          'circle-radius': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            12,
+            ['case', ['>', ['get', 'registrants'], 1], 6, 4.5],
+            18,
+            ['case', ['>', ['get', 'registrants'], 1], 15, 10],
+          ],
+        },
+      });
 
-      bounds.extend([parcel.longitude, parcel.latitude]);
+      /**
+       * The co-ownership count, drawn inside the larger dots.
+       *
+       * `text-allow-overlap` because this label belongs *to* its dot —
+       * suppressing it on collision would leave a big blank circle that reads
+       * as a different kind of marker rather than as a hidden number.
+       */
+      map.addLayer({
+        id: LAYER.registeredCount,
+        type: 'symbol',
+        source: SOURCE.registered,
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9, 18, 15],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: { 'text-color': DOT.stroke, 'text-translate': DOT_LIFT },
+      });
+    },
+    [registeredGeoJson, dark],
+  );
+  attachRegisteredRef.current = attachRegistered;
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    attachWhenReady(map, () => attachRegistered(map));
+  }, [attachRegistered]);
+
+  /**
+   * Lifts the cover, once.
+   *
+   * `idle` rather than `load`: `load` fires when the style is parsed and the
+   * *first* tiles are in, which on satellite imagery is still a half-drawn
+   * map. `idle` fires when there is nothing left to fetch or render for the
+   * current view — the first moment the map is genuinely finished.
+   *
+   * Waiting on `cadastreReady` too, because the cadastre is fetched
+   * independently of the tiles: an `idle` map without it is a basemap with the
+   * parcel boundaries about to pop in on top.
+   *
+   * The timeout is the honest part. If a layer never arrives — an offline
+   * cadastre file, a tile server that stalls — a cover with no exit turns a
+   * degraded map into no map at all. Three seconds in, the reader gets
+   * whatever there is.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mapReady) return;
+
+    const reveal = (): void => setMapReady(true);
+
+    if (cadastreReady) {
+      if (map.loaded()) {
+        reveal();
+      } else {
+        map.once('idle', reveal);
+      }
     }
 
-    // Framing every parcel is the right opening view, and the wrong thing to
-    // do to someone already looking at one: this effect re-runs whenever
-    // `parcels` is refetched, and an unguarded fit would throw the camera
-    // back out to the whole municipality mid-review. A deep-linked or
-    // currently-open parcel owns the camera instead.
-    if (!focusParcelNumber && !selectedRef.current) {
-      map.fitBounds(bounds, { padding: 96, maxZoom: 16, duration: 0 });
+    const fallback = setTimeout(reveal, 3_000);
+    return () => {
+      clearTimeout(fallback);
+      map.off('idle', reveal);
+    };
+  }, [cadastreReady, mapReady]);
+
+  /**
+   * Clicking a dot, and the pointer cursor that says it can be clicked.
+   *
+   * Bound to the *layer* rather than to each marker element, and registered
+   * once for the life of the map: `parcels` is read through a ref inside the
+   * handler, so a refetch no longer means tearing down and rebinding a
+   * listener per parcel.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const onClick = (
+      event: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] },
+    ) => {
+      const number = event.features?.[0]?.properties?.propertyNumber as string | undefined;
+      if (!number) return;
+      const parcel = parcelsRef.current.find((candidate) => candidate.propertyNumber === number);
+      if (parcel) openParcel(parcel);
+    };
+    const enter = (): void => {
+      map.getCanvas().style.cursor = 'pointer';
+    };
+    const leave = (): void => {
+      map.getCanvas().style.cursor = '';
+    };
+
+    map.on('click', LAYER.registeredDots, onClick);
+    map.on('mouseenter', LAYER.registeredDots, enter);
+    map.on('mouseleave', LAYER.registeredDots, leave);
+
+    return () => {
+      map.off('click', LAYER.registeredDots, onClick);
+      map.off('mouseenter', LAYER.registeredDots, enter);
+      map.off('mouseleave', LAYER.registeredDots, leave);
+    };
+  }, [openParcel]);
+
+  /**
+   * Frames every registered parcel — the right opening view, and the wrong
+   * thing to do to someone already looking at one.
+   *
+   * Guarded by a ref rather than by the dependency list: the data can be
+   * refetched, and an unguarded fit would throw the camera back out to the
+   * whole municipality mid-review. A deep-linked or currently-open parcel owns
+   * the camera instead.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || fittedRef.current) return;
+    if (focusParcelNumber || selectedRef.current) return;
+
+    const features = registeredGeoJson.features;
+    if (features.length === 0) return;
+
+    const bounds = new mapboxgl.LngLatBounds();
+    for (const feature of features) {
+      if (feature.geometry.type !== 'Point') continue;
+      bounds.extend(feature.geometry.coordinates as [number, number]);
     }
-  }, [parcels, openParcel, zoneParcelNumbers, focusParcelNumber]);
+    map.fitBounds(bounds, { padding: 96, maxZoom: 16, duration: 0 });
+    fittedRef.current = true;
+  }, [registeredGeoJson, focusParcelNumber]);
 
   // ── Pin on the open parcel ─────────────────────────────────────────
   /**
@@ -798,6 +1101,33 @@ export function FullscreenMap({
     >
       <div ref={containerRef} className="h-full w-full" aria-label="خريطة العقارات" />
 
+      {/*
+        The cover that hides the map assembling itself.
+
+        A Mapbox map does not appear, it accumulates: a grey canvas, then the
+        basemap tiles streaming in, then the cadastre GeoJSON once it has been
+        fetched and parsed, then the dots, then a `fitBounds` that jumps the
+        camera from the fallback centre to the municipality. Watching that
+        happen looks like a page repeatedly failing and retrying — which is
+        exactly what "the map looks glitchy" describes.
+
+        So the whole sequence happens behind this, and the map is revealed once
+        it is a finished picture. It fades rather than cutting, and it is
+        `pointer-events-none` while fading so a click during the last 400ms
+        reaches the map underneath rather than the ghost of the cover.
+      */}
+      <div
+        aria-hidden={mapReady}
+        className={cn(
+          'absolute inset-0 z-30 flex flex-col items-center justify-center gap-3',
+          'bg-background transition-opacity duration-500',
+          mapReady ? 'pointer-events-none opacity-0' : 'opacity-100',
+        )}
+      >
+        <Loader2 className="size-7 animate-spin text-muted-foreground" aria-hidden />
+        <p className="text-sm text-muted-foreground">جارٍ تحضير الخريطة…</p>
+      </div>
+
       {/* Search by رقم العقار — top-centre, clear of the nav control
           (top-left), legend (top-right) and basemap switcher (bottom-centre).
 
@@ -905,46 +1235,17 @@ export function FullscreenMap({
         ) : null}
       </div>
 
-      {/* Marker styling lives here rather than in globals.css: these classes
-          exist only for DOM markers this component creates. */}
+      {/*
+        Styling for the DOM markers this component still creates.
+
+        `.map-parcel-dot` used to live here — one element per registered parcel,
+        with a `:hover` transform and an infinite pulse on the focused one. It
+        is gone: those are GL layers now (see `attachRegistered`), which is what
+        stopped the map stuttering during a pan. What remains are the three
+        one-off pins, where a single DOM element buys CSS that GL cannot
+        express — a teardrop, and a pulse that draws the eye to a single place.
+      */}
       <style>{`
-        .map-parcel-dot {
-          width: 16px; height: 16px;
-          display: flex; align-items: center; justify-content: center;
-          border-radius: 9999px;
-          background: hsl(var(--primary));
-          border: 2px solid #fff;
-          box-shadow: 0 1px 6px rgba(15, 23, 42, 0.5);
-          cursor: pointer;
-          padding: 0;
-          font: 600 10px/1 system-ui, sans-serif;
-          color: #fff;
-          transition: transform 120ms ease;
-        }
-        .map-parcel-dot:hover { transform: scale(1.25); }
-        .map-parcel-dot:focus-visible {
-          outline: 2px solid hsl(var(--ring));
-          outline-offset: 2px;
-        }
-        .map-parcel-dot--many { width: 24px; height: 24px; }
-
-        /* The parcel a citizen's profile page linked in on — amber rather
-           than the default primary blue, so it reads as "this one" against
-           every ordinary marker on screen, plus a pulsing ring so it is
-           findable even before the eye settles on the exact dot. */
-        .map-parcel-dot--focus {
-          position: relative;
-          background: hsl(var(--warning));
-        }
-        .map-parcel-dot--focus::after {
-          content: '';
-          position: absolute;
-          inset: -8px;
-          border-radius: 9999px;
-          border: 2px solid hsl(var(--warning));
-          animation: map-search-pulse 1.6s ease-out infinite;
-        }
-
         /* The parcel the drawer is currently describing.
 
            A teardrop rather than another circle: every other mark on this map

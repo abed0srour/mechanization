@@ -59,6 +59,7 @@ import { CollapsibleSection } from '@/components/ui/collapsible-section';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
+import { LoadingState } from '@/components/ui/states';
 import {
   SettlePaymentDialog,
   type SettleValues,
@@ -193,10 +194,7 @@ export default function CitizenProfilePage({
 
   if (!citizen) {
     return (
-      <p className="flex items-center gap-2 p-8 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        جارٍ التحميل…
-      </p>
+      <LoadingState fullHeight />
     );
   }
 

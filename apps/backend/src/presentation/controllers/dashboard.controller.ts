@@ -38,7 +38,7 @@ export class DashboardController {
   }
 
   /** Marker coordinates for the MapLibre panel. */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Get('map')
   async spatial() {
     return { features: await this.reporting.getSpatialData() };
@@ -52,7 +52,7 @@ export class DashboardController {
    * places an interactive marker only on what this returns — so a dot always
    * means there is a citizen record behind it.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Get('map/parcels')
   async registeredParcels() {
     return { parcels: await this.reporting.getRegisteredParcels() };

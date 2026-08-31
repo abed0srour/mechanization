@@ -122,7 +122,17 @@ export function middleware(request: NextRequest) {
   const [tenant, maybeLocale] = segments;
 
   if (maybeLocale === 'dashboard' || maybeLocale === 'admin') {
-    return withCsp(new NextResponse('Not found', { status: 404 }));
+    /**
+     * Reserved segments that would otherwise shadow a municipality slug.
+     *
+     * Rewritten to the app's own 404 rather than answered with a bare
+     * `new NextResponse('Not found')`: that produced a plain white page of
+     * left-to-right English text, which in an Arabic portal reads as a
+     * misconfigured server rather than as a wrong address.
+     */
+    return withCsp(
+      NextResponse.rewrite(new URL('/not-found', request.url), { request: { headers } }),
+    );
   }
 
   if (!maybeLocale || !LOCALES.includes(maybeLocale as (typeof LOCALES)[number])) {

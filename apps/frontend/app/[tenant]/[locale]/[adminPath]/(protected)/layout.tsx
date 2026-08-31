@@ -1,4 +1,6 @@
 import { AdminShell } from '@/components/admin/admin-shell';
+import { QueryProvider } from '@/components/query-provider';
+import { StaffRouteGuard } from '@/components/admin/staff-route-guard';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -38,9 +40,10 @@ async function getTenantName(slug: string): Promise<string | undefined> {
  * no navigation at all, matching a page whose whole point is to say nothing
  * about the portal to anyone without credentials.
  *
- * Auth itself is still checked per-page (each screen redirects to `/login`
- * when `loadSession` comes back empty) — this layout owns the chrome around an
- * authenticated page, not the gate itself.
+ * The gate lives here now, in `StaffRouteGuard`, rather than being repeated in
+ * each screen's first effect: one place decides "no session → login" and "wrong
+ * role → this role's own landing page", so a new page under this layout is
+ * guarded by existing.
  *
  * Still a server component: the shell beneath it is the client boundary, so
  * the route params and the tenant name are resolved here and passed down as
@@ -57,24 +60,35 @@ export default async function ProtectedAdminLayout({
   const tenantName = await getTenantName(tenant);
 
   return (
-    // One provider for every staff screen — Radix requires an ancestor
-    // provider, and it is also what keeps the hint delay consistent rather
-    // than per-table. 200ms: long enough not to fire while the cursor crosses
-    // a row of icons, short enough to feel immediate on the one being aimed at.
-    <TooltipProvider delayDuration={200}>
-      {/* Outside the shell rather than inside it: a toast raised by a page
-          must outlive that page's own unmount, so the viewport holding it
-          cannot be a descendant of the route being replaced. */}
-      <ToastProvider>
-        <AdminShell
-          tenant={tenant}
-          locale={locale}
-          adminPath={adminPath}
-          tenantName={tenantName}
-        >
-          {children}
-        </AdminShell>
-      </ToastProvider>
-    </TooltipProvider>
+    /* Outermost of the three, because it is the longest-lived: the staff read
+       cache has to survive every navigation between screens, which is the whole
+       reason it exists. See `QueryProvider` for why it is mounted here rather
+       than at the root. */
+    <QueryProvider>
+      {/* One provider for every staff screen — Radix requires an ancestor
+          provider, and it is also what keeps the hint delay consistent rather
+          than per-table. 200ms: long enough not to fire while the cursor crosses
+          a row of icons, short enough to feel immediate on the one being aimed
+          at. */}
+      <TooltipProvider delayDuration={200}>
+        {/* Outside the shell rather than inside it: a toast raised by a page
+            must outlive that page's own unmount, so the viewport holding it
+            cannot be a descendant of the route being replaced. */}
+        <ToastProvider>
+          <AdminShell
+            tenant={tenant}
+            locale={locale}
+            adminPath={adminPath}
+            tenantName={tenantName}
+          >
+            {/* Inside the shell rather than around it: the chrome is what makes
+                the redirect look like a page loading rather than a blank tab. */}
+            <StaffRouteGuard tenant={tenant} base={`/${tenant}/${locale}/${adminPath}`}>
+              {children}
+            </StaffRouteGuard>
+          </AdminShell>
+        </ToastProvider>
+      </TooltipProvider>
+    </QueryProvider>
   );
 }

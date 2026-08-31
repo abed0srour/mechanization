@@ -96,14 +96,14 @@ export const NAV_GROUPS: NavGroup[] = [
         path: '/map',
         label: 'الخريطة',
         icon: MapIcon,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['عقارات', 'مواقع', 'مسح'],
       },
       {
         path: '/zones',
         label: 'القطاعات',
         icon: Layers,
-        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER'],
         keywords: ['قطاع', 'منطقة', 'حدود'],
       },
     ],
@@ -153,6 +153,63 @@ export function visibleGroups(role: string | undefined): NavGroup[] {
       items: group.items.filter((item) => !item.roles || (role && item.roles.includes(role))),
     }))
     .filter((group) => group.items.length > 0);
+}
+
+/**
+ * Where this role lands when it has not asked for anywhere in particular.
+ *
+ * Derived from `visibleGroups` rather than kept as a second list, so a role
+ * added to the nav gets a landing page without anyone remembering to add one:
+ * the first row this role can see, in the order the sidebar shows them.
+ *
+ * That matters because `/dashboard` is not universal. It is restricted to
+ * SUPER_ADMIN, AUDITOR and FIELD_INSPECTOR, and the nav already anticipates
+ * COLLECTOR, ACCOUNTANT and ADMINISTRATIVE_OFFICER — none of which may open it.
+ * Sending those roles to `/dashboard` would greet them with a 403 on the first
+ * screen they ever see.
+ *
+ * `/citizens` is the practical floor: it carries no `roles` restriction, so
+ * every staff role can see it and this never returns nothing. The `??` is for
+ * a role the nav has never heard of, where landing somewhere harmless beats
+ * landing nowhere.
+ */
+export function defaultPathFor(role: string | undefined): string {
+  const groups = visibleGroups(role);
+  return groups[0]?.items[0]?.path ?? '/citizens';
+}
+
+/**
+ * Whether this role may open a given admin path — the redirect's other half.
+ *
+ * Three outcomes collapse into two, and getting that collapse right is the
+ * whole subtlety:
+ *
+ *   • the admin base itself → allowed, because the index page's job is to
+ *     redirect and it cannot do that if it never renders;
+ *   • a path under a section this role can see → allowed;
+ *   • a path under a section it cannot → refused, and the caller sends them to
+ *     their own landing page;
+ *   • **a path under no section at all** → allowed, deliberately.
+ *
+ * That last case is the one worth stating. A URL matching no nav row is not a
+ * permission problem, it is a 404 — and the admin area has a page for that.
+ * Refusing it here would redirect every mistyped address silently to the
+ * dashboard, so a stale link would look like it worked and quietly took the
+ * reader somewhere else.
+ */
+export function canAccessPath(pathname: string, base: string, role: string | undefined): boolean {
+  const relative = pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
+  if (relative === '' || relative === '/') return true;
+
+  // Matched against every section, ignoring role: this answers "is there a
+  // page here at all", which is a different question from "may they see it".
+  const known = NAV_GROUPS.flatMap((group) => group.items).some((item) => {
+    const href = `${base}${item.path}`;
+    return pathname === href || pathname.startsWith(`${href}/`);
+  });
+  if (!known) return true;
+
+  return Boolean(activeNavItem(pathname, base, role));
 }
 
 /**

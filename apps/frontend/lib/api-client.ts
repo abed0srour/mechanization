@@ -78,7 +78,20 @@ export async function apiFetch<T>(
         ...headers,
       },
     });
-  } catch {
+  } catch (caught) {
+    /*
+      A cancelled request is not a failed one.
+
+      `fetch` rejects with an `AbortError` when its signal fires, and every
+      query that supersedes another fires one — typing a new search term,
+      moving to the next page, switching a status tab. Folding that into
+      `NETWORK_ERROR` put «تعذّر الاتصال» on screen every time a clerk
+      changed their mind quickly, on a connection that was working perfectly.
+      Re-thrown as-is so the caller's own cancellation handling sees it; React
+      Query discards it silently, which is the correct treatment.
+    */
+    if (caught instanceof DOMException && caught.name === 'AbortError') throw caught;
+
     // A dropped connection mid-request is the normal case on the networks this
     // serves, not an exceptional one.
     throw new ApiRequestError(0, {
@@ -610,6 +623,15 @@ export function listCitizens(
   tenant: string,
   token: string,
   filter: { search?: string; limit?: number; offset?: number } = {},
+  /**
+   * Cancels the request when a newer one supersedes it.
+   *
+   * Supplied by React Query, which fires it as soon as the query key changes —
+   * a new search term, the next page, a different tab. Without it, two requests
+   * for the same table race and the slower response wins, so a clerk who
+   * corrects a search quickly is shown the results of the term they abandoned.
+   */
+  signal?: AbortSignal,
 ) {
   const query = new URLSearchParams();
   if (filter.search) query.set('search', filter.search);
@@ -621,7 +643,7 @@ export function listCitizens(
     total: number;
     /** Computed over every matching citizen, not the returned page. */
     totals: { outstanding: number; overdue: number; inArrears: number };
-  }>(tenant, `/citizens?${query}`, { token });
+  }>(tenant, `/citizens?${query}`, { token, signal });
 }
 
 /**
@@ -798,8 +820,8 @@ export interface StaffSummary {
 }
 
 /** Every staff account with the history count that gates a permanent delete. */
-export function getStaff(tenant: string, token: string) {
-  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token });
+export function getStaff(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token, signal });
 }
 
 /**
@@ -890,6 +912,8 @@ export function getAuditLog(
     limit?: number;
     offset?: number;
   } = {},
+  /** See `listCitizens`. */
+  signal?: AbortSignal,
 ) {
   const query = new URLSearchParams();
   if (filter.actorId) query.set('actorId', filter.actorId);
@@ -899,7 +923,10 @@ export function getAuditLog(
   query.set('limit', String(filter.limit ?? 50));
   query.set('offset', String(filter.offset ?? 0));
 
-  return apiFetch<{ items: AuditEntry[]; total: number }>(tenant, `/audit?${query}`, { token });
+  return apiFetch<{ items: AuditEntry[]; total: number }>(tenant, `/audit?${query}`, {
+    token,
+    signal,
+  });
 }
 
 export interface CadastreImportResult {
@@ -1281,6 +1308,8 @@ export function getAllPayments(
     limit?: number;
     offset?: number;
   } = {},
+  /** See `listCitizens`. */
+  signal?: AbortSignal,
 ) {
   const query = new URLSearchParams();
   if (filter.status) query.set('status', filter.status);
@@ -1302,7 +1331,7 @@ export function getAllPayments(
       collector: number;
       awaiting: number;
     };
-  }>(tenant, `/fees/payments${suffix}`, { token });
+  }>(tenant, `/fees/payments${suffix}`, { token, signal });
 }
 
 /**

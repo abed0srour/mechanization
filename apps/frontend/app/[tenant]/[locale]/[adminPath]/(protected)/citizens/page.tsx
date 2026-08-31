@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -33,7 +34,8 @@ import {
 import { ImportCitizensDialog } from '@/components/admin/import-citizens-dialog';
 import { PageHeader } from '@/components/ui/page-header';
 import type { CitizenListItem } from '@/lib/api-client';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,6 +55,8 @@ const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في المواطنين',
   searchPlaceholder: 'ابحث بالاسم، رقم الهاتف، الرقم المرجعي، أو رقم الهوية…',
   clearSearch: 'مسح البحث',
+  searchHint: 'Enter',
+  searchApplied: 'بحث: «{term}»',
   empty: 'لا يوجد مواطنون مسجّلون بعد.',
   emptyHint: 'أضف أول مواطن، أو استورد سجلاً من ملف Excel.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',
@@ -95,7 +99,6 @@ export default function CitizensPage({
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
-  const [items, setItems] = useState<CitizenListItem[]>([]);
   /**
    * The page and the search are request parameters now.
    *
@@ -106,12 +109,10 @@ export default function CitizensPage({
    * no way to reach the rest.
    */
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
-  const [total, setTotal] = useState(0);
-  const [totals, setTotals] = useState({ outstanding: 0, overdue: 0, inArrears: 0 });
   /** The committed term — set when the clerk presses Enter, not as they type. */
   const [appliedSearch, setAppliedSearch] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /** A failed *write*. The read's own failure is the table's, via `useStaffQuery`. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   /** The row whose deletion is being confirmed, or null. */
@@ -131,42 +132,65 @@ export default function CitizensPage({
     setRole(session.user.role);
   }, [tenant, base, router]);
 
-  const load = useCallback(async () => {
-    if (!token) return;
-    try {
-      const result = await listCitizens(tenant, token, {
-        search: appliedSearch || undefined,
-        limit: pagination.pageSize,
-        offset: pagination.pageIndex * pagination.pageSize,
-      });
-      setItems(result.items);
-      setTotal(result.total);
-      setTotals(result.totals);
-      setError(null);
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError && caught.status === 401) {
-        clearSession(tenant);
-        router.replace(`${base}/login`);
-        return;
-      }
-      setError('تعذّر تحميل سجل المواطنين.');
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, token, base, router, appliedSearch, pagination]);
+  /*
+    Every parameter that changes the answer is in the key, and nothing else is.
 
-  // A new search starts at page one; otherwise it asks for rows 150–175 of a
-  // set that may now have three.
-  useEffect(() => {
-    setPagination((previous) =>
-      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
-    );
-  }, [appliedSearch]);
+    That is what makes the read correct as well as cached: React Query cancels
+    the outgoing request the moment the key changes, so the two-requests-in-
+    flight race this page used to have — a filter change fired one read at the
+    old offset and the page reset fired another at zero, and the slower reply
+    won — cannot happen. The `useEffect` that reset the page here is gone with
+    it; `DataTable` already returns to page one when a search is committed, and
+    doing it twice was what opened the race in the first place.
+  */
+  const query = useStaffQuery({
+    queryKey: ['citizens', tenant, appliedSearch, pagination.pageIndex, pagination.pageSize],
+    queryFn: (accessToken, signal) =>
+      listCitizens(
+        tenant,
+        accessToken,
+        {
+          search: appliedSearch || undefined,
+          limit: pagination.pageSize,
+          offset: pagination.pageIndex * pagination.pageSize,
+        },
+        signal,
+      ),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل سجل المواطنين.',
+    keepPrevious: true,
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const items = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
+  const totals = query.data?.totals ?? { outstanding: 0, overdue: 0, inArrears: 0 };
+  /*
+    The banner above the page and the state inside the table say different
+    things, and used to say the same one twice.
+
+    A failed *read* belongs to the table: it is the table that has no rows to
+    show, it is the table that needs the retry button, and a table rendering
+    «لا توجد نتائج» after a request failed is telling the reader the register is
+    empty when it is only unreachable. A failed *write* has no such home — the
+    rows are fine, an action was refused — so that is what the banner is for.
+  */
+  const error = actionError;
+
+  /**
+   * Re-reads the registry after a write.
+   *
+   * Keyed on the tenant rather than on the exact page, so a deletion made while
+   * a search is applied also refreshes the unfiltered list behind it — the two
+   * are the same register, and leaving one of them holding the deleted row is
+   * how a clerk ends up looking at a citizen who is not there.
+   */
+  const queryClient = useQueryClient();
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['citizens', tenant] }),
+    [queryClient, tenant],
+  );
 
   const toggleActive = useCallback(
     async (citizen: CitizenListItem) => {
@@ -188,7 +212,7 @@ export default function CitizensPage({
         logApiError(caught);
         const message =
           caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.';
-        setError(message);
+        setActionError(message);
         toast.error('تعذّر تحديث الحساب', { description: message });
       } finally {
         setBusyId(null);
@@ -219,7 +243,7 @@ export default function CitizensPage({
         logApiError(caught);
         const message =
           caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الملف.';
-        setError(message);
+        setActionError(message);
         // Rethrown so ConfirmDialog stays open and shows the reason in place:
         // a refusal usually names something the clerk must deal with first.
         throw new Error(message);
@@ -610,26 +634,26 @@ export default function CitizensPage({
         <MetricCard
           label="إجمالي المواطنين"
           value={total.toLocaleString('en-US')}
-          loading={loading}
+          loading={query.loading}
           icon={<Users className="size-6 text-primary" aria-hidden />}
         />
         <MetricCard
           label="رسوم غير مسدّدة"
           value={<Money amount={totals.outstanding} />}
-          loading={loading}
+          loading={query.loading}
           icon={<Wallet className="size-6 text-primary" aria-hidden />}
         />
         <MetricCard
           label="متأخرات مستحقة"
           value={<Money amount={totals.overdue} />}
-          loading={loading}
+          loading={query.loading}
           icon={<Banknote className="size-6 text-destructive" aria-hidden />}
           accent="bg-destructive/10"
         />
         <MetricCard
           label="مواطنون متأخرون"
           value={totals.inArrears.toLocaleString('en-US')}
-          loading={loading}
+          loading={query.loading}
           icon={<TriangleAlert className="size-6 text-warning" aria-hidden />}
           accent="bg-warning/10"
         />
@@ -652,8 +676,9 @@ export default function CitizensPage({
             data={items}
             labels={TABLE_LABELS}
             getRowId={(row) => row.id}
-            loading={loading}
-            onRetry={() => void load()}
+            loading={query.loading}
+            error={query.error}
+            onRetry={query.refetch}
             emptyIcon={<Users className="h-10 w-10 text-muted-foreground/60" />}
             /*
               The column layout is a per-desk preference, remembered here.

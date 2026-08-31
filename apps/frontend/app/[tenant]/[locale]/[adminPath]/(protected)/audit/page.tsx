@@ -4,10 +4,11 @@ import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import { History, ShieldCheck } from 'lucide-react';
-import { ApiRequestError, getAuditLog, logApiError } from '@/lib/api-client';
+import { getAuditLog } from '@/lib/api-client';
 import type { AuditEntry, Session } from '@/lib/api-client';
 import { ar } from '@mechanization/shared-schemas';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatDateTime } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,8 @@ const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في سجل النشاطات',
   searchPlaceholder: 'ابحث بالإجراء أو البريد الإلكتروني…',
   clearSearch: 'مسح البحث',
+  searchHint: 'Enter',
+  searchApplied: 'بحث: «{term}»',
   empty: 'لا توجد نشاطات.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',
   loadError: 'تعذّر تحميل سجل النشاطات.',
@@ -96,7 +99,6 @@ export default function AuditTrailPage({
   const [session, setSession] = useState<Session | null>(null);
   const [scope, setScope] = useState<'all' | 'mine'>('all');
   const [entityType, setEntityType] = useState('');
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
   /**
    * The audit trail is append-only and never pruned, so it is the one table
    * guaranteed to outgrow any fixed fetch. It was reading the first 100 rows
@@ -104,9 +106,6 @@ export default function AuditTrailPage({
    * the last hundred actions.
    */
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const existing = loadSession(tenant);
@@ -123,43 +122,53 @@ export default function AuditTrailPage({
     setSession(existing);
   }, [tenant, base, router]);
 
-  const load = useCallback(async () => {
-    if (!session) return;
-    setLoading(true);
-    try {
-      const result = await getAuditLog(tenant, session.accessToken, {
-        actorId: scope === 'mine' ? session.user.id : undefined,
-        entityType: entityType || undefined,
-        limit: pagination.pageSize,
-        offset: pagination.pageIndex * pagination.pageSize,
-      });
-      setEntries(result.items);
-      setTotal(result.total);
-      setError(null);
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError && caught.status === 401) {
-        clearSession(tenant);
-        router.replace(`${base}/login`);
-        return;
-      }
-      setError('تعذّر تحميل سجل النشاطات.');
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, session, scope, entityType, base, router, pagination]);
+  /*
+    The log is append-only and never pruned, so it is the one table guaranteed
+    to outgrow any fixed fetch — every axis of it belongs to the server, and
+    every axis is therefore in the key. The effect that reset the page when a
+    filter changed is gone: the two controls below do it themselves, in the same
+    render that changes the filter, which is one request where the effect made
+    two.
+  */
+  const query = useStaffQuery({
+    queryKey: [
+      'audit',
+      tenant,
+      scope === 'mine' ? session?.user.id : 'all',
+      entityType,
+      pagination.pageIndex,
+      pagination.pageSize,
+    ],
+    queryFn: (accessToken, signal) =>
+      getAuditLog(
+        tenant,
+        accessToken,
+        {
+          actorId: scope === 'mine' ? session?.user.id : undefined,
+          entityType: entityType || undefined,
+          limit: pagination.pageSize,
+          offset: pagination.pageIndex * pagination.pageSize,
+        },
+        signal,
+      ),
+    tenant,
+    base,
+    token: session?.accessToken ?? null,
+    errorMessage: 'تعذّر تحميل سجل النشاطات.',
+    keepPrevious: true,
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const entries = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
 
-  // Switching scope or entity filter narrows the set; page 7 of the old one is
-  // rarely a page of the new one.
-  useEffect(() => {
-    setPagination((previous) =>
-      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
-    );
-  }, [scope, entityType]);
+  /** Returns to the first page. Page 7 of one filter is rarely a page of the next. */
+  const resetPage = useCallback(
+    () =>
+      setPagination((previous) =>
+        previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+      ),
+    [],
+  );
 
   const columns = useMemo<ColumnDef<AuditEntry>[]>(
     () => [
@@ -236,15 +245,10 @@ export default function AuditTrailPage({
         </p>
       </div>
 
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive"
-        >
-          {error}
-        </p>
-      ) : null}
-
+      {/*
+        No error banner here. This screen only reads, so a failed request has
+        exactly one place it belongs: the table that has no rows because of it,
+        where the message sits beside the retry that fixes it. */}
       <Card className="overflow-hidden">
         <CardHeader className="flex-col gap-4 border-b md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
@@ -264,14 +268,20 @@ export default function AuditTrailPage({
               <Button
                 variant={scope === 'all' ? 'default' : 'ghost'}
                 className="rounded-none"
-                onClick={() => setScope('all')}
+                onClick={() => {
+                  setScope('all');
+                  resetPage();
+                }}
               >
                 الكل
               </Button>
               <Button
                 variant={scope === 'mine' ? 'default' : 'ghost'}
                 className="rounded-none"
-                onClick={() => setScope('mine')}
+                onClick={() => {
+                  setScope('mine');
+                  resetPage();
+                }}
               >
                 نشاطي
               </Button>
@@ -279,7 +289,10 @@ export default function AuditTrailPage({
 
             <Select
               value={entityType || ALL_ENTITY_TYPES}
-              onValueChange={(next) => setEntityType(next === ALL_ENTITY_TYPES ? '' : next)}
+              onValueChange={(next) => {
+                setEntityType(next === ALL_ENTITY_TYPES ? '' : next);
+                resetPage();
+              }}
             >
               <SelectTrigger className="h-10 w-full md:w-[180px]" aria-label="تصفية حسب نوع العنصر">
                 <SelectValue />
@@ -303,8 +316,9 @@ export default function AuditTrailPage({
             labels={TABLE_LABELS}
             columnStorageKey="audit"
             getRowId={(row) => row.id}
-            loading={loading}
-            onRetry={() => void load()}
+            loading={query.loading}
+            error={query.error}
+            onRetry={query.refetch}
             /*
               The search box is off rather than manual: the audit endpoint
               filters by actor and entity type, not by free text, so a search

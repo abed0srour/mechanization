@@ -14,6 +14,7 @@ import type {
 } from '@mechanization/shared-schemas';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
+import { likePattern, searchTokens } from '../../common/search-terms';
 import { Prisma } from '../../../generated/tenant-client';
 import { PropertyEntry, PropertyType } from '../../../domain/entities/property-entry.entity';
 import { ReferenceNumber } from '../../../domain/value-objects/reference-number.vo';
@@ -116,8 +117,17 @@ interface CitizenListRow {
   overdueTotal: number;
   overdueCount: number;
   pendingReviewCount: number;
+}
+
+/**
+ * The second statement's single row: the figures over the whole filtered set.
+ *
+ * Separate from the page rather than carried on it, because an aggregate query
+ * returns its row whether or not anything matched — which is exactly what the
+ * window-function version could not do. See `list`.
+ */
+interface CitizenListAggregate {
   total: number;
-  /** Window aggregates over the whole filtered set — identical on every row. */
   allOutstanding: number;
   allOverdue: number;
   allInArrears: number;
@@ -169,26 +179,50 @@ export class CitizensService {
   }> {
     const limit = Math.min(filter.limit ?? 100, MAX_LIST_ROWS);
     const offset = Math.max(filter.offset ?? 0, 0);
-    const search = filter.search?.trim();
+    /*
+      Every token has to appear somewhere in the row's folded text.
 
-    // `%` and `_` in a citizen's own search term are literals, not wildcards.
-    const pattern = search ? `%${search.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
+      This replaced one `ILIKE` per column ORed together, which could not match
+      «أحمد نصرالله» against أحمد خالد نصرالله — the name was compared
+      as one string including the middle name, so a first-plus-family search,
+      which is how everyone refers to everyone, found nobody. It also compared
+      raw: أ against ا, ٠٧٠ against 070, and a reference number typed without
+      its dashes against one stored with them.
 
-    const searchFilter = pattern
-      ? Prisma.sql`AND (
-          (u."firstName" || ' ' || COALESCE(u."middleName" || ' ', '') || u."lastName") ILIKE ${pattern}
-          OR u.phone ILIKE ${pattern}
-          OR u.whatsapp ILIKE ${pattern}
-          OR u."referenceNumber" ILIKE ${pattern}
-          OR u."identityDocNumber" ILIKE ${pattern}
-          OR u."residencyNumber" ILIKE ${pattern}
-          OR u."civilRecordNumber" ILIKE ${pattern}
-          OR u.id::text ILIKE ${pattern}
-        )`
+      `searchText` is the generated column those cases fold into (migration
+      0018); `searchTokens` applies the identical fold to the query. Two
+      substring tests then answer what seven ILIKEs could not.
+    */
+    const tokens = searchTokens(filter.search);
+
+    const searchFilter = tokens.length
+      ? Prisma.join(
+          tokens.map((token) => Prisma.sql`AND u."searchText" LIKE ${likePattern(token)}`),
+          ' ',
+        )
       : Prisma.empty;
 
-    const rows = await withConnectionRetry(() =>
-      this.db.$queryRaw<CitizenListRow[]>`
+    /*
+      The page and the figures above it, on one connection and one snapshot.
+
+      They were a single query, with `count(*) OVER()` and three `sum(...)
+      OVER()` carrying the totals on every row. That is elegant while the page
+      has rows and wrong the moment it does not: window aggregates arrive
+      *attached to rows*, so an empty page — a search that matched nothing, or
+      an offset past the end after a filter narrowed the set — returned no
+      rows at all, `rows[0]` was `undefined`, and the screen reported a total
+      of zero with all three headline cards blanked. A clerk on page 4 who
+      ticked «المتأخرات» saw a municipality that owed nothing.
+
+      An aggregate query with no GROUP BY always returns exactly one row, so
+      the totals no longer depend on the page having content. `$transaction`
+      rather than two awaits, for the same reason `listAllPayments` uses it:
+      both statements read the same snapshot, so the count above the table
+      cannot disagree with the rows in it.
+    */
+    const [rows, [aggregate]] = await withConnectionRetry(() =>
+      this.db.$transaction([
+        this.db.$queryRaw<CitizenListRow[]>`
         SELECT
           u.id,
           u."firstName",
@@ -236,37 +270,44 @@ export class CitizensService {
             AS "overdueCount",
           (SELECT count(*)::int FROM citizen_payments p
             WHERE p."citizenId" = u.id AND p."paymentStatus" = 'PENDING_REVIEW')
-            AS "pendingReviewCount",
-          count(*) OVER()::int AS total,
-          /*
-            The registry's headline figures, over the whole filtered set.
-            A window function is evaluated before LIMIT/OFFSET — the same
-            property that already makes the total above a true total — so
-            these describe every matching citizen rather than the page. The
-            screen used to sum them in the browser, which was correct only
-            while the browser held every row; once the list is paged, that
-            would silently turn the outstanding figure into "on this page".
-          */
-          sum(COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
-                         WHERE p."citizenId" = u.id AND p."paymentStatus" <> 'PAID'), 0))
-            OVER()::float8 AS "allOutstanding",
-          sum(COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
-                         WHERE p."citizenId" = u.id
-                           AND p."paymentStatus" = 'UNPAID'
-                           AND p."dueDate" < now()), 0))
-            OVER()::float8 AS "allOverdue",
-          count(*) FILTER (
-            WHERE (SELECT count(*) FROM citizen_payments p
-                    WHERE p."citizenId" = u.id
-                      AND p."paymentStatus" = 'UNPAID'
-                      AND p."dueDate" < now()) > 0
-          ) OVER()::int AS "allInArrears"
+            AS "pendingReviewCount"
         FROM users u
         WHERE u.kind = 'CITIZEN'
         ${searchFilter}
         ORDER BY u."createdAt" DESC
         LIMIT ${limit} OFFSET ${offset}
       `,
+        /*
+          The registry's headline figures, over the whole filtered set rather
+          than the page. The screen used to sum them in the browser, which was
+          correct only while the browser held every row; once the list is
+          paged, that silently turns "outstanding" into "outstanding on this
+          page".
+        */
+        this.db.$queryRaw<CitizenListAggregate[]>`
+        SELECT
+          count(*)::int AS total,
+          COALESCE(sum(
+            COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
+                       WHERE p."citizenId" = u.id AND p."paymentStatus" <> 'PAID'), 0)
+          ), 0)::float8 AS "allOutstanding",
+          COALESCE(sum(
+            COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
+                       WHERE p."citizenId" = u.id
+                         AND p."paymentStatus" = 'UNPAID'
+                         AND p."dueDate" < now()), 0)
+          ), 0)::float8 AS "allOverdue",
+          count(*) FILTER (
+            WHERE (SELECT count(*) FROM citizen_payments p
+                    WHERE p."citizenId" = u.id
+                      AND p."paymentStatus" = 'UNPAID'
+                      AND p."dueDate" < now()) > 0
+          )::int AS "allInArrears"
+        FROM users u
+        WHERE u.kind = 'CITIZEN'
+        ${searchFilter}
+      `,
+      ]),
     );
 
     return {
@@ -292,12 +333,12 @@ export class CitizensService {
         overdueCount: row.overdueCount,
         pendingReviewCount: row.pendingReviewCount,
       })),
-      total: rows[0]?.total ?? 0,
+      total: aggregate?.total ?? 0,
       /** Across every matching citizen, not the returned page. */
       totals: {
-        outstanding: rows[0]?.allOutstanding ?? 0,
-        overdue: rows[0]?.allOverdue ?? 0,
-        inArrears: rows[0]?.allInArrears ?? 0,
+        outstanding: aggregate?.allOutstanding ?? 0,
+        overdue: aggregate?.allOverdue ?? 0,
+        inArrears: aggregate?.allInArrears ?? 0,
       },
     };
   }
