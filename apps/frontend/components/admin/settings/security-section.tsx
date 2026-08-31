@@ -2,16 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2,
   Circle,
   KeyRound,
   Loader2,
   Mail,
   MonitorSmartphone,
-  PencilLine,
   ScrollText,
   Send,
-  ShieldCheck,
 } from 'lucide-react';
 import {
   ApiRequestError,
@@ -39,7 +36,6 @@ import {
   SettingsCard,
   SettingsField,
 } from './settings-ui';
-import { cn } from '@/lib/utils';
 
 /**
  * Illustrative login rows.
@@ -209,65 +205,6 @@ export function SecuritySection({
 
   return (
     <div className="space-y-6">
-      {/* 3-Step Verification Overview */}
-      <SettingsCard
-        icon={ShieldCheck}
-        title={copy.security.verifyHeading}
-        hint={copy.security.verifyHint}
-      >
-        <ol className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            { icon: PencilLine, title: copy.security.stepEdit, hint: copy.security.stepEditHint, active: true },
-            { icon: Mail, title: copy.security.stepConfirm, hint: copy.security.stepConfirmHint, active: true },
-            { icon: CheckCircle2, title: copy.security.stepApply, hint: copy.security.stepApplyHint, active: true },
-          ].map((step, index) => {
-            const Icon = step.icon;
-            return (
-              <li
-                key={step.title}
-                className={cn(
-                  'rounded-xl border p-4 transition-colors',
-                  step.active
-                    ? 'border-primary/20 bg-primary/[0.03]'
-                    : 'border-border/70 bg-muted/20',
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
-                      step.active
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground',
-                    )}
-                  >
-                    {index + 1}
-                  </span>
-                  <Icon
-                    className={cn(
-                      'size-4 shrink-0',
-                      step.active ? 'text-primary' : 'text-muted-foreground',
-                    )}
-                    aria-hidden
-                  />
-                  <p className="min-w-0 truncate text-sm font-semibold">{step.title}</p>
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  {step.hint}
-                </p>
-                <Badge
-                  variant={step.active ? 'soft-success' : 'soft-muted'}
-                  className="mt-3"
-                >
-                  {locale === 'en' ? 'Active' : 'مفعّل'}
-                </Badge>
-              </li>
-            );
-          })}
-        </ol>
-      </SettingsCard>
-
       {/* Email Address Section */}
       <SettingsCard
         icon={Mail}
