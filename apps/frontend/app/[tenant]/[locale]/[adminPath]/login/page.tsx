@@ -23,6 +23,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LanguageSwitcher } from '@/components/language-switcher';
+import { useTranslations } from 'next-intl';
 
 /**
  * Staff sign-in.
@@ -69,6 +70,8 @@ export default function StaffLogin({
 }) {
   const { tenant, locale, adminPath } = use(params);
   const router = useRouter();
+  const tAuth = useTranslations('auth');
+  const tCommon = useTranslations('common');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -211,15 +214,33 @@ export default function StaffLogin({
         <div className="relative space-y-10">
           <div className="space-y-4">
             <h2 className="font-display text-3xl font-bold leading-snug tracking-tight">
-              لوحة إدارة الطلبات
+              {locale === 'en' ? 'Administration Portal' : 'لوحة إدارة الطلبات'}
             </h2>
             <p className="max-w-sm text-base leading-relaxed text-primary-foreground/90">
-              مساحة عمل الموظفين لمتابعة المعاملات ومراجعتها والبتّ فيها.
+              {locale === 'en'
+                ? 'Staff workspace to review, process, and manage municipal records.'
+                : 'مساحة عمل الموظفين لمتابعة المعاملات ومراجعتها والبتّ فيها.'}
             </p>
           </div>
 
           <ul className="space-y-6">
-            {ASSURANCES.map(({ icon: Icon, title, body }) => (
+            {[
+              {
+                icon: Lock,
+                title: tAuth('encryptedConnection'),
+                body: tAuth('encryptedDesc'),
+              },
+              {
+                icon: ShieldCheck,
+                title: tAuth('scopedPermissions'),
+                body: tAuth('scopedDesc'),
+              },
+              {
+                icon: History,
+                title: tAuth('auditLogged'),
+                body: tAuth('auditLoggedDesc'),
+              },
+            ].map(({ icon: Icon, title, body }) => (
               <li key={title} className="flex items-start gap-4">
                 <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15">
                   <Icon className="size-4" aria-hidden />
@@ -236,7 +257,7 @@ export default function StaffLogin({
         </div>
 
         <p className="relative text-sm text-primary-foreground/90">
-          الدخول مقتصر على الحسابات المصرّح لها.
+          {locale === 'en' ? 'Access restricted to authorized personnel.' : 'الدخول مقتصر على الحسابات المصرّح لها.'}
         </p>
       </aside>
 
@@ -254,12 +275,12 @@ export default function StaffLogin({
               <ShieldCheck className="size-6" />
             </div>
             <h1 className="font-display text-3xl font-bold tracking-tight">
-              {totpStage ? 'التحقق بخطوتين' : 'دخول الموظفين'}
+              {totpStage ? tAuth('totpPrompt') : tAuth('staffLoginTitle')}
             </h1>
             <p className="text-muted-foreground">
               {totpStage
-                ? 'أدخل الرمز المكوّن من ستة أرقام من تطبيق المصادقة.'
-                : 'أدخل بيانات حسابك للمتابعة إلى لوحة الإدارة.'}
+                ? tAuth('totpHolder')
+                : tAuth('staffLoginDesc')}
             </p>
           </div>
 
@@ -293,7 +314,7 @@ export default function StaffLogin({
             {totpStage ? (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="totp">رمز التحقق</Label>
+                  <Label htmlFor="totp">{tAuth('totpPrompt')}</Label>
                   <div className="relative">
                     <KeyRound
                       aria-hidden
@@ -331,10 +352,10 @@ export default function StaffLogin({
                   {busy ? (
                     <>
                       <Loader2 className="size-4 animate-spin" aria-hidden />
-                      جارٍ التحقق…
+                      {tCommon('loading')}
                     </>
                   ) : (
-                    'تأكيد'
+                    tAuth('verifyCode')
                   )}
                 </Button>
 
@@ -348,14 +369,14 @@ export default function StaffLogin({
                   }}
                   className="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  <ArrowRight className="size-4" aria-hidden />
-                  الرجوع إلى تسجيل الدخول
+                  <ArrowRight className="size-4 rtl:rotate-0 ltr:rotate-180" aria-hidden />
+                  {tCommon('back')}
                 </button>
               </>
             ) : (
               <>
             <div className="space-y-2">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
+              <Label htmlFor="email">{tAuth('email')}</Label>
               <div className="relative">
                 <Mail
                   aria-hidden
@@ -376,7 +397,7 @@ export default function StaffLogin({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">كلمة المرور</Label>
+              <Label htmlFor="password">{tAuth('password')}</Label>
               <div className="relative">
                 <Lock
                   aria-hidden
@@ -395,7 +416,7 @@ export default function StaffLogin({
                 <button
                   type="button"
                   onClick={() => setShowPassword((shown) => !shown)}
-                  aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
                   className="absolute inset-y-0 end-0 flex w-11 items-center justify-center rounded-e-md text-muted-foreground transition-colors hover:text-foreground"
                 >
@@ -414,7 +435,7 @@ export default function StaffLogin({
                 onCheckedChange={(checked) => setRememberMe(checked === true)}
               />
               <Label className="cursor-pointer font-normal text-muted-foreground text-sm">
-                تذكّرني على هذا الجهاز
+                {tAuth('rememberMe')}
               </Label>
             </label>
 
@@ -426,10 +447,10 @@ export default function StaffLogin({
               {busy ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />
-                  جارٍ الدخول…
+                  {tAuth('signingIn')}
                 </>
               ) : (
-                'دخول'
+                tAuth('signIn')
               )}
             </Button>
               </>
@@ -442,7 +463,9 @@ export default function StaffLogin({
            * worse than none at all.
            */}
           <p className="mt-8 border-t border-border/70 pt-6 text-sm leading-relaxed text-muted-foreground">
-            نسيت كلمة المرور أو تعذّر الدخول؟ تواصل مع مسؤول النظام لاستعادة الوصول إلى حسابك.
+            {locale === 'en'
+              ? 'Forgot your password or unable to sign in? Contact your system administrator to recover account access.'
+              : 'نسيت كلمة المرور أو تعذّر الدخول؟ تواصل مع مسؤول النظام لاستعادة الوصول إلى حسابك.'}
           </p>
         </div>
       </main>
