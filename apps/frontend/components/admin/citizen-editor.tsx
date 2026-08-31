@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2, UserPlus, UserRoundPen } from 'lucide-react';
+import { ArrowRight, UserPlus, UserRoundPen } from 'lucide-react';
 import {
   ApiRequestError,
   createCitizen,
@@ -17,6 +17,7 @@ import { clearSession, loadSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import type { PropertyDraft, UnitDraft } from '@/components/citizen/property-card';
+import { LoadingState } from '@/components/ui/states';
 import {
   CitizenForm,
   EMPTY_CITIZEN,
@@ -262,10 +263,7 @@ export function CitizenEditor({
 
   if (!config || !initial) {
     return (
-      <p className="flex items-center gap-2 p-8 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        جارٍ التحميل…
-      </p>
+      <LoadingState fullHeight />
     );
   }
 

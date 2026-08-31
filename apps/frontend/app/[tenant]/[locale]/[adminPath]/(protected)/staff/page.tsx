@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
@@ -28,7 +29,8 @@ import {
   updateStaff,
 } from '@/lib/api-client';
 import type { StaffSummary } from '@/lib/api-client';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -51,6 +53,8 @@ const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في الموظفين',
   searchPlaceholder: 'ابحث بالاسم أو البريد الإلكتروني…',
   clearSearch: 'مسح البحث',
+  searchHint: 'Enter',
+  searchApplied: 'بحث: «{term}»',
   empty: 'لا يوجد موظفون بعد.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',
   loadError: 'تعذّر تحميل الموظفين.',
@@ -87,9 +91,8 @@ export default function StaffPage({
 
   const [token, setToken] = useState<string | null>(null);
   const [selfId, setSelfId] = useState<string | null>(null);
-  const [items, setItems] = useState<StaffSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /** A failed *write*. The read reports its own failure through the query. */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<StaffSummary | null>(null);
@@ -114,28 +117,43 @@ export default function StaffPage({
     setSelfId(session.user.id);
   }, [tenant, base, router]);
 
-  const load = useCallback(async () => {
-    if (!token) return;
-    try {
-      const result = await getStaff(tenant, token);
-      setItems(result.items);
-      setError(null);
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError && caught.status === 401) {
-        clearSession(tenant);
-        router.replace(`${base}/login`);
-        return;
-      }
-      setError('تعذّر تحميل الموظفين.');
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, token, base, router]);
+  /*
+    Unparameterised: the whole staff list, filtered and paged in the browser.
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+    That is right here and nowhere else on the portal — a municipality has a
+    dozen accounts, not a register of thousands — so the search box below is
+    TanStack's own and never reaches the API. It still benefits from the cache:
+    coming back to this screen shows the accounts immediately and re-reads
+    behind them.
+  */
+  const query = useStaffQuery({
+    queryKey: ['staff', tenant],
+    queryFn: (accessToken, signal) => getStaff(tenant, accessToken, signal),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل الموظفين.',
+  });
+
+  const items = query.data?.items ?? [];
+  /*
+    The banner above the page and the state inside the table say different
+    things, and used to say the same one twice.
+
+    A failed *read* belongs to the table: it is the table that has no rows to
+    show, it is the table that needs the retry button, and a table rendering
+    «لا توجد نتائج» after a request failed is telling the reader the register is
+    empty when it is only unreachable. A failed *write* has no such home — the
+    rows are fine, an action was refused — so that is what the banner is for.
+  */
+  const error = actionError;
+
+  /** Re-reads the accounts after a create, an edit, a deactivation or a reset. */
+  const queryClient = useQueryClient();
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['staff', tenant] }),
+    [queryClient, tenant],
+  );
 
   const [createdTotp, setCreatedTotp] = useState<{
     email: string;
@@ -211,7 +229,7 @@ export default function StaffPage({
         logApiError(caught);
         const message =
           caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.';
-        setError(message);
+        setActionError(message);
         toast.error('تعذّر تحديث الحساب', { description: message });
       } finally {
         setBusyId(null);
@@ -232,7 +250,7 @@ export default function StaffPage({
         logApiError(caught);
         const message =
           caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الحساب.';
-        setError(message);
+        setActionError(message);
         // Rethrown so the dialog stays open with the reason in place — the
         // server refuses the last SUPER_ADMIN, and that is worth reading.
         throw new Error(message);
@@ -432,8 +450,9 @@ export default function StaffPage({
             labels={TABLE_LABELS}
             columnStorageKey="staff"
             getRowId={(row) => row.id}
-            loading={loading}
-            onRetry={() => void load()}
+            loading={query.loading}
+            error={query.error}
+            onRetry={query.refetch}
           />
         </CardContent>
       </Card>

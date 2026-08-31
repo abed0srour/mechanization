@@ -132,9 +132,8 @@ export default function CitizenLogin({
               id="phone"
               type="tel"
               inputMode="tel"
-              dir="ltr"
               placeholder="03 123456"
-              className="text-start"
+              className="text-start font-mono"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />

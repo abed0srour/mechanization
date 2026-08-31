@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { ar } from '@mechanization/shared-schemas';
 import {
-  ApiRequestError,
   getAllPayments,
   getCitizenProfile,
   getMunicipalitySettings,
@@ -27,14 +26,14 @@ import type {
   AdminPaymentItem,
   CitizenProfile,
   CitizenProfilePayment,
-  MunicipalitySettings,
 } from '@/lib/api-client';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatLbp } from '@/lib/currency';
 import { formatDateTime, formatRelative } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DataTable, type DataTableLabels } from '@/components/ui/data-table';
 import { PageHeader } from '@/components/ui/page-header';
 import { ActionTooltip } from '@/components/ui/tooltip';
@@ -45,6 +44,8 @@ const TABLE_LABELS: DataTableLabels = {
   searchAriaLabel: 'بحث في العمليات',
   searchPlaceholder: 'ابحث باسم الدافع، رقم الهاتف، الرقم المرجعي، أو رقم العملية…',
   clearSearch: 'مسح البحث',
+  searchHint: 'Enter',
+  searchApplied: 'بحث: «{term}»',
   empty: 'لا توجد عمليات دفع بعد.',
   emptySearch: 'لا نتائج مطابقة لبحثك.',
   loadError: 'تعذّر تحميل سجل العمليات.',
@@ -63,6 +64,26 @@ const TABLE_LABELS: DataTableLabels = {
 };
 
 /** The method filter, as a segmented row above the table. */
+/**
+ * What the tiles show before the first response, and after a failed one.
+ *
+ * A stable object rather than a literal built during render: it is the
+ * fallback for a query result, so a new one every render would make the tiles
+ * re-render on every keystroke elsewhere on the page.
+ *
+ * These figures are the server's, over every matching row rather than the
+ * page. Summing the rows in hand would make «إجمالي المحصّل» mean "the
+ * twenty-five rows currently on screen" — a total that changes when you press
+ * «التالي».
+ */
+const EMPTY_TOTALS = {
+  collected: 0,
+  cash: 0,
+  whish: 0,
+  collector: 0,
+  awaiting: 0,
+} as const;
+
 const METHOD_FILTERS = [
   { id: '', label: 'الكل', icon: ArrowLeftRight },
   { id: 'CASH', label: 'نقداً', icon: Banknote },
@@ -109,15 +130,7 @@ export default function PaymentsPage({
   const base = `/${tenant}/${locale}/${adminPath}`;
 
   const [token, setToken] = useState<string | null>(null);
-  const [items, setItems] = useState<AdminPaymentItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [method, setMethod] = useState<string>('');
-  /**
-   * `search` is what the box shows; `appliedSearch` is what the server was
-   * asked for. Kept apart so typing does not fire a request per keystroke —
-   * the load effect keys off the debounced one only.
-   */
   /** The committed term — set when the clerk presses Enter, not as they type. */
   const [appliedSearch, setAppliedSearch] = useState('');
   /**
@@ -128,12 +141,10 @@ export default function PaymentsPage({
    * survive alongside the filters that produced it.
    */
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
-  const [total, setTotal] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  /** A failed action — opening a وصل. The reads report their own failures. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [receiptBusyId, setReceiptBusyId] = useState<string | null>(null);
-
-  const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
-  const [municipalityName, setMunicipalityName] = useState('');
   const [receipt, setReceipt] = useState<{
     citizen: CitizenProfile;
     payment: CitizenProfilePayment;
@@ -149,57 +160,82 @@ export default function PaymentsPage({
     setToken(session.accessToken);
   }, [tenant, base, router]);
 
-  const load = useCallback(async () => {
-    if (!token) return;
-    try {
-      const [paymentsResult, settingsResult, configResult] = await Promise.all([
-        getAllPayments(tenant, token, {
+  /*
+    The ledger slice being looked at, and nothing else.
+
+    The office settings and the tenant config were fetched alongside it on every
+    read, though neither is rendered here — they exist so a reprinted وصل carries
+    the same numbers the original did. Paying for them on every page turn was
+    waste; they are their own query now, keyed on the tenant, and a page turn no
+    longer touches them.
+
+    Cancellation comes with the key. This page had two effects that could each
+    change what was being asked for, so switching a method tab while on page 7
+    fired one read at the stale offset and another at zero, with nothing
+    deciding which reply won.
+  */
+  const paymentsQuery = useStaffQuery({
+    queryKey: [
+      'transactions',
+      tenant,
+      method,
+      appliedSearch,
+      pagination.pageIndex,
+      pagination.pageSize,
+    ],
+    queryFn: (accessToken, signal) =>
+      getAllPayments(
+        tenant,
+        accessToken,
+        {
           transactionsOnly: true,
           method: method || undefined,
           search: appliedSearch || undefined,
           limit: pagination.pageSize,
           offset: pagination.pageIndex * pagination.pageSize,
-        }),
-        // Both only so a reprinted وصل carries the same office numbers the
-        // original did — neither is rendered on this page.
-        getMunicipalitySettings(tenant, token),
+        },
+        signal,
+      ),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل سجل العمليات.',
+    keepPrevious: true,
+  });
+
+  /** The office details a reprinted وصل carries. Neither is rendered on this page. */
+  const receiptContextQuery = useStaffQuery({
+    queryKey: ['receipt-context', tenant],
+    queryFn: async (accessToken) => {
+      const [settings, config] = await Promise.all([
+        getMunicipalitySettings(tenant, accessToken),
         getTenantConfig(tenant),
       ]);
-      setItems(paymentsResult.items);
-      setTotal(paymentsResult.total);
-      setTotals(paymentsResult.totals);
-      setSettings(settingsResult);
-      setMunicipalityName(configResult.nameAr || configResult.name);
-      setError(null);
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError && caught.status === 401) {
-        clearSession(tenant);
-        router.replace(`${base}/login`);
-        return;
-      }
-      setError('تعذّر تحميل سجل العمليات.');
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, token, base, router, method, appliedSearch, pagination]);
+      return { settings, municipalityName: config.nameAr || config.name };
+    },
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل بيانات البلدية.',
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const items = paymentsQuery.data?.items ?? [];
+  const total = paymentsQuery.data?.total ?? 0;
+  const totals = paymentsQuery.data?.totals ?? EMPTY_TOTALS;
+  const settings = receiptContextQuery.data?.settings ?? null;
+  const municipalityName = receiptContextQuery.data?.municipalityName ?? '';
+  /*
+    The banner above the page and the state inside the table say different
+    things, and used to say the same one twice.
 
-  /**
-   * Any change to what is being asked for returns to the first page.
-   *
-   * Without this, filtering to «المحصّل» while on page 7 asks the server for
-   * rows 150–175 of a set that now has 12, and the table shows an empty page
-   * with no obvious way back.
-   */
-  useEffect(() => {
-    setPagination((previous) =>
-      previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
-    );
-  }, [method, appliedSearch]);
+    A failed *read* belongs to the table: it is the table that has no rows to
+    show, it is the table that needs the retry button, and a table rendering
+    «لا توجد نتائج» after a request failed is telling the reader the register is
+    empty when it is only unreachable. A failed *write* has no such home — the
+    rows are fine, an action was refused — so that is what the banner is for.
+  */
+  const error = actionError ?? receiptContextQuery.error;
+
 
   /** Reprints the وصل for one transaction, exactly as إدارة الرسوم does. */
   const openReceipt = useCallback(
@@ -213,7 +249,7 @@ export default function PaymentsPage({
         setReceipt({ citizen: profile, payment: row, received: payment.paidAmount });
       } catch (caught) {
         logApiError(caught);
-        setError('تعذّر فتح الوصل — يمكن إصداره من ملف المواطن.');
+        setActionError('تعذّر فتح الوصل — يمكن إصداره من ملف المواطن.');
       } finally {
         setReceiptBusyId(null);
       }
@@ -235,13 +271,6 @@ export default function PaymentsPage({
    * المحصّل» mean "the twenty-five rows currently on screen" — a total that
    * changes when you press «التالي».
    */
-  const [totals, setTotals] = useState({
-    collected: 0,
-    cash: 0,
-    whish: 0,
-    collector: 0,
-    awaiting: 0,
-  });
 
   const columns = useMemo<ColumnDef<AdminPaymentItem>[]>(
     () => [
@@ -516,6 +545,53 @@ export default function PaymentsPage({
       </div>
 
       <Card className="overflow-hidden">
+        <CardHeader className="border-b pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base font-bold">
+              <ArrowLeftRight className="size-5 text-primary" aria-hidden />
+              سجل العمليات
+            </CardTitle>
+
+            {/* Method Tabs Filter */}
+            <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
+              {METHOD_FILTERS.map((tab) => {
+                const Icon = tab.icon;
+                const active = method === tab.id;
+                return (
+                  <button
+                    key={tab.id || 'all'}
+                    type="button"
+                    /*
+                      Narrowing to one method returns to the first page, here
+                      rather than in an effect watching `method`: two state
+                      updates in one render make one query key and one request,
+                      where the effect made two — the first at an offset that no
+                      longer existed.
+                    */
+                    onClick={() => {
+                      setMethod(tab.id);
+                      setPagination((previous) =>
+                        previous.pageIndex === 0
+                          ? previous
+                          : { ...previous, pageIndex: 0 },
+                      );
+                    }}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-all',
+                      active
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {Icon ? <Icon className="size-3.5" aria-hidden /> : null}
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </CardHeader>
+
         <CardContent className="p-6">
           <DataTable
             columns={columns}
@@ -523,17 +599,10 @@ export default function PaymentsPage({
             labels={TABLE_LABELS}
             columnStorageKey="payments"
             getRowId={(row) => row.id}
-            loading={loading}
-            error={error}
-            onRetry={() => void load()}
-            emptyIcon={<ArrowLeftRight className="h-10 w-10 text-muted-foreground/60" />}
-            /*
-              Pagination and filtering are the server's; sorting stays off
-              rather than being faked. Re-ordering the 25 rows currently in
-              hand would look like sorting the log and would not be — the
-              server returns it newest-first, which is the order a chronology
-              is read in anyway.
-            */
+            loading={paymentsQuery.loading}
+            error={paymentsQuery.error}
+            onRetry={paymentsQuery.refetch}
+            emptyIcon={<ArrowLeftRight className="size-10 text-muted-foreground/60" />}
             manualPagination
             manualFiltering
             sortable={false}
@@ -541,55 +610,8 @@ export default function PaymentsPage({
             totalRowCount={total}
             pagination={pagination}
             onPaginationChange={setPagination}
-            /*
-              The built-in search box is off, and the one in the toolbar
-              replaces it, because search here has to be the server's: it
-              matches the citizen's phone and رقم مرجعي, neither of which is a
-              column, so the client's row filter would drop rows the server
-              correctly found.
-
-              `manual` would have been the obvious way to say that, and is the
-              wrong lever — it also switches off the sorted and paginated row
-              models, leaving every row on one unsortable page unless the
-              caller drives pagination too. Turning off only the search keeps
-              client sorting and paging over whatever the server returned.
-            */
-            /* The table's own search box now, rather than a second one in the
-               toolbar: it commits on Enter and lives inside the card, so the
-               two would have been the same control drawn twice. */
             searchValue={appliedSearch}
             onSearchChange={setAppliedSearch}
-            toolbar={
-              <div className="flex w-full flex-wrap items-center gap-2 sm:justify-end">
-                <div
-                  role="group"
-                  aria-label="تصفية بطريقة الدفع"
-                  className="inline-flex items-center gap-0.5 rounded-lg border bg-muted/60 p-0.5"
-                >
-                  {METHOD_FILTERS.map((filter) => {
-                    const Icon = filter.icon;
-                    const selected = method === filter.id;
-                    return (
-                      <button
-                        key={filter.id || 'all'}
-                        type="button"
-                        onClick={() => setMethod(filter.id)}
-                        aria-pressed={selected}
-                        className={cn(
-                          'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
-                          selected
-                            ? 'bg-background font-medium text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        <Icon className="size-3.5 shrink-0" aria-hidden />
-                        {filter.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            }
           />
         </CardContent>
       </Card>

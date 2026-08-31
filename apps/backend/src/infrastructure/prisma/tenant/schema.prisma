@@ -132,6 +132,22 @@ model User {
   /// presenting a step at or below this one is refused whatever the digits say.
   lastTotpStep BigInt?
 
+  /// Read-only. A Postgres `GENERATED ALWAYS AS ... STORED` column holding
+  /// every value this row can be looked up by, folded to one alphabet:
+  /// hamza-carrying alefs to bare alef, taa marbuta to haa, alef maqsura to
+  /// yaa, tashkeel stripped, Arabic-Indic digits to Latin, every separator to
+  /// a space — plus a second, space-free copy of each identifier so a
+  /// reference number typed without its dashes still matches.
+  ///
+  /// **Never write to it.** The database computes it and rejects any INSERT or
+  /// UPDATE that supplies a value. It is optional here only because Prisma
+  /// omits an absent optional field from the statement it builds, which is the
+  /// one way to model a generated column in a schema language that has no
+  /// word for one. Declared so it can be *filtered* on; see
+  /// `searchTokens` in application/common/search-terms.ts for the matching
+  /// query side, and migration 0018 for the definition.
+  searchText String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -705,6 +721,11 @@ model CitizenPayment {
   /// database guarantee — the recurring job's safety against double-billing
   /// cannot depend on it remembering to check first.
   periodKey String @default("ONCE")
+
+  /// Read-only, generated. The invoice's own searchable text — its title and
+  /// the Whish reference — folded by the same rules as `User.searchText`, which
+  /// see. The payer is reached through the join, not copied in here.
+  searchText String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

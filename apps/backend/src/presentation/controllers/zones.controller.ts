@@ -39,14 +39,14 @@ export class ZonesController {
    * sector expects to see it on the map immediately, and the expensive part
    * (dissolving member parcels) is already memoised per zone in the service.
    */
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get('geojson')
   @Header('Cache-Control', 'no-store')
   async geojson(@Param('tenantSlug') tenantSlug: string) {
     return this.zones.buildGeoJson(tenantSlug);
   }
 
-  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
   @Get(':id')
   async get(@Param('id') id: string) {
     return this.zones.get(id);

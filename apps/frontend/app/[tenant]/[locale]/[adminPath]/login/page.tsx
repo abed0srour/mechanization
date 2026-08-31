@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertCircle,
@@ -15,8 +15,10 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { ApiRequestError, isTotpRequired, loginStaff, logApiError } from '@/lib/api-client';
-import { saveSession } from '@/lib/session';
+import { loadSession, saveSession } from '@/lib/session';
+import { defaultPathFor } from '@/components/admin/nav';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/states';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -85,6 +87,28 @@ export default function StaffLogin({
   const [totpToken, setTotpToken] = useState('');
   const [totpStage, setTotpStage] = useState(false);
 
+  /**
+   * Signing in while already signed in.
+   *
+   * Reaching this page with a live session means a bookmark, a Back press, or
+   * the admin link being shared around the office — none of which is a request
+   * to sign in again, and showing the form invites someone to re-enter
+   * credentials they do not need. Forwarded to the same landing page the admin
+   * index resolves, so the two entry points agree.
+   *
+   * `checking` gates the form so it never flashes before the redirect lands.
+   */
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    const session = loadSession(tenant);
+    if (session && session.user.kind === 'STAFF') {
+      router.replace(`/${tenant}/${locale}/${adminPath}${defaultPathFor(session.user.role)}`);
+      return;
+    }
+    setChecking(false);
+  }, [tenant, locale, adminPath, router]);
+
   async function submit() {
     setBusy(true);
     setError(null);
@@ -106,7 +130,16 @@ export default function StaffLogin({
       }
 
       saveSession(tenant, result, rememberMe);
-      router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
+      /**
+       * The role's own landing page rather than `/dashboard`, which is
+       * restricted — a COLLECTOR signing in used to be pushed straight to a
+       * screen their token is refused on, so a correct sign-in looked like a
+       * failure. `replace`, so Back does not return to a login form that
+       * would now redirect forward again.
+       */
+      router.replace(
+        `/${tenant}/${locale}/${adminPath}${defaultPathFor(result.user.role)}`,
+      );
     } catch (caught) {
       logApiError(caught);
       setError(
@@ -121,6 +154,17 @@ export default function StaffLogin({
     } finally {
       setBusy(false);
     }
+  }
+
+  /* Nothing at all until the session check has run: rendering the form and
+     then redirecting shows a sign-in page to someone who is already signed in,
+     which is the exact confusion this check removes. */
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <LoadingState />
+      </div>
+    );
   }
 
   return (
@@ -253,7 +297,6 @@ export default function StaffLogin({
                     />
                     <Input
                       id="totp"
-                      dir="ltr"
                       inputMode="numeric"
                       /**
                        * `one-time-code` is what lets a password manager or the
@@ -266,7 +309,8 @@ export default function StaffLogin({
                       maxLength={6}
                       autoFocus
                       required
-                      className="ps-10 text-center font-mono text-lg tracking-[0.4em]"
+                      placeholder="••••••"
+                      className="px-10 text-center font-mono text-xl tracking-[0.4em]"
                       value={totpToken}
                       onChange={(e) =>
                         setTotpToken(e.target.value.replace(/\D/g, '').slice(0, 6))
@@ -316,11 +360,11 @@ export default function StaffLogin({
                 <Input
                   id="email"
                   type="email"
-                  dir="ltr"
                   autoComplete="username"
                   autoFocus
                   required
-                  className="ps-10 text-start"
+                  placeholder="name@example.com"
+                  className="ps-10 pe-4 text-start"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -339,7 +383,8 @@ export default function StaffLogin({
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   required
-                  className="ps-10 pe-11"
+                  placeholder="••••••••"
+                  className="ps-10 pe-11 text-start"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -364,7 +409,7 @@ export default function StaffLogin({
                 checked={rememberMe}
                 onCheckedChange={(checked) => setRememberMe(checked === true)}
               />
-              <Label className="cursor-pointer font-normal text-muted-foreground">
+              <Label className="cursor-pointer font-normal text-muted-foreground text-sm">
                 تذكّرني على هذا الجهاز
               </Label>
             </label>
