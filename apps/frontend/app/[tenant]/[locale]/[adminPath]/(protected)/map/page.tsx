@@ -140,6 +140,7 @@ export default function FullscreenMapPage({
             focusParcelNumber={focus?.parcelNumber}
             focusLat={focus?.lat}
             focusLng={focus?.lng}
+            locale={locale}
           />
         )}
       </div>

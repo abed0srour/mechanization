@@ -13,7 +13,7 @@ import {
   Tent,
   Trees,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import { ApiRequestError, getMySummary, logApiError } from '@/lib/api-client';
 import type { MyCitizenSummary } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
@@ -24,7 +24,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Money } from '@/components/ui/money';
 import { LoadingState } from '@/components/ui/states';
 
-/** One glyph per property branch, so a card's kind reads before its text. */
 const PROPERTY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   BUILDING: Building2,
   HOUSE: Home,
@@ -32,21 +31,6 @@ const PROPERTY_ICON: Record<string, React.ComponentType<{ className?: string }>>
   TENT: Tent,
 };
 
-/**
- * A citizen's own record: their registered properties, and what they owe.
- *
- * This page used to be «طلباتي» — a list of submissions, each with a review
- * status, a rejection notice and a «تصحيح وإعادة التقديم» button. None of that
- * has a subject any more: records are entered by municipality staff from
- * documents handed over a counter, so there is no submission of the citizen's
- * own to be adjudicated, no decision to report back, and no field for them to
- * be asked to fix.
- *
- * What is left is the two things a citizen can actually act on — confirming
- * the municipality has their property recorded correctly, and paying what is
- * due. The رقم مرجعي stays prominent because it is what they quote at the
- * counter, and it is now the way to raise a correction: in person.
- */
 export default function MyAccount({
   params,
 }: {
@@ -54,6 +38,7 @@ export default function MyAccount({
 }) {
   const { tenant, locale } = use(params);
   const router = useRouter();
+  const labels = getLabels(locale);
 
   const [summary, setSummary] = useState<MyCitizenSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,14 +54,12 @@ export default function MyAccount({
       .then(setSummary)
       .catch((caught: unknown) => {
         logApiError(caught);
-        // An expired token is the common case, not an error worth alarming
-        // someone with — send them back to sign in.
         if (caught instanceof ApiRequestError && caught.status === 401) {
           clearSession(tenant);
           router.replace(`/${tenant}/${locale}/login`);
           return;
         }
-        setError('تعذّر تحميل بياناتك. حاول مرة أخرى.');
+        setError(locale === 'en' ? 'Failed to load your file data. Please try again.' : 'تعذّر تحميل بياناتك. حاول مرة أخرى.');
       });
   }, [tenant, locale, router]);
 
@@ -86,8 +69,14 @@ export default function MyAccount({
     <div className="space-y-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">حسابي</h1>
-          {summary ? <p className="text-muted-foreground">أهلاً {summary.fullName}</p> : null}
+          <h1 className="text-3xl font-bold tracking-tight">
+            {locale === 'en' ? 'My Account' : 'حسابي'}
+          </h1>
+          {summary ? (
+            <p className="text-muted-foreground">
+              {locale === 'en' ? `Welcome, ${summary.fullName}` : `أهلاً ${summary.fullName}`}
+            </p>
+          ) : null}
         </div>
         <Button
           variant="ghost"
@@ -96,7 +85,7 @@ export default function MyAccount({
             router.push(`/${tenant}/${locale}`);
           }}
         >
-          خروج
+          {locale === 'en' ? 'Sign Out' : 'خروج'}
         </Button>
       </header>
 
@@ -109,55 +98,60 @@ export default function MyAccount({
         </p>
       ) : null}
 
-      {summary === null && !error ? (
-        <LoadingState />
-      ) : null}
+      {summary === null && !error ? <LoadingState /> : null}
 
       {summary ? (
         <>
-          {/* The رقم مرجعي leads: it is the one thing they need in hand at the
-              municipality, and the only identifier that survives a lost phone. */}
           {summary.referenceNumber ? (
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="space-y-1 p-5">
-                <p className="text-sm text-muted-foreground">رقمك المرجعي</p>
+                <p className="text-sm text-muted-foreground">
+                  {locale === 'en' ? 'Your Reference Number' : 'رقمك المرجعي'}
+                </p>
                 <p className="text-2xl font-bold tracking-widest text-primary" dir="ltr">
                   {summary.referenceNumber}
                 </p>
                 <p className="pt-1 text-sm text-muted-foreground">
-                  اذكر هذا الرقم عند مراجعة البلدية.
+                  {locale === 'en'
+                    ? 'Quote this number whenever contacting the municipality.'
+                    : 'اذكر هذا الرقم عند مراجعة البلدية.'}
                 </p>
               </CardContent>
             </Card>
           ) : null}
 
-          {/* ── What they owe ─────────────────────────────────────────── */}
+          {/* Outstanding Fees */}
           <section className="space-y-4">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Receipt className="size-5 text-primary" aria-hidden />
-              الرسوم المستحقة
+              {locale === 'en' ? 'Outstanding Fees' : 'الرسوم المستحقة'}
             </h2>
 
             {summary.payments.length === 0 ? (
               <Card>
                 <CardContent className="p-6 text-center text-muted-foreground">
-                  لا توجد رسوم مسجّلة عليك.
+                  {locale === 'en' ? 'No outstanding fees on file.' : 'لا توجد رسوم مسجّلة عليك.'}
                 </CardContent>
               </Card>
             ) : (
               <Card>
                 <CardContent className="space-y-4 p-5">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <span className="text-sm text-muted-foreground">المجموع غير المسدَّد</span>
+                    <span className="text-sm text-muted-foreground">
+                      {locale === 'en' ? 'Total Unpaid' : 'المجموع غير المسدَّد'}
+                    </span>
                     <Money
                       amount={summary.fees.outstandingTotal}
                       className="text-2xl font-bold"
+                      locale={locale}
                     />
                   </div>
 
                   {summary.fees.overdueTotal > 0 ? (
                     <p className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                      منها {formatLbp(summary.fees.overdueTotal)} تجاوزت تاريخ الاستحقاق.
+                      {locale === 'en'
+                        ? `${formatLbp(summary.fees.overdueTotal, locale)} is past the due date.`
+                        : `منها ${formatLbp(summary.fees.overdueTotal, locale)} تجاوزت تاريخ الاستحقاق.`}
                     </p>
                   ) : null}
 
@@ -171,9 +165,11 @@ export default function MyAccount({
                           <span className="min-w-0 truncate">{payment.title}</span>
                           <span className="flex shrink-0 items-center gap-2">
                             {payment.paymentStatus === 'OVERDUE' ? (
-                              <Badge variant="destructive">متأخرة</Badge>
+                              <Badge variant="destructive">
+                                {locale === 'en' ? 'Overdue' : 'متأخرة'}
+                              </Badge>
                             ) : null}
-                            <Money amount={payment.amount} exact className="font-medium" />
+                            <Money amount={payment.amount} exact className="font-medium" locale={locale} />
                           </span>
                         </li>
                       ))}
@@ -184,24 +180,26 @@ export default function MyAccount({
                     href={`/${tenant}/${locale}/payments`}
                     className={buttonVariants({ size: 'lg', className: 'w-full' })}
                   >
-                    عرض الفواتير والدفع
+                    {locale === 'en' ? 'View Invoices & Pay' : 'عرض الفواتير والدفع'}
                   </Link>
                 </CardContent>
               </Card>
             )}
           </section>
 
-          {/* ── What the municipality has on file ─────────────────────── */}
+          {/* Properties */}
           <section className="space-y-4">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Building2 className="size-5 text-primary" aria-hidden />
-              عقاراتي ({summary.properties.length})
+              {locale === 'en' ? `My Properties (${summary.properties.length})` : `عقاراتي (${summary.properties.length})`}
             </h2>
 
             {summary.properties.length === 0 ? (
               <Card>
                 <CardContent className="p-6 text-center text-muted-foreground">
-                  لا توجد عقارات مسجّلة باسمك. راجع البلدية لتسجيل عقارك.
+                  {locale === 'en'
+                    ? 'No registered properties found under your name. Visit the municipality to register.'
+                    : 'لا توجد عقارات مسجّلة باسمك. راجع البلدية لتسجيل عقارك.'}
                 </CardContent>
               </Card>
             ) : (
@@ -219,14 +217,14 @@ export default function MyAccount({
                         </span>
                         <div className="min-w-0 flex-1 space-y-1.5">
                           <p className="font-semibold">
-                            العقار رقم{' '}
+                            {locale === 'en' ? 'Parcel #' : 'العقار رقم '}
                             <span dir="ltr" className="font-mono">
                               {property.propertyNumber}
                             </span>
                           </p>
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Badge variant="secondary">
-                              {ar.propertyType[property.propertyType as never] ??
+                              {labels.propertyType[property.propertyType as never] ??
                                 property.propertyType}
                             </Badge>
                             <Badge
@@ -234,7 +232,7 @@ export default function MyAccount({
                                 property.occupancyType === 'TENANT' ? 'warning' : 'outline'
                               }
                             >
-                              {ar.occupancyType[property.occupancyType as never] ??
+                              {labels.occupancyType[property.occupancyType as never] ??
                                 property.occupancyType}
                             </Badge>
                           </div>
@@ -246,13 +244,13 @@ export default function MyAccount({
                             {property.unitArea != null ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <Ruler className="size-3.5 shrink-0" aria-hidden />
-                                {property.unitArea} م²
+                                {property.unitArea} {locale === 'en' ? 'm²' : 'م²'}
                               </span>
                             ) : null}
                             {property.unitCount > 0 ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <Layers className="size-3.5 shrink-0" aria-hidden />
-                                {property.unitCount} وحدة
+                                {property.unitCount} {locale === 'en' ? 'units' : 'وحدة'}
                               </span>
                             ) : null}
                           </p>
@@ -264,15 +262,10 @@ export default function MyAccount({
               </div>
             )}
 
-            {/*
-              The correction path, stated plainly. A citizen who spots a wrong
-              area or a wrong الحي used to have an online form for it; now the
-              only way to change a record is the office that entered it, so
-              saying so here beats leaving them to hunt for a button.
-            */}
             <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-              إذا لاحظت خطأً في بياناتك أو عقاراتك، يرجى مراجعة البلدية مع رقمك المرجعي
-              لتصحيحها.
+              {locale === 'en'
+                ? 'If you notice any inaccuracies in your registered file or properties, please visit the municipality with your reference number to correct them.'
+                : 'إذا لاحظت خطأً في بياناتك أو عقاراتك، يرجى مراجعة البلدية مع رقمك المرجعي لتصحيحها.'}
             </p>
           </section>
         </>

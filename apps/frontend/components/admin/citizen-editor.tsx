@@ -183,8 +183,8 @@ export function CitizenEditor({
         }
         setLoadError(
           caught instanceof ApiRequestError && caught.status === 404
-            ? 'لا يوجد مواطن بهذا المعرّف.'
-            : 'تعذّر تحميل بيانات المواطن.',
+            ? (locale === 'en' ? 'No citizen found with this ID.' : 'لا يوجد مواطن بهذا المعرّف.')
+            : (locale === 'en' ? 'Failed to load citizen data.' : 'تعذّر تحميل بيانات المواطن.'),
         );
       }
     };
@@ -193,7 +193,7 @@ export function CitizenEditor({
     return () => {
       cancelled = true;
     };
-  }, [tenant, token, citizenId, base, router]);
+  }, [tenant, token, citizenId, base, router, locale]);
 
   const submit = useCallback(
     async (values: CitizenFormValues) => {
@@ -213,12 +213,8 @@ export function CitizenEditor({
           router.push(`${base}/citizens/${citizenId}`);
         } else {
           const created = await createCitizen(tenant, token, payload);
-          // Straight to the new profile: the رقم مرجعي is what the clerk has
-          // to read back to the person standing in front of them.
           router.push(`${base}/citizens/${created.citizenId}`);
         }
-        // Server state has moved on; a cached route render would show the old
-        // record behind the redirect.
         router.refresh();
       } catch (caught) {
         logApiError(caught);
@@ -230,12 +226,12 @@ export function CitizenEditor({
         setError(
           caught instanceof ApiRequestError
             ? caught.message
-            : 'تعذّر حفظ البيانات. حاول مرة أخرى.',
+            : (locale === 'en' ? 'Failed to save data. Please try again.' : 'تعذّر حفظ البيانات. حاول مرة أخرى.'),
         );
         setSubmitting(false);
       }
     },
-    [tenant, token, citizenId, base, router],
+    [tenant, token, citizenId, base, router, locale],
   );
 
   const cancelHref = useMemo(
@@ -255,7 +251,7 @@ export function CitizenEditor({
           {loadError}
         </p>
         <Link href={`${base}/citizens`} className={buttonVariants({ variant: 'outline' })}>
-          رجوع إلى سجل المواطنين
+          {locale === 'en' ? 'Back to Citizens Registry' : 'رجوع إلى سجل المواطنين'}
         </Link>
       </div>
     );
@@ -276,7 +272,9 @@ export function CitizenEditor({
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-        {editing ? 'رجوع إلى ملف المواطن' : 'رجوع إلى سجل المواطنين'}
+        {editing
+          ? (locale === 'en' ? 'Back to Citizen Profile' : 'رجوع إلى ملف المواطن')
+          : (locale === 'en' ? 'Back to Citizens Registry' : 'رجوع إلى سجل المواطنين')}
       </Link>
 
       <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-6">
@@ -289,12 +287,18 @@ export function CitizenEditor({
           </span>
           <div className="min-w-0 space-y-1.5">
             <h1 className="truncate text-3xl font-bold tracking-tight">
-              {editing ? 'تعديل بيانات مواطن' : 'تسجيل مواطن جديد'}
+              {editing
+                ? (locale === 'en' ? 'Edit Citizen Information' : 'تعديل بيانات مواطن')
+                : (locale === 'en' ? 'Register New Citizen' : 'تسجيل مواطن جديد')}
             </h1>
             <p className="text-sm text-muted-foreground">
               {editing
-                ? 'التعديلات تُطبَّق على أحدث طلب لهذا المواطن. الطلبات السابقة تبقى كما هي في ملفه.'
-                : 'يُسجَّل الطلب بحالة «قيد الانتظار» ويظهر في قائمة المراجعة كأي طلب آخر.'}
+                ? (locale === 'en'
+                    ? "Edits apply to this citizen's latest application. Prior submissions are preserved in their history."
+                    : 'التعديلات تُطبَّق على أحدث طلب لهذا المواطن. الطلبات السابقة تبقى كما هي في ملفه.')
+                : (locale === 'en'
+                    ? 'The application is registered with status "Pending" and appears in the verification queue.'
+                    : 'يُسجَّل الطلب بحالة «قيد الانتظار» ويظهر في قائمة المراجعة كأي طلب آخر.')}
             </p>
           </div>
         </div>
@@ -315,6 +319,7 @@ export function CitizenEditor({
         error={error}
         onSubmit={(values) => void submit(values)}
         onCancel={() => router.push(cancelHref)}
+        locale={locale}
       />
     </div>
   );

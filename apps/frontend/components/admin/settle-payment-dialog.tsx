@@ -77,6 +77,7 @@ export function SettlePaymentDialog({
   error,
   collectors = [],
   onSubmit,
+  locale = 'ar',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -85,12 +86,34 @@ export function SettlePaymentDialog({
   error: string | null;
   collectors?: CollectorOption[];
   onSubmit: (values: SettleValues) => void;
+  locale?: string;
 }) {
   const [method, setMethod] = useState<SettleValues['method']>('CASH');
   const [reference, setReference] = useState('');
   const [collectedById, setCollectedById] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+
+  const methods = [
+    {
+      value: 'CASH' as const,
+      title: locale === 'en' ? 'Cash' : 'نقداً',
+      description: locale === 'en' ? 'Cash in office register' : 'استلام في الصندوق',
+      icon: Banknote,
+    },
+    {
+      value: 'WHISH_MONEY' as const,
+      title: locale === 'en' ? 'Whish Transfer' : 'تحويل Whish',
+      description: locale === 'en' ? 'Verified transfer' : 'تحويل مؤكد',
+      icon: CreditCard,
+    },
+    {
+      value: 'COLLECTOR' as const,
+      title: locale === 'en' ? 'Through Collector' : 'عبر المحصّل',
+      description: locale === 'en' ? 'Field collection' : 'استلام ميداني',
+      icon: UserCheck,
+    },
+  ];
 
   useEffect(() => {
     if (!open || !payment) return;
@@ -119,9 +142,9 @@ export function SettlePaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel="إغلاق" className="sm:max-w-md">
+      <DialogContent closeLabel={locale === 'en' ? 'Close' : 'إغلاق'} className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>تسجيل دفعة</DialogTitle>
+          <DialogTitle>{locale === 'en' ? 'Record Payment' : 'تسجيل دفعة'}</DialogTitle>
           <DialogDescription>{payment.title}</DialogDescription>
         </DialogHeader>
 
@@ -136,13 +159,15 @@ export function SettlePaymentDialog({
           ) : null}
 
           <div className="flex items-center justify-between rounded-lg bg-muted/40 p-3 text-sm">
-            <span className="text-muted-foreground">الرصيد المستحق:</span>
-            <span className="font-bold tabular-nums">{formatLbp(payment.remaining)}</span>
+            <span className="text-muted-foreground">
+              {locale === 'en' ? 'Remaining Balance:' : 'الرصيد المستحق:'}
+            </span>
+            <span className="font-bold tabular-nums">{formatLbp(payment.remaining, locale)}</span>
           </div>
 
-          <Field label="طريقة الدفع" htmlFor="settle-method" required>
+          <Field label={locale === 'en' ? 'Payment Method' : 'طريقة الدفع'} htmlFor="settle-method" required>
             <div className="grid gap-2 sm:grid-cols-3">
-              {METHODS.map((option) => (
+              {methods.map((option) => (
                 <ChoiceCard
                   key={option.value}
                   name="settle-method"
@@ -163,10 +188,10 @@ export function SettlePaymentDialog({
 
           {isWhish ? (
             <Field
-              label="رقم عملية التحويل"
+              label={locale === 'en' ? 'Transaction Reference Number' : 'رقم عملية التحويل'}
               htmlFor="settle-reference"
               required
-              hint="كما يظهر في إشعار Whish."
+              hint={locale === 'en' ? 'As shown on Whish receipt.' : 'كما يظهر في إشعار Whish.'}
             >
               <Input
                 id="settle-reference"
@@ -181,15 +206,20 @@ export function SettlePaymentDialog({
           ) : null}
 
           {isCollector ? (
-            <Field label="المحصّل" htmlFor="settle-collector" required hint="الموظف المسؤول.">
+            <Field
+              label={locale === 'en' ? 'Collector' : 'المحصّل'}
+              htmlFor="settle-collector"
+              required
+              hint={locale === 'en' ? 'Responsible staff member.' : 'الموظف المسؤول.'}
+            >
               {collectors.length === 0 ? (
                 <p className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
-                  لا توجد حسابات موظفين.
+                  {locale === 'en' ? 'No staff accounts found.' : 'لا توجد حسابات موظفين.'}
                 </p>
               ) : (
                 <Select value={collectedById} onValueChange={setCollectedById}>
                   <SelectTrigger id="settle-collector">
-                    <SelectValue placeholder="اختر المحصّل…" />
+                    <SelectValue placeholder={locale === 'en' ? 'Select collector…' : 'اختر المحصّل…'} />
                   </SelectTrigger>
                   <SelectContent>
                     {collectors.map((collector) => (
@@ -205,12 +235,14 @@ export function SettlePaymentDialog({
 
           <div className="space-y-1.5">
             <Field
-              label="المبلغ المستلم (ل.ل)"
+              label={locale === 'en' ? 'Received Amount (LBP)' : 'المبلغ المستلم (ل.ل)'}
               htmlFor="settle-amount"
               required
               error={
                 tooMuch
-                  ? `المبلغ أكبر من الرصيد (${formatLbp(payment.remaining)})`
+                  ? (locale === 'en'
+                      ? `Amount exceeds remaining balance (${formatLbp(payment.remaining, locale)})`
+                      : `المبلغ أكبر من الرصيد (${formatLbp(payment.remaining, locale)})`)
                   : undefined
               }
             >
@@ -226,7 +258,7 @@ export function SettlePaymentDialog({
               />
             </Field>
 
-            {received > 0 && !tooMuch ? (
+            {received > 0 && !tooMuch && locale === 'ar' ? (
               <p className="text-xs text-muted-foreground">
                 <span className="font-semibold text-foreground">كتابةً:</span> {tafqeet(received)}
               </p>
@@ -235,15 +267,23 @@ export function SettlePaymentDialog({
 
           {isPartial ? (
             <p className="rounded-lg border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
-              دفعة جزئية — سيبقى <span className="font-bold">{formatLbp(payment.remaining - received)}</span> مستحقاً.
+              {locale === 'en' ? (
+                <>
+                  Partial payment — <span className="font-bold">{formatLbp(payment.remaining - received, locale)}</span> will remain due.
+                </>
+              ) : (
+                <>
+                  دفعة جزئية — سيبقى <span className="font-bold">{formatLbp(payment.remaining - received, locale)}</span> مستحقاً.
+                </>
+              )}
             </p>
           ) : null}
 
-          <Field label="ملاحظة" htmlFor="settle-note" hint="اختياري">
+          <Field label={locale === 'en' ? 'Notes' : 'ملاحظة'} htmlFor="settle-note" hint={locale === 'en' ? 'Optional' : 'اختياري'}>
             <Textarea
               id="settle-note"
               rows={2}
-              placeholder="ملاحظات…"
+              placeholder={locale === 'en' ? 'Notes…' : 'ملاحظات…'}
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
@@ -252,7 +292,7 @@ export function SettlePaymentDialog({
 
         <DialogFooter className="gap-2 pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            إلغاء
+            {locale === 'en' ? 'Cancel' : 'إلغاء'}
           </Button>
           <Button
             disabled={!valid || submitting}
@@ -268,7 +308,7 @@ export function SettlePaymentDialog({
             }
           >
             {submitting ? <Loader2 className="size-4 animate-spin rtl:ml-2 ltr:mr-2" aria-hidden /> : null}
-            تسجيل {formatLbp(valid ? received : 0)}
+            {locale === 'en' ? `Record ${formatLbp(valid ? received : 0, locale)}` : `تسجيل ${formatLbp(valid ? received : 0, locale)}`}
           </Button>
         </DialogFooter>
       </DialogContent>

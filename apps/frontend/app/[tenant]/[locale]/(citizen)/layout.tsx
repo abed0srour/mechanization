@@ -56,7 +56,9 @@ export default async function CitizenLayout({
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-lg font-bold leading-tight">{config.nameAr}</p>
+            <p className="text-lg font-bold leading-tight">
+              {locale === 'en' ? (config.name || config.nameAr) : (config.nameAr || config.name)}
+            </p>
             <p className="text-sm text-muted-foreground">
               {locale === 'en' ? 'Property & Residency Registry' : 'تسجيل العقارات والوحدات السكنية'}
             </p>
@@ -77,7 +79,7 @@ export default async function CitizenLayout({
       <footer className="mt-16 border-t py-6 text-center text-sm text-muted-foreground">
         {config.supportPhone ? (
           <p>
-            للمساعدة اتصل بالبلدية:{' '}
+            {locale === 'en' ? 'For assistance, contact the municipality: ' : 'للمساعدة اتصل بالبلدية: '}
             <a
               className="font-medium text-primary hover:underline"
               href={`tel:${config.supportPhone}`}

@@ -107,12 +107,64 @@ export default function AppearancePage({
   const router = useRouter();
   const base = `/${tenant}/${locale}/${adminPath}`;
 
+  const modes = [
+    {
+      id: 'light' as const,
+      label: locale === 'en' ? 'Light' : 'فاتح',
+      hint: locale === 'en' ? 'Light crisp background at all times' : 'خلفية كريمية فاتحة طوال الوقت',
+      icon: Sun,
+    },
+    {
+      id: 'dark' as const,
+      label: locale === 'en' ? 'Dark' : 'داكن',
+      hint: locale === 'en' ? 'Comfortable for eyes in low light' : 'مريح للعين في الإضاءة المنخفضة',
+      icon: Moon,
+    },
+    {
+      id: 'system' as const,
+      label: locale === 'en' ? 'System' : 'حسب النظام',
+      hint: locale === 'en' ? 'Automatically follows device settings' : 'يتبع إعداد الجهاز تلقائياً',
+      icon: Laptop,
+    },
+  ];
+
+  const accents = [
+    {
+      id: 'municipal',
+      label: locale === 'en' ? 'Municipal Blue' : 'الأزرق البلدي',
+      hint: locale === 'en' ? 'Default platform color' : 'اللون الافتراضي للمنصّة',
+      swatch: ['#1a4f9c', '#2f6fd0'],
+    },
+    {
+      id: 'emerald',
+      label: locale === 'en' ? 'Olive Emerald' : 'الأخضر الزيتوني',
+      hint: locale === 'en' ? 'Calm and comfortable for long reading' : 'هادئ ومناسب للقراءة الطويلة',
+      swatch: ['#166a45', '#22a06b'],
+    },
+    {
+      id: 'rose',
+      label: locale === 'en' ? 'Rose Red' : 'الأحمر الوردي',
+      hint: locale === 'en' ? 'Warm and distinct' : 'لون دافئ وواضح',
+      swatch: ['#b31843', '#e23e6b'],
+    },
+    {
+      id: 'violet',
+      label: locale === 'en' ? 'Violet' : 'البنفسجي',
+      hint: locale === 'en' ? 'High contrast in dark mode' : 'تباين عالٍ في الوضع الداكن',
+      swatch: ['#5b32bd', '#8b5cf6'],
+    },
+    {
+      id: 'sunset',
+      label: locale === 'en' ? 'Sunset Orange' : 'البرتقالي',
+      hint: locale === 'en' ? 'Warm coastal sunset tones' : 'مستوحى من غروب الساحل',
+      swatch: ['#c2510c', '#f97316'],
+    },
+  ];
+
   const [token, setToken] = useState<string | null>(null);
   const { theme, setTheme } = useTheme();
   const { accent, setAccent } = useAccent();
 
-  // `next-themes` only knows the resolved value on the client; rendering a
-  // selection before mount would disagree with the server's HTML.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -131,19 +183,25 @@ export default function AppearancePage({
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
       <PageHeader
         icon={Palette}
-        title="المظهر"
-        subtitle="اختر وضع الإضاءة ولون الواجهة — يُحفظ على هذا المتصفّح وحده"
+        title={locale === 'en' ? 'Appearance' : 'المظهر'}
+        subtitle={
+          locale === 'en'
+            ? 'Choose theme mode and accent color — saved for this browser only'
+            : 'اختر وضع الإضاءة ولون الواجهة — يُحفظ على هذا المتصفّح وحده'
+        }
       />
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-sm font-semibold">وضع الإضاءة</h2>
+          <h2 className="text-sm font-semibold">{locale === 'en' ? 'Theme Mode' : 'وضع الإضاءة'}</h2>
           <p className="text-sm text-muted-foreground">
-            «حسب النظام» يتبع إعداد جهازك ويتبدّل معه تلقائياً.
+            {locale === 'en'
+              ? '"System" matches your device setting and switches with it automatically.'
+              : '«حسب النظام» يتبع إعداد جهازك ويتبدّل معه تلقائياً.'}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          {MODES.map(({ id, label, hint, icon: Icon }) => (
+          {modes.map(({ id, label, hint, icon: Icon }) => (
             <OptionCard
               key={id}
               selected={mounted && theme === id}
@@ -165,21 +223,21 @@ export default function AppearancePage({
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-sm font-semibold">لون الواجهة</h2>
+          <h2 className="text-sm font-semibold">{locale === 'en' ? 'Accent Color' : 'لون الواجهة'}</h2>
           <p className="text-sm text-muted-foreground">
-            يُطبَّق فوراً على الأزرار والروابط والعناصر النشطة. لا يغيّر شعار البلدية ولا
-            ألوان الحالات (مسدَّد، متأخّر، قيد المراجعة).
+            {locale === 'en'
+              ? 'Applies instantly to buttons, links, and active elements. Does not alter municipality logo or status badges.'
+              : 'يُطبَّق فوراً على الأزرار والروابط والعناصر النشطة. لا يغيّر شعار البلدية ولا ألوان الحالات (مسدَّد، متأخّر، قيد المراجعة).'}
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {ACCENTS.map(({ id, label, hint, swatch }) => (
+          {accents.map(({ id, label, hint, swatch }) => (
             <OptionCard
               key={id}
               selected={accent === id}
               onSelect={() => setAccent(id as AccentId)}
             >
               <div className="flex items-center gap-3 p-1">
-                {/* Two overlapping dots — the palette's dark and light tones. */}
                 <span className="relative flex h-7 w-11 shrink-0 items-center" aria-hidden>
                   <span
                     className="absolute start-0 size-7 rounded-full"

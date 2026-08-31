@@ -52,6 +52,7 @@ export function ZoneModal({
   fieldErrors,
   onSave,
   onOpenChange,
+  locale = 'ar',
 }: {
   open: boolean;
   /** The sector being edited, or null when creating a new one. */
@@ -63,22 +64,32 @@ export function ZoneModal({
   fieldErrors: Record<string, string>;
   onSave: (values: ZoneFormValues) => void;
   onOpenChange: (open: boolean) => void;
+  locale?: string;
 }) {
+  const palette = [
+    { hex: '#3B82F6', label: locale === 'en' ? 'Blue' : 'أزرق' },
+    { hex: '#10B981', label: locale === 'en' ? 'Green' : 'أخضر' },
+    { hex: '#F59E0B', label: locale === 'en' ? 'Orange' : 'برتقالي' },
+    { hex: '#EF4444', label: locale === 'en' ? 'Red' : 'أحمر' },
+    { hex: '#8B5CF6', label: locale === 'en' ? 'Purple' : 'بنفسجي' },
+    { hex: '#EC4899', label: locale === 'en' ? 'Pink' : 'وردي' },
+    { hex: '#14B8A6', label: locale === 'en' ? 'Teal' : 'فيروزي' },
+    { hex: '#84CC16', label: locale === 'en' ? 'Lime' : 'ليموني' },
+  ];
+
   const [values, setValues] = useState<ZoneFormValues>({
     name: '',
     code: '',
-    color: PALETTE[0].hex,
+    color: palette[0].hex,
     description: '',
   });
 
-  // Reseeded whenever the dialog opens, so editing one sector and then another
-  // does not carry the first one's name into the second one's form.
   useEffect(() => {
     if (!open) return;
     setValues({
       name: zone?.name ?? '',
       code: zone?.code ?? '',
-      color: zone?.color ?? PALETTE[0].hex,
+      color: zone?.color ?? palette[0].hex,
       description: zone?.description ?? '',
     });
   }, [open, zone]);
@@ -88,31 +99,40 @@ export function ZoneModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel="إغلاق" className="max-w-md">
+      <DialogContent closeLabel={locale === 'en' ? 'Close' : 'إغلاق'} className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{zone ? 'تعديل القطاع' : 'قطاع جديد'}</DialogTitle>
+          <DialogTitle>
+            {zone
+              ? (locale === 'en' ? 'Edit Sector' : 'تعديل القطاع')
+              : (locale === 'en' ? 'New Sector' : 'قطاع جديد')}
+          </DialogTitle>
           <DialogDescription>
             {parcelCount > 0
-              ? `${parcelCount} عقار محدّد على الخريطة`
-              : 'لم يتم تحديد أي عقار بعد — يمكن حفظ القطاع وإضافة العقارات لاحقاً'}
+              ? (locale === 'en' ? `${parcelCount} parcel(s) selected on map` : `${parcelCount} عقار محدّد على الخريطة`)
+              : (locale === 'en' ? 'No parcels selected yet — can be assigned later' : 'لم يتم تحديد أي عقار بعد — يمكن حفظ القطاع وإضافة العقارات لاحقاً')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <Field label="اسم القطاع" htmlFor="zone-name" required error={fieldErrors.name}>
+          <Field
+            label={locale === 'en' ? 'Sector Name' : 'اسم القطاع'}
+            htmlFor="zone-name"
+            required
+            error={fieldErrors.name}
+          >
             <Input
               id="zone-name"
               value={values.name}
               onChange={(e) => set('name', e.target.value)}
-              placeholder="المنطقة الشرقية - قطاع أ"
+              placeholder={locale === 'en' ? 'East Region - Sector A' : 'المنطقة الشرقية - قطاع أ'}
             />
           </Field>
 
           <Field
-            label="رمز القطاع"
+            label={locale === 'en' ? 'Sector Code' : 'رمز القطاع'}
             htmlFor="zone-code"
             required
-            hint="رمز مختصر يستخدم في التقارير"
+            hint={locale === 'en' ? 'Short code used in reports' : 'رمز مختصر يستخدم في التقارير'}
             error={fieldErrors.code}
           >
             <Input
@@ -120,16 +140,19 @@ export function ZoneModal({
               value={values.code}
               onChange={(e) => set('code', e.target.value)}
               placeholder="SEC-A1"
-              // Latin/digits regardless of the page's RTL flow — the value is a
-              // code, and mirroring it makes "SEC-A1" read as "1A-CES".
               dir="ltr"
               className="text-start"
             />
           </Field>
 
-          <Field label="لون القطاع" htmlFor="zone-color" required error={fieldErrors.color}>
+          <Field
+            label={locale === 'en' ? 'Sector Color' : 'لون القطاع'}
+            htmlFor="zone-color"
+            required
+            error={fieldErrors.color}
+          >
             <div id="zone-color" className="flex flex-wrap gap-2">
-              {PALETTE.map((swatch) => {
+              {palette.map((swatch) => {
                 const active = values.color.toUpperCase() === swatch.hex;
                 return (
                   <button
@@ -150,13 +173,17 @@ export function ZoneModal({
             </div>
           </Field>
 
-          <Field label="ملاحظات" htmlFor="zone-description" error={fieldErrors.description}>
+          <Field
+            label={locale === 'en' ? 'Notes / Description' : 'ملاحظات'}
+            htmlFor="zone-description"
+            error={fieldErrors.description}
+          >
             <Textarea
               id="zone-description"
               value={values.description}
               onChange={(e) => set('description', e.target.value)}
               rows={2}
-              placeholder="وصف مختصر للقطاع"
+              placeholder={locale === 'en' ? 'Brief description of the sector' : 'وصف مختصر للقطاع'}
             />
           </Field>
 
@@ -172,14 +199,16 @@ export function ZoneModal({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            إلغاء
+            {locale === 'en' ? 'Cancel' : 'إلغاء'}
           </Button>
           <Button
             onClick={() => onSave(values)}
             disabled={saving || !values.name.trim() || !values.code.trim()}
           >
             {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            {zone ? 'حفظ التعديلات' : 'إنشاء القطاع'}
+            {zone
+              ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+              : (locale === 'en' ? 'Create Sector' : 'إنشاء القطاع')}
           </Button>
         </DialogFooter>
       </DialogContent>

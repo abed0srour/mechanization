@@ -141,12 +141,12 @@ export function CommandPalette({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="بحث شامل"
+      aria-label={locale === 'en' ? 'Global Search' : 'بحث شامل'}
       className="fixed inset-0 z-[60] flex items-start justify-center p-3 sm:p-6"
     >
       <button
         type="button"
-        aria-label="إغلاق"
+        aria-label={locale === 'en' ? 'Close' : 'إغلاق'}
         className="absolute inset-0 cursor-default bg-black/60 animate-in fade-in"
         onClick={() => onOpenChange(false)}
       />
@@ -254,7 +254,7 @@ export function CommandPalette({
                   <React.Fragment key={`citizen-${citizen.id}`}>
                     {isFirstCitizen ? (
                       <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold tracking-wider text-muted-foreground">
-                        المواطنون
+                        {locale === 'en' ? 'Citizens' : 'المواطنون'}
                       </p>
                     ) : null}
                     <button

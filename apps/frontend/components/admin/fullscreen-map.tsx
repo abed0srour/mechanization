@@ -198,6 +198,7 @@ export function FullscreenMap({
   focusParcelNumber,
   focusLat,
   focusLng,
+  locale = 'ar',
 }: {
   tenant: string;
   /** Staff access token — the zone overlay is an authenticated endpoint. */
@@ -217,6 +218,7 @@ export function FullscreenMap({
    * clickable into a drawer. */
   focusLat?: number;
   focusLng?: number;
+  locale?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -1156,8 +1158,8 @@ export function FullscreenMap({
               if (e.key === 'Enter') void runSearch();
               if (e.key === 'Escape') clearSearch();
             }}
-            placeholder="ابحث برقم العقار"
-            aria-label="ابحث برقم العقار"
+            placeholder={locale === 'en' ? 'Search by parcel number' : 'ابحث برقم العقار'}
+            aria-label={locale === 'en' ? 'Search by parcel number' : 'ابحث برقم العقار'}
             className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
           />
           {query ? (
@@ -1165,7 +1167,7 @@ export function FullscreenMap({
               variant="ghost"
               size="icon"
               onClick={clearSearch}
-              aria-label="مسح البحث"
+              aria-label={locale === 'en' ? 'Clear search' : 'مسح البحث'}
               className="size-8 shrink-0"
             >
               <X className="size-4" aria-hidden />
@@ -1180,14 +1182,12 @@ export function FullscreenMap({
             {searchStatus === 'searching' ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
-              'بحث'
+              locale === 'en' ? 'Search' : 'بحث'
             )}
           </Button>
         </div>
 
-        {/* Typeahead over the parcels already on the map. Rows rather than
-            buttons, matching the reference's resident list — a stack of
-            button-shaped controls reads as a toolbar, not as results. */}
+        {/* Typeahead over the parcels already on the map. */}
         {matchesOpen && localMatches.length > 0 ? (
           <ul className="mt-1.5 overflow-hidden rounded-md border bg-card/95 shadow-sm backdrop-blur">
             {localMatches.map((parcel) => (
@@ -1202,9 +1202,13 @@ export function FullscreenMap({
                   }}
                   className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm transition-colors hover:bg-accent"
                 >
-                  <span className="font-medium">العقار رقم {parcel.propertyNumber}</span>
+                  <span className="font-medium">
+                    {locale === 'en' ? `Parcel #${parcel.propertyNumber}` : `العقار رقم ${parcel.propertyNumber}`}
+                  </span>
                   <span className="text-xs text-muted-foreground">
-                    {parcel.registrants.length} مسجّل
+                    {locale === 'en'
+                      ? `${parcel.registrants.length} registered`
+                      : `${parcel.registrants.length} مسجّل`}
                   </span>
                 </button>
               </li>
@@ -1214,10 +1218,14 @@ export function FullscreenMap({
 
         {searchStatus === 'not-found' ? (
           <div className="mt-1.5 rounded-md border bg-card/95 px-3 py-1.5 shadow-sm backdrop-blur">
-            <p className="text-xs text-destructive">لا يوجد عقار بهذا الرقم في هذه البلدية</p>
+            <p className="text-xs text-destructive">
+              {locale === 'en' ? 'No parcel found with this number in this municipality' : 'لا يوجد عقار بهذا الرقم في هذه البلدية'}
+            </p>
             {suggestions.length > 0 ? (
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-muted-foreground">هل تقصد</span>
+                <span className="text-xs text-muted-foreground">
+                  {locale === 'en' ? 'Did you mean:' : 'هل تقصد'}
+                </span>
                 {suggestions.map((suggestion) => (
                   <Button
                     key={suggestion}
@@ -1235,24 +1243,7 @@ export function FullscreenMap({
         ) : null}
       </div>
 
-      {/*
-        Styling for the DOM markers this component still creates.
-
-        `.map-parcel-dot` used to live here — one element per registered parcel,
-        with a `:hover` transform and an infinite pulse on the focused one. It
-        is gone: those are GL layers now (see `attachRegistered`), which is what
-        stopped the map stuttering during a pan. What remains are the three
-        one-off pins, where a single DOM element buys CSS that GL cannot
-        express — a teardrop, and a pulse that draws the eye to a single place.
-      */}
       <style>{`
-        /* The parcel the drawer is currently describing.
-
-           A teardrop rather than another circle: every other mark on this map
-           is round, so the one that says "this is the one you opened" is the
-           one shape that is not. The marker is anchored bottom, so the tip
-           sits on the coordinate and points at the parcel rather than
-           covering it. */
         .map-selected-pin {
           position: relative;
           width: 28px; height: 28px;
@@ -1262,7 +1253,6 @@ export function FullscreenMap({
           border: 3px solid #fff;
           box-shadow: 0 2px 10px rgba(15, 23, 42, 0.55);
         }
-        /* Counter-rotated so the hole reads as a circle, not an egg. */
         .map-selected-pin::before {
           content: '';
           position: absolute;
@@ -1279,30 +1269,16 @@ export function FullscreenMap({
           animation: map-search-pulse 1.8s ease-out 3;
         }
 
-        /* Fallback pin for a citizen's property when it isn't a registered
-           parcel — filled (unlike the empty search ring below) since this is
-           a known location, not "nothing found here yet". Same amber as the
-           focused dot above so the two read as the same concept. */
         .map-citizen-pin {
           position: relative;
           width: 20px; height: 20px;
           border-radius: 9999px;
           background: hsl(var(--warning));
           border: 3px solid #fff;
-          box-shadow: 0 1px 6px rgba(15, 23, 42, 0.6);
-        }
-        .map-citizen-pin::after {
-          content: '';
-          position: absolute;
-          inset: -8px;
-          border-radius: 9999px;
-          border: 2px solid hsl(var(--warning));
+          box-shadow: 0 2px 8px rgba(15, 23, 42, 0.45);
           animation: map-search-pulse 1.6s ease-out infinite;
         }
 
-        /* Search result on a parcel with no citizen registrations yet — a
-           ring rather than a filled dot, so it never reads as "clickable to
-           open a sidebar" the way a registered marker does. */
         .map-search-pin {
           width: 22px; height: 22px;
           border-radius: 9999px;
@@ -1316,12 +1292,6 @@ export function FullscreenMap({
           100% { transform: scale(1.6); opacity: 0; }
         }
 
-        /* Below the sm breakpoint the parcel panel is a sheet off the bottom
-           edge, capped at 68dvh. Anything the map anchors to that edge goes
-           behind it, so it is lifted the sheet's height plus a gap — Mapbox's
-           attribution included, which its terms require to remain visible.
-           Above sm the panel is a side rail and nothing here is in its way.
-           (No backticks in this block: it is inside a template literal.) */
         @media (max-width: 639px) {
           [data-sheet-open] .mapboxgl-ctrl-bottom-left,
           [data-sheet-open] .mapboxgl-ctrl-bottom-right {
@@ -1331,23 +1301,23 @@ export function FullscreenMap({
         }
       `}</style>
 
-      {/* What the dots mean, stated plainly — the conditional-rendering rule
-          is otherwise invisible. Pinned physically right: Mapbox's own nav
-          control sits top-left, and the citizen drawer opens from this same
-          right edge but well below the header. */}
       <div className="pointer-events-none absolute right-3 top-16 z-10 rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur sm:top-3">
         <p className="text-sm font-bold">
           {zoneParcelNumbers
             ? parcels.filter((parcel) => zoneParcelNumbers.has(parcel.propertyNumber)).length
             : parcels.length}{' '}
-          عقار مسجّل
+          {locale === 'en' ? 'registered parcels' : 'عقار مسجّل'}
         </p>
         {activeZoneId ? (
           <p className="text-xs text-primary">
-            ضمن قطاع {zones.find((zone) => zone.id === activeZoneId)?.name ?? ''}
+            {locale === 'en'
+              ? `In Sector: ${zones.find((zone) => zone.id === activeZoneId)?.name ?? ''}`
+              : `ضمن قطاع ${zones.find((zone) => zone.id === activeZoneId)?.name ?? ''}`}
           </p>
         ) : cadastreReady ? (
-          <p className="text-xs text-muted-foreground">النقاط تظهر فقط على العقارات المسجّلة</p>
+          <p className="text-xs text-muted-foreground">
+            {locale === 'en' ? 'Pins appear on registered parcels only' : 'النقاط تظهر فقط على العقارات المسجّلة'}
+          </p>
         ) : null}
       </div>
 
@@ -1357,14 +1327,16 @@ export function FullscreenMap({
         onVisibleChange={setZonesVisible}
         activeZoneId={activeZoneId}
         onSelectZone={setActiveZoneId}
+        locale={locale}
       />
 
-      <MapLayerControl value={basemap} onChange={setBasemap} />
+      <MapLayerControl value={basemap} onChange={setBasemap} locale={locale} />
 
       <CitizenDetailDrawer
         parcel={selected}
         citizenHref={citizenHref}
         onClose={() => setSelected(null)}
+        locale={locale}
       />
     </div>
   );

@@ -430,6 +430,7 @@ export default function ZonesPage({
               onSelectedChange={setSelectedParcels}
               assignments={assignments}
               onNotice={setNotice}
+              locale={locale}
             />
           ) : null}
 
@@ -459,6 +460,7 @@ export default function ZonesPage({
         fieldErrors={fieldErrors}
         onSave={handleSave}
         onOpenChange={setModalOpen}
+        locale={locale}
       />
 
       <ConfirmDialog

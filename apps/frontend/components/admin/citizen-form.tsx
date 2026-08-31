@@ -152,6 +152,7 @@ export function CitizenForm({
   error,
   onSubmit,
   onCancel,
+  locale = 'ar',
 }: {
   tenant: string;
   config: PublicTenantConfig;
@@ -162,6 +163,7 @@ export function CitizenForm({
   error: string | null;
   onSubmit: (values: CitizenFormValues) => void;
   onCancel: () => void;
+  locale?: string;
 }) {
   const [values, setValues] = useState<CitizenFormValues>(initial);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -299,21 +301,50 @@ export function CitizenForm({
   const sectionInvalid = (prefix: string) =>
     Object.keys(shown).some((key) => key.startsWith(`${prefix}.`));
 
+  const sections = useMemo(
+    () => [
+      {
+        id: 'personal',
+        step: locale === 'en' ? '1' : '١',
+        icon: IdCard,
+        title: locale === 'en' ? 'Personal Information' : 'البيانات الشخصية',
+        description:
+          locale === 'en'
+            ? 'Name as written on ID document, nationality, and residency status'
+            : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة',
+      },
+      {
+        id: 'contact',
+        step: locale === 'en' ? '2' : '٢',
+        icon: UsersRound,
+        title: locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة',
+        description:
+          locale === 'en'
+            ? 'Phone number used by citizen for login and tracking submissions'
+            : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه',
+      },
+      {
+        id: 'properties',
+        step: locale === 'en' ? '3' : '٣',
+        icon: Building2,
+        title: locale === 'en' ? 'Properties' : 'العقارات',
+        description:
+          locale === 'en'
+            ? 'Property parcel number verified against municipality records'
+            : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة',
+      },
+    ],
+    [locale],
+  );
+
   return (
     <div className="space-y-6">
-      {/*
-        Jump links. This form is three to ten screens tall depending on how
-        many properties a household holds, and the two commonest jobs on it —
-        "fix the phone number" and "add another عقار" — live at opposite ends.
-        Scrolling to find them is the tax the single-page layout would
-        otherwise charge for losing the wizard's step buttons.
-      */}
       <nav
-        aria-label="أقسام النموذج"
+        aria-label={locale === 'en' ? 'Form sections' : 'أقسام النموذج'}
         className="sticky top-0 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
       >
         <ul className="flex flex-wrap items-center gap-2">
-          {SECTIONS.map((section) => {
+          {sections.map((section) => {
             const Icon = section.icon;
             const invalid = sectionInvalid(section.id);
             const isActive = active === section.id;
@@ -321,16 +352,13 @@ export function CitizenForm({
               <li key={section.id}>
                 <button
                   type="button"
-                  onClick={() => jumpTo(section.id)}
+                  onClick={() => jumpTo(section.id as SectionId)}
                   aria-current={isActive ? 'true' : undefined}
                   className={cn(
                     'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
                     isActive
                       ? 'border-primary bg-primary text-primary-foreground'
                       : 'border-transparent bg-muted/60 text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                    // The error state outranks the active one: a clerk who has
-                    // scrolled past a broken section needs to see that from
-                    // here, and "you are here" is the less urgent fact.
                     invalid &&
                       !isActive &&
                       'border-destructive/50 bg-destructive/10 text-destructive',
@@ -360,9 +388,9 @@ export function CitizenForm({
                         )}
                         aria-hidden
                       />
-                      {/* The icon is decorative; this is what a screen reader
-                          announces, since colour and a glyph say nothing to it. */}
-                      <span className="sr-only">يحتوي على حقول غير مكتملة</span>
+                      <span className="sr-only">
+                        {locale === 'en' ? 'Contains incomplete fields' : 'يحتوي على حقول غير مكتملة'}
+                      </span>
                     </>
                   ) : null}
                 </button>
@@ -374,40 +402,58 @@ export function CitizenForm({
 
       <FormSection
         id="personal"
-        step="١"
+        step={locale === 'en' ? '1' : '١'}
         icon={IdCard}
-        title="البيانات الشخصية"
-        description="الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة"
+        title={locale === 'en' ? 'Personal Information' : 'البيانات الشخصية'}
+        description={
+          locale === 'en'
+            ? 'Name as written on ID document, nationality, and residency status'
+            : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة'
+        }
         invalid={sectionInvalid('personal')}
       >
         <PersonalStep
           value={values.personal}
           errors={shown}
           onChange={(personal) => update({ personal })}
+          locale={locale}
         />
       </FormSection>
 
       <FormSection
         id="contact"
-        step="٢"
+        step={locale === 'en' ? '2' : '٢'}
         icon={UsersRound}
-        title="التواصل والأسرة"
-        description="رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه"
+        title={locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة'}
+        description={
+          locale === 'en'
+            ? 'Phone number used by citizen for login and tracking submissions'
+            : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه'
+        }
         invalid={sectionInvalid('contact')}
       >
         <ContactStep
           value={values.contact}
           errors={shown}
           onChange={(contact) => update({ contact })}
+          locale={locale}
         />
       </FormSection>
 
       <FormSection
         id="properties"
-        step="٣"
+        step={locale === 'en' ? '3' : '٣'}
         icon={Building2}
-        title={`العقارات (${values.properties.length})`}
-        description="رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة"
+        title={
+          locale === 'en'
+            ? `Properties (${values.properties.length})`
+            : `العقارات (${values.properties.length})`
+        }
+        description={
+          locale === 'en'
+            ? 'Property parcel number verified against municipality records'
+            : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة'
+        }
         invalid={sectionInvalid('properties')}
       >
         <div className="space-y-6">
@@ -424,18 +470,15 @@ export function CitizenForm({
               onRemove={() => removeProperty(index)}
               canRemove={values.properties.length > 1}
               errors={scopeErrors(shown, `properties.${index}`)}
+              locale={locale}
             />
           ))}
 
-          {/*
-            Said before the delete rather than after it: removing a stored
-            property takes its سند الملكية / عقد الإيجار with it, because the
-            document row hangs off the property row and cascades. A clerk
-            tidying up a duplicate entry has no way to know that otherwise.
-          */}
           {mode === 'edit' && values.properties.some((property) => property.id) ? (
             <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).
+              {locale === 'en'
+                ? 'Deleting a registered property will also delete associated attachments (title deed or lease).'
+                : 'حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).'}
             </p>
           ) : null}
 
@@ -446,16 +489,11 @@ export function CitizenForm({
             className="w-full border-dashed border-primary text-primary hover:bg-primary/5"
           >
             <Plus className="size-5" aria-hidden />
-            إضافة عقار آخر
+            {locale === 'en' ? 'Add Another Property' : 'إضافة عقار آخر'}
           </Button>
         </div>
       </FormSection>
 
-      {/*
-        Sticky, because this page is long enough that the save button would
-        otherwise be several screens below whatever is being typed — and a
-        clerk with someone waiting should never have to hunt for it.
-      */}
       <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6">
         {error ? (
           <p
@@ -466,13 +504,6 @@ export function CitizenForm({
           </p>
         ) : null}
 
-        {/*
-          The failures spelled out, not just counted. Every message here also
-          appears under its own input — but a branch-specific field can be
-          hidden for the answers currently given (الجنسية is not rendered at
-          all for a Lebanese citizen), and a folded property card hides its
-          own errors entirely.
-        */}
         {messages.length > 0 ? (
           <div
             role="alert"
@@ -480,7 +511,9 @@ export function CitizenForm({
           >
             <p className="flex items-center gap-2 font-medium">
               <TriangleAlert className="size-4 shrink-0" aria-hidden />
-              يرجى تصحيح الحقول التالية قبل الحفظ:
+              {locale === 'en'
+                ? 'Please correct the following fields before saving:'
+                : 'يرجى تصحيح الحقول التالية قبل الحفظ:'}
             </p>
             <ul className="list-inside list-disc ps-1">
               {messages.map((message) => (
@@ -492,7 +525,7 @@ export function CitizenForm({
 
         <div className="flex flex-wrap items-center justify-end gap-3">
           <Button variant="outline" onClick={onCancel} disabled={submitting}>
-            إلغاء
+            {locale === 'en' ? 'Cancel' : 'إلغاء'}
           </Button>
           <Button size="lg" onClick={handleSubmit} disabled={submitting}>
             {submitting ? (
@@ -500,7 +533,9 @@ export function CitizenForm({
             ) : (
               <Save className="size-5" aria-hidden />
             )}
-            {mode === 'edit' ? 'حفظ التعديلات' : 'حفظ وإنشاء الملف'}
+            {mode === 'edit'
+              ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+              : (locale === 'en' ? 'Save & Create Record' : 'حفظ وإنشاء الملف')}
           </Button>
         </div>
       </div>

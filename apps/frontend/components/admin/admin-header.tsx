@@ -200,7 +200,13 @@ export function AdminHeader({
       {/* Sits before the account menu rather than after it: this is work
           arriving, and the account menu is the one control on this bar
           that is never about the municipality's records. */}
-      <NotificationsBell tenant={tenant} token={session?.accessToken} role={role} base={base} />
+      <NotificationsBell
+        tenant={tenant}
+        token={session?.accessToken}
+        role={role}
+        base={base}
+        locale={locale}
+      />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Bell, CheckCircle2, Inbox } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -44,28 +44,27 @@ const MAX_LISTED = 6;
  * confirms the money arrived. Until now it was visible only to whoever thought
  * to open «الرسوم والمدفوعات» and scroll to the third section, so a declaration
  * made at 09:00 could sit unseen all day.
- *
- * Deliberately not a general notification system. There is no notifications
- * table behind this and no read/unread state to keep — it reads the same
- * `fees/payments/pending` endpoint the fees page already uses, so the badge is
- * the live length of the work queue rather than a count of events someone has
- * to dismiss. Nothing to mark read, nothing to go stale.
  */
 export function NotificationsBell({
   tenant,
   token,
   role,
   base,
+  locale: propLocale,
 }: {
   tenant: string;
   token: string | undefined;
   role: string | undefined;
   base: string;
+  locale?: string;
 }): React.JSX.Element | null {
   const router = useRouter();
   const pathname = usePathname();
   const [items, setItems] = useState<PendingPayment[]>([]);
   const canReview = Boolean(role && REVIEW_ROLES.includes(role));
+
+  const locale = propLocale ?? (pathname?.includes('/en/') || pathname?.endsWith('/en') ? 'en' : 'ar');
+  const labels = getLabels(locale);
 
   const reviewHref = `${base}/fees#verify`;
 
@@ -74,23 +73,17 @@ export function NotificationsBell({
     let cancelled = false;
 
     const load = async (): Promise<void> => {
-      // A poll on a backgrounded tab is a request nobody is waiting for, and
-      // this one runs for as long as the portal is open.
       if (document.visibilityState !== 'visible') return;
       try {
         const result = await getPendingPayments(tenant, token);
         if (!cancelled) setItems(result.items);
       } catch (caught) {
-        // Silent by design: this fires every minute, and a toast per failure
-        // would bury the page under a single flaky connection.
         logApiError(caught);
       }
     };
 
     void load();
     const timer = setInterval(() => void load(), POLL_INTERVAL_MS);
-    // Returning to the tab should not have to wait out the rest of the
-    // interval — the count on screen is the first thing the reader looks at.
     const onVisibilityChange = (): void => {
       if (document.visibilityState === 'visible') void load();
     };
@@ -101,8 +94,6 @@ export function NotificationsBell({
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-    // `pathname` is in here so confirming a payment and navigating away
-    // refreshes the count on arrival rather than a minute later.
   }, [tenant, token, canReview, pathname]);
 
   const openQueue = useCallback(() => router.push(reviewHref), [router, reviewHref]);
@@ -119,7 +110,9 @@ export function NotificationsBell({
           size="icon"
           className="relative shrink-0"
           aria-label={
-            count > 0 ? `الإشعارات، ${count} دفعة بانتظار التأكيد` : 'الإشعارات، لا جديد'
+            count > 0
+              ? (locale === 'en' ? `Notifications, ${count} payments pending confirmation` : `الإشعارات، ${count} دفعة بانتظار التأكيد`)
+              : (locale === 'en' ? 'Notifications, all clear' : 'الإشعارات، لا جديد')
           }
         >
           <Bell className="size-5" />
@@ -134,20 +127,17 @@ export function NotificationsBell({
         </Button>
       </DropdownMenuTrigger>
 
-      {/* `max-w-[calc(100vw-1rem)]`: at 360px a fixed 22rem panel is wider than
-          the screen, and a dropdown cannot scroll sideways to reveal itself. */}
       <DropdownMenuContent align="end" className="w-[22rem] max-w-[calc(100vw-1rem)] p-0">
         <DropdownMenuLabel className="flex items-center justify-between gap-2 px-3 py-2.5">
-          <span className="text-sm font-semibold">بانتظار التأكيد</span>
+          <span className="text-sm font-semibold">
+            {locale === 'en' ? 'Pending Confirmation' : 'بانتظار التأكيد'}
+          </span>
           {count > 0 ? (
             <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-destructive">
               {count}
             </span>
           ) : null}
         </DropdownMenuLabel>
-        {/* `mx-0` undoes the primitive's `-mx-1`, which is sized for a panel
-            with `p-1`. This one is `p-0`, so the default bleeds the rule 4px
-            past the rounded edge on both sides. */}
         <DropdownMenuSeparator className="mx-0 my-0" />
 
         {count === 0 ? (
@@ -158,18 +148,17 @@ export function NotificationsBell({
             >
               <CheckCircle2 className="size-5" />
             </span>
-            <p className="text-sm font-medium">لا شيء بانتظار المراجعة</p>
+            <p className="text-sm font-medium">
+              {locale === 'en' ? 'Nothing Pending Review' : 'لا شيء بانتظار المراجعة'}
+            </p>
             <p className="text-xs text-muted-foreground">
-              كل ما أعلنه المواطنون تمّت معالجته.
+              {locale === 'en'
+                ? 'All citizen declarations have been processed.'
+                : 'كل ما أعلنه المواطنون تمّت معالجته.'}
             </p>
           </div>
         ) : (
           <>
-            {/* A plain scroll container rather than `<ul>`/`<li>`: Radix puts
-                `role="menu"` on the panel and `role="menuitem"` on each row,
-                and that pairing requires no `role="list"` in between — a list
-                wrapper here makes a screen reader announce a list of items
-                inside a menu and lose the menu's own item count. */}
             <div className="max-h-[min(60vh,22rem)] overflow-y-auto">
               {items.slice(0, MAX_LISTED).map((payment) => (
                 <DropdownMenuItem
@@ -181,26 +170,23 @@ export function NotificationsBell({
                     <span className="min-w-0 truncate text-sm font-medium text-foreground">
                       {payment.citizenName}
                     </span>
-                    {/* The compact form with the exact figure in `title`,
-                        rather than `<Money>`: that renders a Radix tooltip,
-                        and a tooltip opened from inside an open dropdown
-                        fights it for the focus trap. */}
                     <span
-                      title={formatLbp(payment.amount)}
+                      title={formatLbp(payment.amount, locale)}
                       className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums"
                     >
-                      {formatLbpCompact(payment.amount)}
+                      {formatLbpCompact(payment.amount, locale)}
                     </span>
                   </div>
                   <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
                     <span className="min-w-0 truncate">{payment.title}</span>
                     <span className="shrink-0 whitespace-nowrap">
-                      استحقاق {formatDate(payment.dueDate)}
+                      {locale === 'en' ? 'Due ' : 'استحقاق '}
+                      {formatDate(payment.dueDate)}
                     </span>
                   </div>
                   {payment.paymentMethod ? (
                     <span className="text-xs text-muted-foreground">
-                      {ar.paymentMethod?.[payment.paymentMethod as never] ?? payment.paymentMethod}
+                      {labels.paymentMethod?.[payment.paymentMethod as never] ?? payment.paymentMethod}
                       {payment.whishTransactionRef ? ` · ${payment.whishTransactionRef}` : ''}
                     </span>
                   ) : null}
@@ -211,7 +197,9 @@ export function NotificationsBell({
             <DropdownMenuItem onSelect={openQueue} className="justify-center px-3 py-2.5">
               <Inbox className="size-4" aria-hidden />
               <span className="text-sm font-medium">
-                {count > MAX_LISTED ? `عرض الكل (${count})` : 'فتح قائمة التأكيد'}
+                {count > MAX_LISTED
+                  ? (locale === 'en' ? `View all (${count})` : `عرض الكل (${count})`)
+                  : (locale === 'en' ? 'Open verification list' : 'فتح قائمة التأكيد')}
               </span>
             </DropdownMenuItem>
           </>

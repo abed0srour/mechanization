@@ -37,19 +37,20 @@ export default function AdminNotFound({
 
       <div className="space-y-2">
         <p className="font-mono text-sm tracking-[0.2em] text-muted-foreground">404</p>
-        <h1 className="font-display text-xl font-bold tracking-tight">الصفحة غير موجودة</h1>
+        <h1 className="font-display text-xl font-bold tracking-tight">
+          {locale === 'en' ? 'Page Not Found' : 'الصفحة غير موجودة'}
+        </h1>
         <p className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground">
-          هذا الرابط لا يقابل أي صفحة في لوحة الإدارة. قد يكون قديماً أو مكتوباً بشكل خاطئ.
+          {locale === 'en'
+            ? 'This link does not match any page in the admin portal. It may be outdated or mistyped.'
+            : 'هذا الرابط لا يقابل أي صفحة في لوحة الإدارة. قد يكون قديماً أو مكتوباً بشكل خاطئ.'}
         </p>
       </div>
 
-      {/*
-        Points at the admin base rather than at `/dashboard`: that page is
-        restricted, and the index resolves each role to a section it may
-        actually open.
-      */}
       <Button asChild variant="outline">
-        <Link href={base}>العودة إلى لوحة الإدارة</Link>
+        <Link href={base}>
+          {locale === 'en' ? 'Return to Admin Portal' : 'العودة إلى لوحة الإدارة'}
+        </Link>
       </Button>
     </div>
   );

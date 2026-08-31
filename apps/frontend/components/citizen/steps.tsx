@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ChoiceCard, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -24,11 +24,14 @@ export function PersonalStep({
   value,
   errors,
   onChange,
+  locale = 'ar',
 }: {
   value: Values;
   errors: Errors;
   onChange: (next: Values) => void;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
   const set = (patch: Values) => onChange({ ...value, ...patch });
   const isLebanese = value.isLebanese !== false;
 
@@ -41,49 +44,32 @@ export function PersonalStep({
     ? (['VILLAGE_RESIDENT', 'DISPLACED'] as const)
     : (['VILLAGE_RESIDENT', 'DISPLACED', 'REFUGEE'] as const);
 
-  /**
-   * Everything downstream of "هل الشخص لبناني؟" follows automatically rather
-   * than asking twice: a Lebanese citizen's nationality is لبناني by
-   * definition, and a non-Lebanese person's identity document is a passport
-   * in the overwhelming majority of cases — رقم الهوية اللبنانية and إخراج
-   * القيد do not apply to them at all. Re-deriving both here means the citizen
-   * only ever answers the nationality question once.
-   *
-   * Switching to لبناني also clears صفة الإقامة if it was لاجئ: that option is
-   * no longer offered, and a value left over from before the switch would
-   * otherwise reach the server unseen rather than being caught here, where the
-   * citizen can immediately pick a real answer.
-   */
   useEffect(() => {
     if (isLebanese) {
-      // One merged patch, not two sequential `set()` calls: each would close
-      // over the same pre-update `value`, so the second call would silently
-      // undo the first instead of compounding with it.
       const patch: Values = {};
-      if (value.nationality !== 'لبناني') patch.nationality = 'لبناني';
+      if (value.nationality !== 'لبناني' && value.nationality !== 'Lebanese') {
+        patch.nationality = locale === 'en' ? 'Lebanese' : 'لبناني';
+      }
       if (value.residentStatus === 'REFUGEE') patch.residentStatus = undefined;
       if (Object.keys(patch).length > 0) set(patch);
     } else if (value.identityDocType !== 'PASSPORT') {
       set({ identityDocType: 'PASSPORT' });
     }
-    // Watches the derived values themselves, not just the toggle that
-    // normally changes them. Keyed on `[isLebanese]` alone this ran once on
-    // mount and then never again — so when the wizard restored a saved draft
-    // (a parent effect, which React runs *after* this child one) and replaced
-    // `personal` wholesale, a draft missing `nationality` never got it back.
-    // For a Lebanese citizen that field is not rendered at all, so the
-    // resulting failure was invisible: "الجنسية مطلوبة" against an input
-    // nobody could see, reported only as the generic banner on التالي.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLebanese, value.nationality, value.residentStatus, value.identityDocType]);
+  }, [isLebanese, value.nationality, value.residentStatus, value.identityDocType, locale]);
 
   const identityDocNumberLabel =
-    ar.identityDocNumberLabel[value.identityDocType as never] ?? 'رقم الوثيقة';
+    labels.identityDocNumberLabel?.[value.identityDocType as never] ??
+    (locale === 'en' ? 'Document Number' : 'رقم الوثيقة');
 
   return (
     <div className="space-y-6">
       <div className="grid gap-5 sm:grid-cols-3">
-        <Field label="الاسم الأول" htmlFor="firstName" required error={errors['personal.firstName']}>
+        <Field
+          label={locale === 'en' ? 'First Name' : 'الاسم الأول'}
+          htmlFor="firstName"
+          required
+          error={errors['personal.firstName']}
+        >
           <Input
             id="firstName"
             invalid={Boolean(errors['personal.firstName'])}
@@ -92,7 +78,11 @@ export function PersonalStep({
           />
         </Field>
 
-        <Field label="اسم الأب" htmlFor="middleName" error={errors['personal.middleName']}>
+        <Field
+          label={locale === 'en' ? "Father's Name" : 'اسم الأب'}
+          htmlFor="middleName"
+          error={errors['personal.middleName']}
+        >
           <Input
             id="middleName"
             value={str(value.middleName)}
@@ -100,7 +90,12 @@ export function PersonalStep({
           />
         </Field>
 
-        <Field label="الشهرة" htmlFor="lastName" required error={errors['personal.lastName']}>
+        <Field
+          label={locale === 'en' ? 'Last Name' : 'الشهرة'}
+          htmlFor="lastName"
+          required
+          error={errors['personal.lastName']}
+        >
           <Input
             id="lastName"
             invalid={Boolean(errors['personal.lastName'])}
@@ -110,7 +105,12 @@ export function PersonalStep({
         </Field>
       </div>
 
-      <Field label="الجنس" htmlFor="gender" required error={errors['personal.gender']}>
+      <Field
+        label={locale === 'en' ? 'Gender' : 'الجنس'}
+        htmlFor="gender"
+        required
+        error={errors['personal.gender']}
+      >
         <div className="grid gap-3 sm:grid-cols-2">
           {(['MALE', 'FEMALE'] as const).map((option) => (
             <ChoiceCard
@@ -119,59 +119,55 @@ export function PersonalStep({
               value={option}
               checked={value.gender === option}
               onChange={(v) => set({ gender: v })}
-              title={ar.gender[option]}
+              title={labels.gender[option]}
             />
           ))}
         </div>
       </Field>
 
-      {/**
-       * Asked before anything about identity documents, because it decides
-       * which of those apply: رقم السجل only makes sense for a Lebanese
-       * citizen, and رقم الإقامة only for someone who is not one.
-       */}
-      <Field label="الجنسية" htmlFor="isLebanese" required error={errors['personal.isLebanese']}>
+      <Field
+        label={locale === 'en' ? 'Nationality' : 'الجنسية'}
+        htmlFor="isLebanese"
+        required
+        error={errors['personal.isLebanese']}
+      >
         <div className="grid gap-3 sm:grid-cols-2">
           <ChoiceCard
             name="isLebanese"
             value="LEBANESE"
             checked={isLebanese}
             onChange={() => set({ isLebanese: true, residencyNumber: undefined })}
-            title="لبناني"
+            title={locale === 'en' ? 'Lebanese' : 'لبناني'}
           />
           <ChoiceCard
             name="isLebanese"
             value="FOREIGN"
             checked={!isLebanese}
             onChange={() => set({ isLebanese: false, civilRecordNumber: undefined })}
-            title="أجنبي"
+            title={locale === 'en' ? 'Non-Lebanese / Foreign' : 'أجنبي'}
           />
         </div>
       </Field>
 
       {!isLebanese ? (
         <Field
-          label="الجنسية"
+          label={locale === 'en' ? 'Nationality' : 'الجنسية'}
           htmlFor="nationality"
           required
-          hint="مثال: سوري، مصري، فلسطيني"
+          hint={locale === 'en' ? 'e.g. Syrian, Egyptian, Palestinian' : 'مثال: سوري، مصري، فلسطيني'}
           error={errors['personal.nationality']}
         >
           <Input
             id="nationality"
             invalid={Boolean(errors['personal.nationality'])}
-            value={value.nationality === 'لبناني' ? '' : str(value.nationality)}
+            value={value.nationality === 'لبناني' || value.nationality === 'Lebanese' ? '' : str(value.nationality)}
             onChange={(e) => set({ nationality: e.target.value })}
           />
         </Field>
       ) : null}
 
-      {/**
-       * صفة الإقامة describes the person, never the property — a refugee may
-       * still own an apartment, so this never gates the property step.
-       */}
       <Field
-        label="صفة الإقامة"
+        label={locale === 'en' ? 'Residency Status' : 'صفة الإقامة'}
         htmlFor="residentStatus"
         required
         error={errors['personal.residentStatus']}
@@ -184,20 +180,15 @@ export function PersonalStep({
               value={option}
               checked={value.residentStatus === option}
               onChange={(v) => set({ residentStatus: v })}
-              title={ar.residentStatus[option]}
+              title={labels.residentStatus[option]}
             />
           ))}
         </div>
       </Field>
 
-      {/**
-       * The type select only appears for a Lebanese citizen — a foreigner's
-       * document is always treated as a passport, so there is nothing to
-       * choose and one less question to ask.
-       */}
       {isLebanese ? (
         <Field
-          label="نوع وثيقة الإثبات"
+          label={locale === 'en' ? 'ID Document Type' : 'نوع وثيقة الإثبات'}
           htmlFor="identityDocType"
           required
           error={errors['personal.identityDocType']}
@@ -207,13 +198,13 @@ export function PersonalStep({
             onValueChange={(next) => set({ identityDocType: next })}
           >
             <SelectTrigger id="identityDocType">
-              <SelectValue placeholder="اختر…" />
+              <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
             </SelectTrigger>
             <SelectContent>
               {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map(
                 (o) => (
                   <SelectItem key={o} value={o}>
-                    {ar.identityDocType[o]}
+                    {labels.identityDocType[o]}
                   </SelectItem>
                 ),
               )}
@@ -222,13 +213,6 @@ export function PersonalStep({
         </Field>
       ) : null}
 
-      {/**
-       * Both columns are deliberately hint-free: a hint under only one field
-       * pushes its input down relative to its neighbour, so the two boxes in
-       * this row stop lining up. Guidance that used to live there is now
-       * either a placeholder (which sits inside the box, adding no height) or
-       * dropped as redundant once the field only appears in one branch.
-       */}
       {isLebanese ? (
         <div className="grid gap-5 sm:grid-cols-2">
           <Field
@@ -247,7 +231,7 @@ export function PersonalStep({
           </Field>
 
           <Field
-            label="رقم السجل"
+            label={locale === 'en' ? 'Civil Record (Sijil) No.' : 'رقم السجل'}
             htmlFor="civilRecordNumber"
             required
             error={errors['personal.civilRecordNumber']}
@@ -255,7 +239,7 @@ export function PersonalStep({
             <Input
               id="civilRecordNumber"
               inputMode="numeric"
-              placeholder="١-٣ أرقام عادةً"
+              placeholder={locale === 'en' ? 'Usually 1-3 digits' : '١-٣ أرقام عادةً'}
               invalid={Boolean(errors['personal.civilRecordNumber'])}
               value={str(value.civilRecordNumber)}
               onChange={(e) => set({ civilRecordNumber: e.target.value })}
@@ -264,15 +248,10 @@ export function PersonalStep({
         </div>
       ) : (
         <div className="space-y-3">
-          {/**
-           * Neither field is individually required here — only one of the two
-           * has to be filled. A foreigner without a passport on hand still has
-           * a رقم إقامة, and one without a residency permit yet still has a
-           * passport; asking for both would block someone who has already
-           * given the municipality a usable identifier.
-           */}
           <p className="text-sm text-muted-foreground">
-            يكفي إدخال رقم جواز السفر أو رقم الإقامة — لا حاجة لإدخال كليهما.
+            {locale === 'en'
+              ? 'Entering either passport number or residency number is sufficient.'
+              : 'يكفي إدخال رقم جواز السفر أو رقم الإقامة — لا حاجة لإدخال كليهما.'}
           </p>
 
           <div className="grid gap-5 sm:grid-cols-2">
@@ -291,7 +270,7 @@ export function PersonalStep({
             </Field>
 
             <Field
-              label="رقم الإقامة"
+              label={locale === 'en' ? 'Residency Permit No.' : 'رقم الإقامة'}
               htmlFor="residencyNumber"
               error={errors['personal.residencyNumber']}
             >
@@ -314,18 +293,21 @@ export function ContactStep({
   value,
   errors,
   onChange,
+  locale = 'ar',
 }: {
   value: Values;
   errors: Errors;
   onChange: (next: Values) => void;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
   const set = (patch: Values) => onChange({ ...value, ...patch });
   const sameAsPhone = value.whatsappSameAsPhone !== false;
 
   return (
     <div className="space-y-6">
       <Field
-        label="الحالة الاجتماعية"
+        label={locale === 'en' ? 'Marital Status' : 'الحالة الاجتماعية'}
         htmlFor="maritalStatus"
         required
         error={errors['contact.maritalStatus']}
@@ -335,12 +317,12 @@ export function ContactStep({
           onValueChange={(next) => set({ maritalStatus: next })}
         >
           <SelectTrigger id="maritalStatus">
-            <SelectValue placeholder="اختر…" />
+            <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
           </SelectTrigger>
           <SelectContent>
             {(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'] as const).map((o) => (
               <SelectItem key={o} value={o}>
-                {ar.maritalStatus[o]}
+                {labels.maritalStatus[o]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -348,10 +330,10 @@ export function ContactStep({
       </Field>
 
       <Field
-        label="رقم الهاتف"
+        label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'}
         htmlFor="phone"
         required
-        hint="سنرسل إليه رمز الدخول والرقم المرجعي"
+        hint={locale === 'en' ? 'We will send login code and reference number here' : 'سنرسل إليه رمز الدخول والرقم المرجعي'}
         error={errors['contact.phone']}
       >
         <Input
@@ -373,11 +355,18 @@ export function ContactStep({
           checked={sameAsPhone}
           onCheckedChange={(checked) => set({ whatsappSameAsPhone: checked === true })}
         />
-        <Label htmlFor="whatsappSameAsPhone">رقم الواتساب هو نفسه</Label>
+        <Label htmlFor="whatsappSameAsPhone">
+          {locale === 'en' ? 'WhatsApp number is the same' : 'رقم الواتساب هو نفسه'}
+        </Label>
       </div>
 
       {!sameAsPhone ? (
-        <Field label="رقم الواتساب" htmlFor="whatsapp" required error={errors['contact.whatsapp']}>
+        <Field
+          label={locale === 'en' ? 'WhatsApp Number' : 'رقم الواتساب'}
+          htmlFor="whatsapp"
+          required
+          error={errors['contact.whatsapp']}
+        >
           <Input
             id="whatsapp"
             type="tel"
@@ -392,10 +381,10 @@ export function ContactStep({
       ) : null}
 
       <Field
-        label="عدد أفراد الأسرة"
+        label={locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة'}
         htmlFor="familySize"
         required
-        hint="بمن فيهم أنت"
+        hint={locale === 'en' ? 'Including yourself' : 'بمن فيهم أنت'}
         error={errors['contact.familySize']}
       >
         <Input

@@ -1,8 +1,6 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
-import { ar, staffPasswordPairSchema } from '@mechanization/shared-schemas';
+import { getLabels, staffPasswordPairSchema } from '@mechanization/shared-schemas';
 import type { StaffSummary } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,16 +30,6 @@ const ROLES = [
   'ADMINISTRATIVE_OFFICER',
 ] as const;
 
-/** What each role may actually do, so the choice is not made from its name. */
-const ROLE_HINT: Record<string, string> = {
-  SUPER_ADMIN: 'صلاحية كاملة: الموافقة النهائية وإدارة حسابات الموظفين.',
-  AUDITOR: 'الاطلاع والمراجعة وتصدير البيانات، دون الموافقة النهائية.',
-  FIELD_INSPECTOR: 'مراجعة الطلبات ميدانياً، دون الاطلاع على سجل النشاطات.',
-  COLLECTOR: 'جباية الرسوم وتسجيل المقبوضات، دون تعديل سجل المواطنين.',
-  ACCOUNTANT: 'إدارة الرسوم والمقبوضات والتقارير المالية ومتابعة التحصيل.',
-  ADMINISTRATIVE_OFFICER: 'إدارة السجل المدني والقطاعات، دون البتّ المالي.',
-};
-
 export interface StaffFormValues {
   firstName: string;
   lastName: string;
@@ -60,17 +48,6 @@ const EMPTY: StaffFormValues = {
   role: 'FIELD_INSPECTOR',
 };
 
-/**
- * Create / edit one staff account.
- *
- * The password pair is validated here rather than on the wire: a confirmation
- * field is a typo guard for whoever is typing it, and sending it to the server
- * would only ask the server to trust the same value twice.
- *
- * On edit the password starts empty and means "leave it alone" — an admin
- * fixing a misspelled surname should not have to know, or reset, a colleague's
- * credential to do it.
- */
 export function StaffForm({
   open,
   editing,
@@ -78,6 +55,7 @@ export function StaffForm({
   error,
   onOpenChange,
   onSubmit,
+  locale = 'ar',
 }: {
   open: boolean;
   /** null = creating. */
@@ -86,7 +64,36 @@ export function StaffForm({
   error: string | null;
   onOpenChange: (open: boolean) => void;
   onSubmit: (values: StaffFormValues) => void;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
+
+  const roleHints: Record<string, string> = {
+    SUPER_ADMIN:
+      locale === 'en'
+        ? 'Full administrative access: final approvals, municipality settings, and staff account management.'
+        : 'صلاحية كاملة: الموافقة النهائية وإدارة حسابات الموظفين.',
+    AUDITOR:
+      locale === 'en'
+        ? 'Read-only access: review files, inspect audit logs, and export records.'
+        : 'الاطلاع والمراجعة وتصدير البيانات، دون الموافقة النهائية.',
+    FIELD_INSPECTOR:
+      locale === 'en'
+        ? 'Field operations: inspect and verify citizen applications on-site.'
+        : 'مراجعة الطلبات ميدانياً، دون الاطلاع على سجل النشاطات.',
+    COLLECTOR:
+      locale === 'en'
+        ? 'Finance collection: collect fees and issue official receipts in the field.'
+        : 'جباية الرسوم وتسجيل المقبوضات، دون تعديل سجل المواطنين.',
+    ACCOUNTANT:
+      locale === 'en'
+        ? 'Accounting: issue fee notices, manage receivables, review transfers, and generate financial reports.'
+        : 'إدارة الرسوم والمقبوضات والتقارير المالية ومتابعة التحصيل.',
+    ADMINISTRATIVE_OFFICER:
+      locale === 'en'
+        ? 'Administration: manage civil registry, review submissions, and configure municipal zones.'
+        : 'إدارة السجل المدني والقطاعات، دون البتّ المالي.',
+  };
   const [values, setValues] = useState<StaffFormValues>(EMPTY);
   const [showPassword, setShowPassword] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -140,13 +147,21 @@ export function StaffForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel="إغلاق" className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
+      <DialogContent closeLabel={locale === 'en' ? 'Close' : 'إغلاق'} className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="shrink-0 space-y-1 border-b p-6 text-start">
-          <DialogTitle>{editing ? 'تعديل حساب موظف' : 'إضافة موظف'}</DialogTitle>
+          <DialogTitle>
+            {editing
+              ? (locale === 'en' ? 'Edit Staff Account' : 'تعديل حساب موظف')
+              : (locale === 'en' ? 'Add Staff Member' : 'إضافة موظف')}
+          </DialogTitle>
           <DialogDescription>
             {editing
-              ? 'اترك حقلي كلمة المرور فارغين للإبقاء على كلمة المرور الحالية.'
-              : 'يستخدم الموظف بريده الإلكتروني وكلمة المرور للدخول إلى لوحة البلدية.'}
+              ? (locale === 'en'
+                  ? 'Leave password fields empty to keep current password.'
+                  : 'اترك حقلي كلمة المرور فارغين للإبقاء على كلمة المرور الحالية.')
+              : (locale === 'en'
+                  ? 'Staff member will use email and password to log in to the municipality dashboard.'
+                  : 'يستخدم الموظف بريده الإلكتروني وكلمة المرور للدخول إلى لوحة البلدية.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -161,14 +176,14 @@ export function StaffForm({
           ) : null}
 
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="الاسم الأول" htmlFor="firstName" required>
+            <Field label={locale === 'en' ? 'First Name' : 'الاسم الأول'} htmlFor="firstName" required>
               <Input
                 id="firstName"
                 value={values.firstName}
                 onChange={(event) => set({ firstName: event.target.value })}
               />
             </Field>
-            <Field label="الشهرة" htmlFor="lastName" required>
+            <Field label={locale === 'en' ? 'Last Name' : 'الشهرة'} htmlFor="lastName" required>
               <Input
                 id="lastName"
                 value={values.lastName}
@@ -177,7 +192,7 @@ export function StaffForm({
             </Field>
           </div>
 
-          <Field label="البريد الإلكتروني" htmlFor="email" required>
+          <Field label={locale === 'en' ? 'Email Address' : 'البريد الإلكتروني'} htmlFor="email" required>
             <Input
               id="email"
               type="email"
@@ -190,10 +205,10 @@ export function StaffForm({
           </Field>
 
           <Field
-            label="كلمة المرور"
+            label={locale === 'en' ? 'Password' : 'كلمة المرور'}
             htmlFor="password"
             required={!editing}
-            hint="10 أحرف على الأقل"
+            hint={locale === 'en' ? 'At least 10 characters' : '10 أحرف على الأقل'}
             error={passwordError ?? undefined}
           >
             <div className="relative">
@@ -212,7 +227,11 @@ export function StaffForm({
               <button
                 type="button"
                 onClick={() => setShowPassword((shown) => !shown)}
-                aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                aria-label={
+                  showPassword
+                    ? (locale === 'en' ? 'Hide password' : 'إخفاء كلمة المرور')
+                    : (locale === 'en' ? 'Show password' : 'إظهار كلمة المرور')
+                }
                 aria-pressed={showPassword}
                 className="absolute inset-y-0 end-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
               >
@@ -226,7 +245,7 @@ export function StaffForm({
           </Field>
 
           <Field
-            label="تأكيد كلمة المرور"
+            label={locale === 'en' ? 'Confirm Password' : 'تأكيد كلمة المرور'}
             htmlFor="confirmPassword"
             required={!editing}
             error={confirmError ?? undefined}
@@ -244,7 +263,12 @@ export function StaffForm({
             />
           </Field>
 
-          <Field label="الصلاحية" htmlFor="role" required hint={ROLE_HINT[values.role]}>
+          <Field
+            label={locale === 'en' ? 'Role & Permissions' : 'الصلاحية'}
+            htmlFor="role"
+            required
+            hint={roleHints[values.role]}
+          >
             <Select value={values.role} onValueChange={(next) => set({ role: next })}>
               <SelectTrigger id="role">
                 <SelectValue />
@@ -252,7 +276,7 @@ export function StaffForm({
               <SelectContent>
                 {ROLES.map((role) => (
                   <SelectItem key={role} value={role}>
-                    {ar.staffRole?.[role as never] ?? role}
+                    {labels.staffRole?.[role as never] ?? role}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -262,7 +286,7 @@ export function StaffForm({
 
         <DialogFooter className="shrink-0 gap-2 border-t p-6">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            إلغاء
+            {locale === 'en' ? 'Cancel' : 'إلغاء'}
           </Button>
           <Button
             disabled={!complete || submitting}
@@ -272,7 +296,9 @@ export function StaffForm({
             }}
           >
             {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            {editing ? 'حفظ التعديلات' : 'إنشاء الحساب'}
+            {editing
+              ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+              : (locale === 'en' ? 'Create Account' : 'إنشاء الحساب')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -69,6 +69,7 @@ export function PaymentReceipt({
   contactPhone,
   officeWhatsapp,
   receivedAmount,
+  locale = 'ar',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,6 +79,7 @@ export function PaymentReceipt({
   contactPhone?: string | null;
   officeWhatsapp?: string | null;
   receivedAmount?: number;
+  locale?: string;
 }) {
   const printRef = React.useRef<HTMLDivElement>(null);
   const [busy, setBusy] = React.useState<null | 'share' | 'download'>(null);
@@ -166,7 +168,7 @@ export function PaymentReceipt({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        closeLabel="إغلاق"
+        closeLabel={locale === 'en' ? 'Close' : 'إغلاق'}
         className="flex max-h-[94vh] flex-col gap-0 p-0 sm:max-w-4xl"
       >
         <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-6 bg-muted/20">
@@ -218,115 +220,98 @@ export function PaymentReceipt({
                 </header>
 
                 {/* 2. Payer Section (إستلمنا من السيد/ السيدة) */}
-                <div className="flex items-center gap-3 pt-1">
-                  <span className="shrink-0 text-sm font-bold text-black whitespace-nowrap">
-                    إستلمنا من السيد/ السيدة:
-                  </span>
-                  <div className="flex-1 bg-gray-200/90 h-9 px-4 flex items-center font-bold text-base text-black truncate">
-                    {citizen.fullName}
+                <section className="space-y-2 text-black">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <DottedField
+                      label="إستلمنا من السيد / السيدة"
+                      value={citizen.fullName}
+                      flex="flex-[3]"
+                    />
+                    <DottedField
+                      label="رقم الهاتف"
+                      value={citizen.phone || citizen.whatsapp || '—'}
+                      flex="flex-[2]"
+                    />
                   </div>
-                </div>
 
-                {/* 3. Amount Section (مبلغ وقدره) */}
-                <div className="flex items-center gap-3 py-1">
-                  <span className="shrink-0 text-sm sm:text-base font-bold text-black whitespace-nowrap">
-                    مبلغ وقدره :
-                  </span>
-
-                  {/* LBP Capsule */}
-                  <div className="flex-1 max-w-[210px] h-9 rounded-full border-2 border-black px-3 flex items-center justify-center font-bold text-base tabular-nums text-black">
-                    {amount ? Number(amount).toLocaleString('en-US') : ''}
-                  </div>
-                  <span className="font-bold text-base text-black">L.L</span>
-
-                  {/* USD Capsule */}
-                  <div className="flex-1 max-w-[190px] h-9 rounded-full border-2 border-black px-3 flex items-center justify-center font-bold text-base tabular-nums text-black">
-                    {/* Blank on physical book */}
-                  </div>
-                  <span className="font-bold text-xl font-mono text-black">$</span>
-                </div>
-
-                {/* 4. Checkboxes Row */}
-                <div className="flex items-center justify-center gap-4 sm:gap-6 py-1.5 border-y border-black/20">
-                  <CheckboxItem label="سكني" checked={!isCommercial} />
-                  <CheckboxItem label="تجاري" checked={isCommercial} />
-                  <CheckboxItem label="ملك" checked={isOwner} />
-                  <CheckboxItem label="نازح" checked={isDisplaced} />
-                  <CheckboxItem label="فئة الدم" checked={false} />
-                </div>
-
-                {/* 5. Dotted Lines Property & Family Data */}
-                <div className="space-y-2 text-xs sm:text-sm font-bold text-black">
-                  {/* Row 1: Property and Neighborhood */}
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <DottedField
+                      label="المحلّة / الحي"
+                      value={property?.neighborhood || '—'}
+                      flex="flex-[2]"
+                    />
                     <DottedField
                       label="رقم العقار"
-                      value={property?.propertyNumber}
-                      flex="flex-[1.2]"
+                      value={property?.propertyNumber || '—'}
+                      flex="flex-[1]"
                     />
                     <DottedField
-                      label="إسم المبنى"
-                      value={property?.buildingName}
-                      flex="flex-[1.5]"
+                      label="اسم المبنى"
+                      value={property?.buildingName || '—'}
+                      flex="flex-[2]"
                     />
-                    <DottedField label="الحي" value={property?.neighborhood} flex="flex-[1]" />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
                     <DottedField
-                      label="المنطقة"
-                      value={municipalityName || 'البازورية'}
+                      label="رقم السجل"
+                      value={citizen.civilRecordNumber || '—'}
+                      flex="flex-[1]"
+                    />
+                    <DottedField
+                      label="رقم الملف / المرجع"
+                      value={citizen.referenceNumber || '—'}
+                      flex="flex-[2]"
+                    />
+                  </div>
+                </section>
+
+                {/* 3. Checkboxes Row (طبيعة الإشغال والصفة) */}
+                <section className="border-y-2 border-black py-2.5 my-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <CheckboxItem label="سكني" checked={!isCommercial} />
+                    <CheckboxItem label="تجاري / مهني" checked={isCommercial} />
+                    <CheckboxItem label="مالك" checked={isOwner} />
+                    <CheckboxItem label="مستأجر" checked={!isOwner} />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 pt-2 border-t border-black/30 text-xs">
+                    <CheckboxItem label="مقيم دائم" checked={!isDisplaced} />
+                    <CheckboxItem label="وافد / نازح" checked={isDisplaced} />
+                    <div className="text-start font-bold">
+                      عدد الوحدات: {residentialUnits} سكني {shopUnits > 0 ? `• ${shopUnits} تجاري` : ''}
+                    </div>
+                  </div>
+                </section>
+
+                {/* 4. Financial Details Section */}
+                <section className="space-y-2 text-black">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <DottedField
+                      label="المبلغ رقماً"
+                      value={<span className="font-mono text-base font-black">{formatLbp(amount)}</span>}
+                      flex="flex-[2]"
+                    />
+                    <DottedField
+                      label="تاريخ القبض"
+                      value={formatDate(payment.paidAt || new Date())}
                       flex="flex-[1]"
                     />
                   </div>
 
-                  {/* Row 2: Units and Family Count */}
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <DottedField
-                      label="عدد الوحدات السكنية"
-                      value={residentialUnits > 0 ? String(residentialUnits) : undefined}
-                      flex="flex-1"
-                    />
-                    <DottedField
-                      label="المحلات التابعة"
-                      value={shopUnits > 0 ? String(shopUnits) : undefined}
-                      flex="flex-1"
-                    />
-                    <DottedField
-                      label="عدد الأفراد المقيمين"
-                      value={citizen.familySize ? String(citizen.familySize) : undefined}
-                      flex="flex-1"
-                    />
-                  </div>
+                  <DottedField
+                    label="المبلغ كتابةً"
+                    value={payment.title ? `عن: ${payment.title}` : 'بدل رسوم خدمات بلدية'}
+                    flex="w-full"
+                  />
+                  <DottedField
+                    label="ملاحظات / طريقة الدفع"
+                    value={`طريقة الدفع: ${(ar.paymentMethod as Record<string, string>)[payment.paymentMethod || 'CASH'] || payment.paymentMethod || 'نقداً'} ${payment.reviewNote ? `• ${payment.reviewNote}` : ''}`}
+                    flex="w-full"
+                  />
+                </section>
 
-                  {/* Row 3: Social Cases */}
-                  <div className="flex items-baseline gap-x-4">
-                    <DottedField
-                      label="الحالات الإجتماعية أن وجدت"
-                      value={
-                        citizen.maritalStatus
-                          ? (ar.maritalStatus?.[citizen.maritalStatus as never] ?? undefined)
-                          : undefined
-                      }
-                      flex="w-full"
-                    />
-                  </div>
-
-                  {/* Row 4: Landlord and Contact */}
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <DottedField
-                      label="اسم المالك بحال كان مستأجر"
-                      value={tenantProperty?.landlordName}
-                      flex="flex-[1.5]"
-                    />
-                    <DottedField label="الهاتف" value={citizen.phone} flex="flex-1" />
-                    <DottedField label="الواتسب" value={citizen.whatsapp} flex="flex-1" />
-                  </div>
-                </div>
-
-                {/* 6. Signatures Footer */}
-                <div className="pt-6 pb-2 grid grid-cols-3 gap-6 text-center text-xs sm:text-sm font-bold text-black">
-                  <div>
-                    <p className="font-bold">ملاحظات</p>
-                    <div className="w-24 sm:w-32 border-b-2 border-black mt-6 mx-auto" />
-                  </div>
+                {/* 5. Signatures Footer */}
+                <div className="pt-4 border-t-2 border-black flex items-center justify-around text-center text-xs sm:text-sm text-black">
                   <div>
                     <p className="font-bold">توقيع أمين الصندوق</p>
                     <div className="w-24 sm:w-32 border-b-2 border-black mt-6 mx-auto" />
@@ -351,17 +336,19 @@ export function PaymentReceipt({
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground font-mono">
-              رقم الوصل: {receiptNumber(payment)} • التاريخ: {formatDate(new Date())}
+              {locale === 'en'
+                ? `Receipt #${receiptNumber(payment)} • Date: ${formatDate(new Date())}`
+                : `رقم الوصل: ${receiptNumber(payment)} • التاريخ: ${formatDate(new Date())}`}
             </span>
 
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
                 <X className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
-                إغلاق
+                {locale === 'en' ? 'Close' : 'إغلاق'}
               </Button>
               <Button variant="outline" size="sm" onClick={() => window.print()}>
                 <Printer className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
-                طباعة الوصل
+                {locale === 'en' ? 'Print Receipt' : 'طباعة الوصل'}
               </Button>
               <Button
                 variant="outline"
@@ -374,7 +361,7 @@ export function PaymentReceipt({
                 ) : (
                   <Download className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
                 )}
-                تنزيل PDF
+                {locale === 'en' ? 'Download PDF' : 'تنزيل PDF'}
               </Button>
               <Button
                 size="sm"
@@ -386,7 +373,7 @@ export function PaymentReceipt({
                 ) : (
                   <MessageCircle className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
                 )}
-                إرسال عبر واتساب
+                {locale === 'en' ? 'Send via WhatsApp' : 'إرسال عبر واتساب'}
               </Button>
             </div>
           </div>

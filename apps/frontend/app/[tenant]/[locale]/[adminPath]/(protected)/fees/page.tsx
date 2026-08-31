@@ -766,6 +766,7 @@ export default function FeesPage({
         submitting={issuing}
         error={null}
         onSubmit={handleIssueNotice}
+        locale={locale}
       />
 
       {/* Charge Citizen Dialog */}
@@ -776,6 +777,7 @@ export default function FeesPage({
         submitting={charging}
         error={null}
         onSubmit={handleChargeCitizen}
+        locale={locale}
       />
 
       {/* Receipt Modal Dialog */}
@@ -793,6 +795,7 @@ export default function FeesPage({
         contactPhone={settings?.contactPhone}
         officeWhatsapp={settings?.whatsappNumber}
         receivedAmount={receipt?.received}
+        locale={locale}
       />
     </div>
   );

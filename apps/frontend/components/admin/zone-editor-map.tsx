@@ -47,39 +47,21 @@ export interface ZoneEditorMapProps {
   assignments: ZoneEditorAssignments;
   /** Surfaces a message to the page's toast area — selection is silent otherwise. */
   onNotice: (message: string) => void;
+  locale?: string;
 }
 
-/**
- * The map an admin draws a sector on.
- *
- * Selection is deliberately data-driven rather than marker-based: a
- * municipality has thousands of parcels, and 1,800 DOM nodes with click
- * handlers is a different class of thing from one `fill` layer whose paint
- * expression reads a feature-state. Everything below — hover, selection,
- * already-taken — is one of those expressions.
- *
- * No municipality outline is drawn. One can be derived from the cadastre, but
- * it is a hull fitted to the parcels rather than a surveyed border, and drawing
- * an approximation in the style of an official boundary invites staff to read
- * it as one.
- *
- * Parcels come from `parcel-polygons.geojson`, the shapes the cadastre import
- * reconstructs from the survey's boundary lines. A parcel the survey drew no
- * closed shape for is absent from that file; it stays selectable through search
- * but cannot be clicked, since there is nothing on screen to click.
- */
 export function ZoneEditorMap({
   tenant,
   selected,
   onSelectedChange,
   assignments,
   onNotice,
+  locale = 'ar',
 }: ZoneEditorMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const hoveredRef = useRef<string | null>(null);
 
-  /** The basemap the live map is actually styled with — see the switch effect. */
   const appliedBasemapRef = useRef<BasemapId>(DEFAULT_BASEMAP);
 
   const [basemap, setBasemap] = useState<BasemapId>(DEFAULT_BASEMAP);
@@ -88,12 +70,6 @@ export function ZoneEditorMap({
 
   const dark = basemapById(basemap).dark;
 
-  /**
-   * The callbacks below are attached to the map once, on mount, but need the
-   * current selection every time they fire. Reading it from a ref keeps the
-   * handlers stable — re-registering them on each selection change would
-   * detach mid-drag and drop the gesture.
-   */
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const assignmentsRef = useRef(assignments);
@@ -105,14 +81,6 @@ export function ZoneEditorMap({
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
-  /**
-   * Adds or removes parcels, refusing the ones another sector already owns.
-   *
-   * The refusal is reported rather than silent: a box drag that quietly drops
-   * half its contents reads as a broken map, where one that says why reads as a
-   * rule. Anything outside the municipality's cadastre never reaches here: only
-   * parcels the survey actually drew are in the source to begin with.
-   */
   const toggleParcels = useCallback((parcelNumbers: string[], mode: 'toggle' | 'add') => {
     if (parcelNumbers.length === 0) return;
 
@@ -133,13 +101,17 @@ export function ZoneEditorMap({
     if (blocked.length > 0) {
       onNoticeRef.current(
         blocked.length === 1
-          ? `العقار رقم ${blocked[0]} مضاف بالفعل إلى قطاع آخر`
-          : `تم استبعاد ${blocked.length} عقار لأنها مضافة إلى قطاعات أخرى`,
+          ? (locale === 'en'
+              ? `Parcel #${blocked[0]} is already assigned to another sector`
+              : `العقار رقم ${blocked[0]} مضاف بالفعل إلى قطاع آخر`)
+          : (locale === 'en'
+              ? `${blocked.length} parcels were excluded because they belong to other sectors`
+              : `تم استبعاد ${blocked.length} عقار لأنها مضافة إلى قطاعات أخرى`),
       );
     }
 
     onSelectedChangeRef.current([...current]);
-  }, []);
+  }, [locale]);
 
   // ── Layers ─────────────────────────────────────────────────────────
   const attachLayers = useCallback(
@@ -529,22 +501,24 @@ export function ZoneEditorMap({
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" aria-label="خريطة تحديد القطاعات" />
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        aria-label={locale === 'en' ? 'Sector selection map' : 'خريطة تحديد القطاعات'}
+      />
 
-      {/* How to select, stated plainly — shift+drag is not discoverable.
-          `bottom-20` clears the basemap switcher, which sits at `bottom-6` and
-          stands ~44px tall; anything lower overlaps it. */}
+      {/* How to select, stated plainly */}
       <div className="pointer-events-none absolute bottom-20 left-1/2 z-10 -translate-x-1/2 rounded-lg border bg-card/95 px-3 py-2 shadow-sm backdrop-blur">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <MousePointerClick className="size-3.5" aria-hidden />
-            انقر لتحديد عقار
+            {locale === 'en' ? 'Click to select parcel' : 'انقر لتحديد عقار'}
           </span>
           <span
             className={`flex items-center gap-1.5 ${boxSelecting ? 'font-bold text-primary' : ''}`}
           >
             <SquareDashedMousePointer className="size-3.5" aria-hidden />
-            Shift + سحب لتحديد منطقة
+            {locale === 'en' ? 'Shift + Drag to select area' : 'Shift + سحب لتحديد منطقة'}
           </span>
         </div>
       </div>
@@ -553,7 +527,7 @@ export function ZoneEditorMap({
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           <div className="flex items-center gap-2 rounded-lg border bg-card/95 px-4 py-2 text-sm shadow-sm backdrop-blur">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            جاري تحميل حدود العقارات…
+            {locale === 'en' ? 'Loading parcel boundaries…' : 'جاري تحميل حدود العقارات…'}
           </div>
         </div>
       ) : null}
@@ -570,7 +544,7 @@ export function ZoneEditorMap({
         }
       `}</style>
 
-      <MapLayerControl value={basemap} onChange={setBasemap} />
+      <MapLayerControl value={basemap} onChange={setBasemap} locale={locale} />
     </div>
   );
 }

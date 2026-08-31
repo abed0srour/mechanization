@@ -14,7 +14,7 @@ import {
   Wallet,
   XCircle,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   declarePayment,
@@ -25,6 +25,7 @@ import {
 } from '@/lib/api-client';
 import type { CitizenPaymentItem, MunicipalitySettings } from '@/lib/api-client';
 import { clearSession, loadSession } from '@/lib/session';
+import { formatLbp } from '@/lib/currency';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,15 +33,6 @@ import { PayDialog } from '@/components/citizen/pay-dialog';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
 
-function lbp(amount: number): string {
-  return `${amount.toLocaleString('en-US')} ل.ل`;
-}
-
-/**
- * Status colours, mirroring the admin side's vocabulary: amber while the
- * municipality still expects money, red once the date has passed, and green
- * only when a clerk has actually confirmed it.
- */
 const STATUS_TONE: Record<string, string> = {
   UNPAID: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
   OVERDUE: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-300',
@@ -55,7 +47,6 @@ const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> =
   PAID: CheckCircle2,
 };
 
-/** A resident's own bills, and how to settle them. */
 export default function CitizenPayments({
   params,
 }: {
@@ -63,6 +54,7 @@ export default function CitizenPayments({
 }) {
   const { tenant, locale } = use(params);
   const router = useRouter();
+  const labels = getLabels(locale);
 
   const [token, setToken] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -103,7 +95,7 @@ export default function CitizenPayments({
         router.replace(`/${tenant}/${locale}/payments/login`);
         return;
       }
-      setError('تعذّر تحميل مستحقاتك.');
+      setError(locale === 'en' ? 'Failed to load your fees and dues.' : 'تعذّر تحميل مستحقاتك.');
     } finally {
       setLoading(false);
     }
@@ -125,23 +117,17 @@ export default function CitizenPayments({
       } catch (caught) {
         logApiError(caught);
         setDeclareError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدفعة.',
+          caught instanceof ApiRequestError
+            ? caught.message
+            : (locale === 'en' ? 'Failed to record payment declaration.' : 'تعذّر تسجيل الدفعة.'),
         );
       } finally {
         setDeclaring(false);
       }
     },
-    [tenant, token, paying, load],
+    [tenant, token, paying, load, locale],
   );
 
-  /**
-   * Opens a Whish checkout for one bill.
-   *
-   * `window.location` rather than the router: once credentials are configured
-   * the destination is the provider's own domain, which Next's router cannot
-   * navigate to. In sandbox the server returns a URL inside the portal, so the
-   * same line reloads this page with the invoice awaiting confirmation.
-   */
   const payWithWhish = useCallback(
     async (paymentId: string) => {
       if (!token) return;
@@ -153,12 +139,14 @@ export default function CitizenPayments({
       } catch (caught) {
         logApiError(caught);
         setError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر بدء الدفع عبر Whish.',
+          caught instanceof ApiRequestError
+            ? caught.message
+            : (locale === 'en' ? 'Failed to start Whish checkout.' : 'تعذّر بدء الدفع عبر Whish.'),
         );
         setPayingOnlineId(null);
       }
     },
-    [tenant, token],
+    [tenant, token, locale],
   );
 
   if (!token) return null;
@@ -181,9 +169,13 @@ export default function CitizenPayments({
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <Receipt className="size-7 text-primary" aria-hidden />
-            الرسوم والمدفوعات
+            {locale === 'en' ? 'Fees & Payments' : 'الرسوم والمدفوعات'}
           </h1>
-          {name ? <p className="text-muted-foreground">أهلاً {name}</p> : null}
+          {name ? (
+            <p className="text-muted-foreground">
+              {locale === 'en' ? `Welcome, ${name}` : `أهلاً ${name}`}
+            </p>
+          ) : null}
         </div>
         <Button
           variant="ghost"
@@ -192,7 +184,7 @@ export default function CitizenPayments({
             router.push(`/${tenant}/${locale}`);
           }}
         >
-          خروج
+          {locale === 'en' ? 'Sign Out' : 'خروج'}
         </Button>
       </header>
 
@@ -207,21 +199,21 @@ export default function CitizenPayments({
 
       <div className="grid gap-4 sm:grid-cols-3">
         <SummaryCard
-          label="إجمالي المستحقات"
-          value={lbp(unpaidTotal)}
+          label={locale === 'en' ? 'Total Dues' : 'إجمالي المستحقات'}
+          value={formatLbp(unpaidTotal, locale)}
           icon={<Wallet className="size-6" aria-hidden />}
           tone={unpaidTotal > 0 ? 'text-destructive' : 'text-muted-foreground'}
           loading={loading}
         />
         <SummaryCard
-          label="أقرب موعد استحقاق"
+          label={locale === 'en' ? 'Earliest Due Date' : 'أقرب موعد استحقاق'}
           value={nextDue ? formatDate(nextDue) : '—'}
           icon={<CalendarClock className="size-6" aria-hidden />}
           loading={loading}
         />
         <SummaryCard
-          label="إجمالي المسدّد"
-          value={lbp(paidTotal)}
+          label={locale === 'en' ? 'Total Paid' : 'إجمالي المسدّد'}
+          value={formatLbp(paidTotal, locale)}
           icon={<BadgeCheck className="size-6" aria-hidden />}
           tone="text-success"
           loading={loading}
@@ -229,17 +221,27 @@ export default function CitizenPayments({
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">مطالباتي</h2>
+        <h2 className="text-lg font-semibold">
+          {locale === 'en' ? 'My Fee Invoices' : 'مطالباتي'}
+        </h2>
 
-        {loading ? <p className="text-muted-foreground">جارٍ التحميل…</p> : null}
+        {loading ? (
+          <p className="text-muted-foreground">
+            {locale === 'en' ? 'Loading…' : 'جارٍ التحميل…'}
+          </p>
+        ) : null}
 
         {!loading && items.length === 0 ? (
           <Card>
             <CardContent className="space-y-2 p-8 text-center">
               <CheckCircle2 className="mx-auto size-8 text-success" aria-hidden />
-              <p className="text-lg font-medium">لا توجد رسوم مستحقة عليك.</p>
+              <p className="text-lg font-medium">
+                {locale === 'en' ? 'No outstanding fees on file.' : 'لا توجد رسوم مستحقة عليك.'}
+              </p>
               <p className="text-sm text-muted-foreground">
-                ستظهر هنا أي رسوم تصدرها البلدية لاحقاً.
+                {locale === 'en'
+                  ? 'Any newly issued fees by the municipality will appear here.'
+                  : 'ستظهر هنا أي رسوم تصدرها البلدية لاحقاً.'}
               </p>
             </CardContent>
           </Card>
@@ -260,30 +262,29 @@ export default function CitizenPayments({
                       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         <span className="inline-flex items-center gap-1.5">
                           <CalendarClock className="size-3.5" aria-hidden />
-                          استحقاق {formatDate(item.dueDate)}
+                          {locale === 'en' ? 'Due ' : 'استحقاق '}
+                          {formatDate(item.dueDate)}
                         </span>
                         {item.frequency ? (
                           <Badge variant="outline">
-                            {ar.feeFrequency[item.frequency as never] ?? item.frequency}
+                            {labels.feeFrequency[item.frequency as never] ?? item.frequency}
                           </Badge>
                         ) : null}
                       </div>
                     </div>
 
                     <div className="flex flex-col items-end gap-2">
-                      <p className="text-xl font-bold">{lbp(item.amount)}</p>
+                      <p className="text-xl font-bold">{formatLbp(item.amount, locale)}</p>
                       <Badge
                         variant="outline"
                         className={cn('gap-1.5 py-1', STATUS_TONE[item.paymentStatus])}
                       >
                         <Icon className="size-3.5" aria-hidden />
-                        {ar.paymentStatus[item.paymentStatus as never] ?? item.paymentStatus}
+                        {labels.paymentStatus[item.paymentStatus as never] ?? item.paymentStatus}
                       </Badge>
                     </div>
                   </div>
 
-                  {/* A refused claim has to say why, or the citizen is left with
-                      a bill they believed was settled and no explanation. */}
                   {item.reviewNote && item.paymentStatus !== 'PAID' ? (
                     <p className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
                       <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
@@ -293,19 +294,14 @@ export default function CitizenPayments({
 
                   {item.paymentStatus === 'PENDING_REVIEW' ? (
                     <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-                      تم استلام إبلاغك بالدفع. سيؤكّده موظف البلدية بعد التحقق من وصول المبلغ.
+                      {locale === 'en'
+                        ? 'Your payment declaration was received. A staff member will confirm it after verifying the transfer.'
+                        : 'تم استلام إبلاغك بالدفع. سيؤكّده موظف البلدية بعد التحقق من وصول المبلغ.'}
                     </p>
                   ) : null}
 
                   {payable ? (
                     <div className="flex flex-wrap justify-end gap-2">
-                      {/*
-                        Two routes to the same debt, and the difference is who
-                        confirms it. «ادفع عبر Whish» hands the citizen to the
-                        provider and is settled by a verified callback; «أبلغ عن
-                        الدفع» records a claim a clerk still has to check.
-                        Whish leads because it is the one that finishes.
-                      */}
                       <Button
                         size="sm"
                         disabled={payingOnlineId === item.id}
@@ -316,11 +312,11 @@ export default function CitizenPayments({
                         ) : (
                           <CreditCard className="size-4" aria-hidden />
                         )}
-                        ادفع عبر Whish
+                        {locale === 'en' ? 'Pay with Whish' : 'ادفع عبر Whish'}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => setPaying(item)}>
                         <Wallet className="size-4" aria-hidden />
-                        طرق أخرى
+                        {locale === 'en' ? 'Other Methods' : 'طرق أخرى'}
                       </Button>
                     </div>
                   ) : null}
@@ -336,6 +332,7 @@ export default function CitizenPayments({
         settings={settings}
         submitting={declaring}
         error={declareError}
+        locale={locale}
         onOpenChange={(open) => {
           if (!open) {
             setPaying(null);

@@ -16,7 +16,7 @@ import {
   UserSearch,
 } from 'lucide-react';
 import {
-  ar,
+  getLabels,
   FEE_FREQUENCY,
   FEE_TARGET_CATEGORY,
   FEE_TARGET_TYPE,
@@ -66,51 +66,17 @@ const EMPTY: IssueFeeValues = {
   instructions: '',
 };
 
-/**
- * The three questions this form asks, in the order a clerk can answer them.
- *
- * «كم ومتى» before «على من» is deliberate: the amount and the due date come off
- * the decision the council already took, while the target is the part the clerk
- * has to think about — and thinking about it while the amount is still blank is
- * how a fee lands on the wrong half of the village.
- */
-const STEPS = [
-  { id: 'details', step: '١', title: 'التفاصيل', icon: Receipt },
-  { id: 'target', step: '٢', title: 'الاستهداف', icon: Target },
-  { id: 'review', step: '٣', title: 'المراجعة', icon: ClipboardList },
-] as const;
-
-type StepId = (typeof STEPS)[number]['id'];
-
-/** Icons for الفئة المستهدفة, so the three choices are told apart before they are read. */
 const TARGET_ICON = {
   ALL_CITIZENS: Users,
   BUILDING_CATEGORY: Building2,
   INDIVIDUAL_CITIZEN: UserSearch,
 } as const;
 
-const TARGET_HINT = {
-  ALL_CITIZENS: 'مطالبة لكل مواطن مسجّل في البلدية',
-  BUILDING_CATEGORY: 'المواطنون الذين سجّلوا عقاراً من نوع محدّد',
-  INDIVIDUAL_CITIZEN: 'مواطن واحد بالاسم أو بالرقم المرجعي',
-} as const;
-
-/** Groups thousands so a seven-digit LBP figure is readable while typing. */
 function formatLbp(value: string): string {
   const digits = value.replace(/\D/g, '');
   return digits ? Number(digits).toLocaleString('en-US') : '';
 }
 
-/**
- * "إصدار رسم جديد" — writes one rule and bills everyone it applies to.
- *
- * Three steps rather than one long form, because this is the only action on the
- * screen that cannot be undone by pressing something else: submitting it may
- * create a debt against every resident of the municipality. A single scroll put
- * «إصدار المطالبات» one keystroke away from a half-considered target; the
- * wizard makes the last thing a clerk sees before committing a plain sentence
- * naming the amount, the recurrence and exactly who is about to be billed.
- */
 export function IssueFeeDialog({
   open,
   onOpenChange,
@@ -118,18 +84,32 @@ export function IssueFeeDialog({
   submitting,
   error,
   onSubmit,
+  locale = 'ar',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Registry rows, used only to pick a single citizen by name or reference. */
   citizens: CitizenListItem[];
   submitting: boolean;
   error: string | null;
   onSubmit: (values: IssueFeeValues) => void;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
   const [values, setValues] = useState<IssueFeeValues>(EMPTY);
   const [citizenQuery, setCitizenQuery] = useState('');
   const [stepIndex, setStepIndex] = useState(0);
+
+  const steps = [
+    { id: 'details' as const, step: locale === 'en' ? '1' : '١', title: locale === 'en' ? 'Details' : 'التفاصيل', icon: Receipt },
+    { id: 'target' as const, step: locale === 'en' ? '2' : '٢', title: locale === 'en' ? 'Target Audience' : 'الاستهداف', icon: Target },
+    { id: 'review' as const, step: locale === 'en' ? '3' : '٣', title: locale === 'en' ? 'Review & Issue' : 'المراجعة', icon: ClipboardList },
+  ];
+
+  const targetHints = {
+    ALL_CITIZENS: locale === 'en' ? 'Bill every registered citizen in the municipality' : 'مطالبة لكل مواطن مسجّل في البلدية',
+    BUILDING_CATEGORY: locale === 'en' ? 'Citizens who registered a specific property category' : 'المواطنون الذين سجّلوا عقاراً من نوع محدّد',
+    INDIVIDUAL_CITIZEN: locale === 'en' ? 'Single citizen by name or reference number' : 'مواطن واحد بالاسم أو بالرقم المرجعي',
+  };
 
   useEffect(() => {
     if (open) {
@@ -147,8 +127,8 @@ export function IssueFeeDialog({
    * on screen.
    */
   useEffect(() => {
-    if (error) setStepIndex(STEPS.length - 1);
-  }, [error]);
+    if (error) setStepIndex(steps.length - 1);
+  }, [error, steps.length]);
 
   const set = (patch: Partial<IssueFeeValues>) =>
     setValues((previous) => ({ ...previous, ...patch }));
@@ -181,54 +161,54 @@ export function IssueFeeDialog({
    * read the same answer — a wizard whose header says a step is done while its
    * button disagrees is worse than no header at all.
    */
-  const stepComplete: Record<StepId, boolean> = {
+  const stepComplete: Record<'details' | 'target' | 'review', boolean> = {
     details: values.title.trim().length >= 3 && amount > 0 && values.dueDate !== '',
     target:
       values.targetType !== 'INDIVIDUAL_CITIZEN' || values.targetCitizenId !== '',
     review: true,
   };
 
-  const current = STEPS[stepIndex];
-  const isLast = stepIndex === STEPS.length - 1;
+  const current = steps[stepIndex];
+  const isLast = stepIndex === steps.length - 1;
   const canAdvance = stepComplete[current.id];
   const canSubmit = stepComplete.details && stepComplete.target;
 
-  /** Who this notice will bill, in one phrase — the review step's whole point. */
   const targetSummary =
     values.targetType === 'INDIVIDUAL_CITIZEN'
       ? chosen
         ? `${chosen.fullName} — ${chosen.referenceNumber ?? '—'}`
         : '—'
       : values.targetType === 'BUILDING_CATEGORY'
-        ? `أصحاب ${ar.feeTargetCategory[values.targetCategory as never] ?? values.targetCategory}`
-        : 'جميع المواطنين المسجّلين';
+        ? (locale === 'en'
+            ? `Owners of ${labels.feeTargetCategory?.[values.targetCategory as never] ?? values.targetCategory}`
+            : `أصحاب ${labels.feeTargetCategory?.[values.targetCategory as never] ?? values.targetCategory}`)
+        : (locale === 'en' ? 'All registered citizens' : 'جميع المواطنين المسجّلين');
 
-  /** Only the wide fan-outs deserve the warning; a single citizen is one line. */
   const bulk = values.targetType !== 'INDIVIDUAL_CITIZEN';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        closeLabel="إغلاق"
+        closeLabel={locale === 'en' ? 'Close' : 'إغلاق'}
         className="flex max-h-[88vh] flex-col gap-0 p-0 sm:max-w-xl"
       >
         <DialogHeader className="shrink-0 space-y-3 border-b p-6 text-start">
           <div className="space-y-1">
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="size-5 text-primary" aria-hidden />
-              إصدار رسم جديد
+              {locale === 'en' ? 'Issue New Fee' : 'إصدار رسم جديد'}
             </DialogTitle>
             <DialogDescription>
-              يُنشئ إشعاراً واحداً ويصدر مطالبة لكل مواطن مشمول به.
+              {locale === 'en'
+                ? 'Creates a fee rule and issues claims to all matching citizens.'
+                : 'يُنشئ إشعاراً واحداً ويصدر مطالبة لكل مواطن مشمول به.'}
             </DialogDescription>
           </div>
 
           <Stepper
             index={stepIndex}
+            steps={steps}
             complete={stepComplete}
-            // Backwards only. Jumping forward past an unanswered step is the
-            // one thing a stepper must not offer, and «التالي» already carries
-            // the guard.
             onSelect={(next) => setStepIndex(Math.min(next, stepIndex))}
           />
         </DialogHeader>
@@ -245,18 +225,26 @@ export function IssueFeeDialog({
 
           {current.id === 'details' ? (
             <>
-              <Field label="اسم الرسم" htmlFor="fee-title" required>
+              <Field
+                label={locale === 'en' ? 'Fee Title' : 'اسم الرسم'}
+                htmlFor="fee-title"
+                required
+              >
                 <Input
                   id="fee-title"
                   autoFocus
-                  placeholder="مثال: رسم النفايات الشهري"
+                  placeholder={locale === 'en' ? 'e.g. Monthly Waste Collection' : 'مثال: رسم النفايات الشهري'}
                   value={values.title}
                   onChange={(event) => set({ title: event.target.value })}
                 />
               </Field>
 
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="المبلغ بالليرة اللبنانية" htmlFor="fee-amount" required>
+                <Field
+                  label={locale === 'en' ? 'Amount (LBP)' : 'المبلغ بالليرة اللبنانية'}
+                  htmlFor="fee-amount"
+                  required
+                >
                   <Input
                     id="fee-amount"
                     inputMode="numeric"
@@ -268,7 +256,11 @@ export function IssueFeeDialog({
                   />
                 </Field>
 
-                <Field label="تاريخ الاستحقاق" htmlFor="fee-due" required>
+                <Field
+                  label={locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق'}
+                  htmlFor="fee-due"
+                  required
+                >
                   <Input
                     id="fee-due"
                     type="date"
@@ -281,10 +273,14 @@ export function IssueFeeDialog({
               </div>
 
               <Field
-                label="الدورية"
+                label={locale === 'en' ? 'Frequency' : 'الدورية'}
                 htmlFor="fee-frequency"
                 required
-                hint="الرسوم المتكرّرة تُصدر مطالبة جديدة تلقائياً كل دورة حتى إيقافها."
+                hint={
+                  locale === 'en'
+                    ? 'Recurring fees automatically issue a new claim every period until cancelled.'
+                    : 'الرسوم المتكرّرة تُصدر مطالبة جديدة تلقائياً كل دورة حتى إيقافها.'
+                }
               >
                 <Select
                   value={values.frequency}
@@ -296,7 +292,7 @@ export function IssueFeeDialog({
                   <SelectContent>
                     {FEE_FREQUENCY.map((option) => (
                       <SelectItem key={option} value={option}>
-                        {ar.feeFrequency[option]}
+                        {labels.feeFrequency[option]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -307,7 +303,11 @@ export function IssueFeeDialog({
 
           {current.id === 'target' ? (
             <>
-              <Field label="الفئة المستهدفة" htmlFor="fee-target" required>
+              <Field
+                label={locale === 'en' ? 'Target Audience' : 'الفئة المستهدفة'}
+                htmlFor="fee-target"
+                required
+              >
                 <div className="grid gap-3">
                   {FEE_TARGET_TYPE.map((option) => (
                     <ChoiceCard
@@ -316,8 +316,8 @@ export function IssueFeeDialog({
                       value={option}
                       checked={values.targetType === option}
                       onChange={(next) => set({ targetType: next, targetCitizenId: '' })}
-                      title={ar.feeTargetType[option]}
-                      description={TARGET_HINT[option]}
+                      title={labels.feeTargetType[option]}
+                      description={targetHints[option]}
                       icon={TARGET_ICON[option]}
                     />
                   ))}
@@ -326,10 +326,14 @@ export function IssueFeeDialog({
 
               {values.targetType === 'BUILDING_CATEGORY' ? (
                 <Field
-                  label="نوع العقارات"
+                  label={locale === 'en' ? 'Property Category' : 'نوع العقارات'}
                   htmlFor="fee-category"
                   required
-                  hint="يشمل المواطنين الذين سجّلوا عقاراً من هذا النوع."
+                  hint={
+                    locale === 'en'
+                      ? 'Includes citizens who registered this property type.'
+                      : 'يشمل المواطنين الذين سجّلوا عقاراً من هذا النوع.'
+                  }
                 >
                   <Select
                     value={values.targetCategory}
@@ -341,7 +345,7 @@ export function IssueFeeDialog({
                     <SelectContent>
                       {FEE_TARGET_CATEGORY.map((option) => (
                         <SelectItem key={option} value={option}>
-                          {ar.feeTargetCategory[option]}
+                          {labels.feeTargetCategory[option]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -351,15 +355,15 @@ export function IssueFeeDialog({
 
               {values.targetType === 'INDIVIDUAL_CITIZEN' ? (
                 <Field
-                  label="المواطن"
+                  label={locale === 'en' ? 'Citizen' : 'المواطن'}
                   htmlFor="fee-citizen"
                   required
-                  hint="ابحث بالاسم أو بالرقم المرجعي."
+                  hint={locale === 'en' ? 'Search by name or reference number.' : 'ابحث بالاسم أو بالرقم المرجعي.'}
                 >
                   <div className="space-y-2">
                     <Input
                       id="fee-citizen"
-                      placeholder="اسم المواطن أو الرقم المرجعي"
+                      placeholder={locale === 'en' ? 'Citizen name or reference number' : 'اسم المواطن أو الرقم المرجعي'}
                       value={
                         chosen ? `${chosen.fullName} — ${chosen.referenceNumber}` : citizenQuery
                       }
@@ -397,9 +401,9 @@ export function IssueFeeDialog({
               ) : null}
 
               <Field
-                label="تعليمات الدفع / ملاحظات"
+                label={locale === 'en' ? 'Payment Instructions / Notes' : 'تعليمات الدفع / ملاحظات'}
                 htmlFor="fee-instructions"
-                hint="تظهر للمواطن أعلى خيارات الدفع."
+                hint={locale === 'en' ? 'Shown to the citizen above payment options.' : 'تظهر للمواطن أعلى خيارات الدفع.'}
               >
                 <Textarea
                   id="fee-instructions"
@@ -413,31 +417,34 @@ export function IssueFeeDialog({
 
           {current.id === 'review' ? (
             <div className="space-y-4">
-              {/* The amount gets its own block: it is the figure a clerk
-                  re-reads against the council's decision, and it should not
-                  have to be found among six rows of a table to do it. */}
               <div className="rounded-lg border bg-muted/30 p-4 text-center">
                 <p className="text-sm text-muted-foreground">{values.title || '—'}</p>
                 <p className="mt-1 text-3xl font-bold tabular-nums" dir="ltr">
                   {amount ? amount.toLocaleString('en-US') : '—'}
-                  <span className="ms-2 text-base font-medium text-muted-foreground">ل.ل</span>
+                  <span className="ms-2 text-base font-medium text-muted-foreground">
+                    {locale === 'en' ? 'LBP' : 'ل.ل'}
+                  </span>
                 </p>
               </div>
 
               <dl className="divide-y rounded-lg border text-sm">
-                <ReviewRow icon={Target} label="يُطبَّق على" value={targetSummary} />
+                <ReviewRow
+                  icon={Target}
+                  label={locale === 'en' ? 'Applies To' : 'يُطبَّق على'}
+                  value={targetSummary}
+                />
                 <ReviewRow
                   icon={CalendarClock}
-                  label="الدورية"
+                  label={locale === 'en' ? 'Frequency' : 'الدورية'}
                   value={
                     recurring
-                      ? `${ar.feeFrequency[values.frequency as never]} — يتكرّر تلقائياً حتى الإيقاف`
-                      : ar.feeFrequency[values.frequency as never]
+                      ? `${labels.feeFrequency[values.frequency as never]} — ${locale === 'en' ? 'Repeats automatically until stopped' : 'يتكرّر تلقائياً حتى الإيقاف'}`
+                      : labels.feeFrequency[values.frequency as never]
                   }
                 />
                 <ReviewRow
                   icon={CalendarClock}
-                  label="تاريخ الاستحقاق"
+                  label={locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق'}
                   value={
                     values.dueDate
                       ? formatDate(values.dueDate)
@@ -447,7 +454,7 @@ export function IssueFeeDialog({
                 {values.instructions.trim() ? (
                   <ReviewRow
                     icon={ClipboardList}
-                    label="تعليمات الدفع"
+                    label={locale === 'en' ? 'Payment Instructions' : 'تعليمات الدفع'}
                     value={values.instructions.trim()}
                   />
                 ) : null}
@@ -457,9 +464,13 @@ export function IssueFeeDialog({
                 <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
                   <span>
-                    سيتم إنشاء مطالبة منفصلة لكل مواطن مشمول، وتظهر فوراً في حسابه.
+                    {locale === 'en'
+                      ? 'A separate claim will be created for each included citizen and will appear immediately on their file.'
+                      : 'سيتم إنشاء مطالبة منفصلة لكل مواطن مشمول، وتظهر فوراً في حسابه.'}
                     {recurring
-                      ? ' يمكن إيقاف التكرار لاحقاً، لكن المطالبات الصادرة تبقى قائمة.'
+                      ? (locale === 'en'
+                          ? ' Recurrence can be cancelled later, but issued claims will remain active.'
+                          : ' يمكن إيقاف التكرار لاحقاً، لكن المطالبات الصادرة تبقى قائمة.')
                       : ''}
                   </span>
                 </p>
@@ -468,9 +479,6 @@ export function IssueFeeDialog({
           ) : null}
         </div>
 
-        {/* `justify-between` is restated at `sm` because DialogFooter's own
-            `sm:justify-end` would otherwise take over at that breakpoint and
-            collapse «السابق» and «التالي» into the same corner. */}
         <DialogFooter className="shrink-0 flex-row items-center justify-between gap-2 border-t p-6 sm:justify-between">
           <Button
             variant="ghost"
@@ -478,11 +486,11 @@ export function IssueFeeDialog({
             disabled={submitting}
           >
             {stepIndex === 0 ? (
-              'إلغاء'
+              (locale === 'en' ? 'Cancel' : 'إلغاء')
             ) : (
               <>
-                <ArrowRight className="size-4" aria-hidden />
-                السابق
+                <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+                {locale === 'en' ? 'Back' : 'السابق'}
               </>
             )}
           </Button>
@@ -494,12 +502,12 @@ export function IssueFeeDialog({
               ) : (
                 <Check className="size-4" aria-hidden />
               )}
-              إصدار المطالبات
+              {locale === 'en' ? 'Issue Claims' : 'إصدار المطالبات'}
             </Button>
           ) : (
             <Button disabled={!canAdvance} onClick={() => setStepIndex(stepIndex + 1)}>
-              التالي
-              <ArrowLeft className="size-4" aria-hidden />
+              {locale === 'en' ? 'Next' : 'التالي'}
+              <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
             </Button>
           )}
         </DialogFooter>
@@ -508,26 +516,20 @@ export function IssueFeeDialog({
   );
 }
 
-/**
- * The three dots across the top.
- *
- * A step that is both behind the cursor *and* answered gets a check; behind and
- * unanswered gets its numeral back. That distinction matters because the only
- * way to be in the third step with an empty first one is to have gone back and
- * cleared something — precisely the state a clerk needs pointed out.
- */
 function Stepper({
   index,
+  steps,
   complete,
   onSelect,
 }: {
   index: number;
-  complete: Record<StepId, boolean>;
+  steps: Array<{ id: 'details' | 'target' | 'review'; step: string; title: string }>;
+  complete: Record<'details' | 'target' | 'review', boolean>;
   onSelect: (index: number) => void;
 }) {
   return (
-    <ol className="flex items-center gap-1" aria-label="خطوات إصدار الرسم">
-      {STEPS.map((step, position) => {
+    <ol className="flex items-center gap-1" aria-label="Fee issuance steps">
+      {steps.map((step, position) => {
         const isActive = position === index;
         const behind = position < index;
         const done = behind && complete[step.id];
@@ -568,7 +570,7 @@ function Stepper({
                 {step.title}
               </span>
             </button>
-            {position < STEPS.length - 1 ? (
+            {position < steps.length - 1 ? (
               <span
                 aria-hidden
                 className={cn('h-px w-4 shrink-0', behind ? 'bg-primary/40' : 'bg-border')}

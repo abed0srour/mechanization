@@ -506,6 +506,7 @@ export default function StaffPage({
           if (!next) setEditing(null);
         }}
         onSubmit={(values) => void submitForm(values)}
+        locale={locale}
       />
 
       <ConfirmDialog
@@ -513,25 +514,31 @@ export default function StaffPage({
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
         }}
-        title="حذف الحساب نهائياً"
+        title={locale === 'en' ? 'Permanently Delete Account' : 'حذف الحساب نهائياً'}
         description={
           pendingDelete ? (
-            <>
-              سيُحذف حساب{' '}
-              <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> ولن
-              يستطيع تسجيل الدخول. سجل نشاطه في «سجل النشاطات» يبقى كما هو.
-              {/* The gentler option, offered at the moment the harsher one is
-                  being considered: disabling keeps the account attributable in
-                  the audit trail, and is what most of these actually want. */}
-              <span className="mt-2 block text-muted-foreground">
-                إن كان الهدف منع الدخول مؤقتاً، «التعطيل» يكفي ويمكن التراجع عنه.
-              </span>
-            </>
+            locale === 'en' ? (
+              <>
+                Account for <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> will be deleted and will no longer be able to log in. Their activity remains in the audit log.
+                <span className="mt-2 block text-muted-foreground">
+                  If the goal is to temporarily revoke access, &quot;Disable&quot; is sufficient and reversible.
+                </span>
+              </>
+            ) : (
+              <>
+                سيُحذف حساب{' '}
+                <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> ولن
+                يستطيع تسجيل الدخول. سجل نشاطه في «سجل النشاطات» يبقى كما هو.
+                <span className="mt-2 block text-muted-foreground">
+                  إن كان الهدف منع الدخول مؤقتاً، «التعطيل» يكفي ويمكن التراجع عنه.
+                </span>
+              </>
+            )
           ) : null
         }
-        confirmLabel="حذف نهائي"
+        confirmLabel={locale === 'en' ? 'Delete Permanently' : 'حذف نهائي'}
         requireText={pendingDelete?.email}
-        requireTextHint="اكتب البريد الإلكتروني للحساب للتأكيد"
+        requireTextHint={locale === 'en' ? 'Type the account email address to confirm' : 'اكتب البريد الإلكتروني للحساب للتأكيد'}
         onConfirm={async () => {
           if (pendingDelete) await removeStaff(pendingDelete);
         }}
@@ -546,24 +553,31 @@ export default function StaffPage({
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" closeLabel={locale === 'en' ? 'Close' : 'إغلاق'}>
           <DialogHeader>
             <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20">
               <KeyRound className="size-6" />
             </div>
             <DialogTitle className="text-center text-xl font-bold">
-              رمز التحقق بخطوتين (2FA)
+              {locale === 'en' ? 'Two-Factor Authentication (2FA)' : 'رمز التحقق بخطوتين (2FA)'}
             </DialogTitle>
             <DialogDescription className="text-center text-sm leading-relaxed">
-              تم إنشاء حساب المسؤول <span className="font-semibold text-foreground">{createdTotp?.name}</span> بنجاح.
-              سلّم هذا المفتاح للمسؤول لإدخاله في تطبيق المصادقة (Google Authenticator).
+              {locale === 'en' ? (
+                <>
+                  Admin account <span className="font-semibold text-foreground">{createdTotp?.name}</span> created successfully. Provide this setup key to the administrator to enter into their authenticator app (Google Authenticator).
+                </>
+              ) : (
+                <>
+                  تم إنشاء حساب المسؤول <span className="font-semibold text-foreground">{createdTotp?.name}</span> بنجاح. سلّم هذا المفتاح للمسؤول لإدخاله في تطبيق المصادقة (Google Authenticator).
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="rounded-xl border border-border/80 bg-muted/40 p-4 space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>مفتاح الإعداد (Setup Key):</span>
+                <span>{locale === 'en' ? 'Setup Key:' : 'مفتاح الإعداد (Setup Key):'}</span>
                 <span className="font-mono">{createdTotp?.email}</span>
               </div>
               <div className="flex items-center gap-2">
@@ -586,12 +600,12 @@ export default function StaffPage({
                   {copiedSecret ? (
                     <>
                       <Check className="size-4 text-emerald-600" />
-                      <span className="text-xs">تم النسخ</span>
+                      <span className="text-xs">{locale === 'en' ? 'Copied' : 'تم النسخ'}</span>
                     </>
                   ) : (
                     <>
                       <Copy className="size-4" />
-                      <span className="text-xs">نسخ</span>
+                      <span className="text-xs">{locale === 'en' ? 'Copy' : 'نسخ'}</span>
                     </>
                   )}
                 </Button>
@@ -599,7 +613,11 @@ export default function StaffPage({
             </div>
 
             <div className="rounded-lg bg-amber-500/5 p-3 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-              ⚠️ <strong>تنبيه:</strong> هذا المفتاح يُعرض <strong>لمرة واحدة فقط</strong> الآن ولن يمكن استرجاعه لاحقاً من الموقع. في حال فقدانه يمكن إعادة تعيينه عبر موجه الأوامر (CLI).
+              {locale === 'en' ? (
+                <>⚠️ <strong>Notice:</strong> This key is displayed <strong>only once</strong> now and cannot be retrieved later from the site. If lost, it can be reset via the CLI.</>
+              ) : (
+                <>⚠️ <strong>تنبيه:</strong> هذا المفتاح يُعرض <strong>لمرة واحدة فقط</strong> الآن ولن يمكن استرجاعه لاحقاً من الموقع. في حال فقدانه يمكن إعادة تعيينه عبر موجه الأوامر (CLI).</>
+              )}
             </div>
           </div>
 
@@ -612,7 +630,7 @@ export default function StaffPage({
                 setCopiedSecret(false);
               }}
             >
-              تم الحفظ والإغلاق
+              {locale === 'en' ? 'Saved & Close' : 'تم الحفظ والإغلاق'}
             </Button>
           </DialogFooter>
         </DialogContent>

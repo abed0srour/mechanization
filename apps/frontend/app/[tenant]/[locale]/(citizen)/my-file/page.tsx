@@ -23,7 +23,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   getMyPayments,
@@ -132,6 +132,7 @@ export default function MyFilePage({
   const { tenant, locale } = use(params);
   const router = useRouter();
   const base = `/${tenant}/${locale}`;
+  const labels = getLabels(locale);
 
   const [token, setToken] = useState<string | null>(null);
   const [summary, setSummary] = useState<MyCitizenSummary | null>(null);
@@ -181,11 +182,15 @@ export default function MyFilePage({
         router.replace(base);
         return;
       }
-      setError('تعذّر تحميل ملفّك. يرجى المحاولة لاحقاً.');
+      setError(
+        locale === 'en'
+          ? 'Failed to load your file. Please try again later.'
+          : 'تعذّر تحميل ملفّك. يرجى المحاولة لاحقاً.',
+      );
     } finally {
       setLoading(false);
     }
-  }, [tenant, token, base, router]);
+  }, [tenant, token, base, router, locale]);
 
   useEffect(() => {
     void load();
@@ -196,15 +201,6 @@ export default function MyFilePage({
     router.replace(base);
   }, [tenant, base, router]);
 
-  /**
-   * Starts an online Whish payment for one bill.
-   *
-   * Navigates with `window.location` rather than the router because the
-   * destination is the provider's own domain once credentials are configured —
-   * Next's router cannot leave the app. In sandbox the server hands back a URL
-   * inside the portal, so the same line simply reloads this page with the
-   * invoice now awaiting confirmation.
-   */
   const payWithWhish = useCallback(
     async (paymentId: string) => {
       if (!token) return;
@@ -216,24 +212,23 @@ export default function MyFilePage({
       } catch (caught) {
         logApiError(caught);
         setError(
-          caught instanceof ApiRequestError ? caught.message : 'تعذّر بدء الدفع عبر Whish.',
+          caught instanceof ApiRequestError
+            ? caught.message
+            : (locale === 'en' ? 'Failed to start Whish checkout.' : 'تعذّر بدء الدفع عبر Whish.'),
         );
         setPayingId(null);
       }
     },
-    [tenant, token],
+    [tenant, token, locale],
   );
 
-  // Nothing to show until the redirect above resolves, or while the first
-  // load is in flight — both are a blank frame, not a state worth drawing.
   if (!token) return null;
 
-  // ── The record ──
   if (loading && !summary) {
     return (
       <div className="flex items-center justify-center gap-2 py-20 text-muted-foreground">
         <Loader2 className="size-5 animate-spin" aria-hidden />
-        جارٍ تحميل ملفّك…
+        {locale === 'en' ? 'Loading your file…' : 'جارٍ تحميل ملفّك…'}
       </div>
     );
   }
@@ -274,14 +269,11 @@ export default function MyFilePage({
                 </h1>
                 {summary && !summary.isActive ? (
                   <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning">
-                    حساب معطّل
+                    {locale === 'en' ? 'Disabled Account' : 'حساب معطّل'}
                   </Badge>
                 ) : null}
               </div>
 
-              {/* The reference is the credential this portal opens on, so it is
-                  given its own chip with a copy button rather than being set as
-                  grey run-on text next to the join date. */}
               <div className="flex flex-wrap items-center gap-2">
                 {summary?.referenceNumber ? (
                   <button
@@ -289,7 +281,7 @@ export default function MyFilePage({
                     onClick={() => copyReference(summary.referenceNumber!)}
                     className="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1 font-mono text-sm transition-colors hover:bg-accent"
                     dir="ltr"
-                    title="نسخ الرقم المرجعي"
+                    title={locale === 'en' ? 'Copy reference number' : 'نسخ الرقم المرجعي'}
                   >
                     {summary.referenceNumber}
                     {copied ? (
@@ -302,7 +294,8 @@ export default function MyFilePage({
                 {summary?.registeredAt ? (
                   <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
                     <CalendarDays className="size-3.5" aria-hidden />
-                    مسجّل منذ {formatDate(summary.registeredAt)}
+                    {locale === 'en' ? 'Registered ' : 'مسجّل منذ '}
+                    {formatDate(summary.registeredAt)}
                   </span>
                 ) : null}
               </div>
@@ -310,7 +303,7 @@ export default function MyFilePage({
 
             <Button variant="outline" onClick={signOut} className="w-full sm:w-auto">
               <LogOut className="size-4" aria-hidden />
-              خروج
+              {locale === 'en' ? 'Sign Out' : 'خروج'}
             </Button>
           </div>
         </div>
@@ -318,56 +311,59 @@ export default function MyFilePage({
         {/* ── The details themselves ── */}
         <CardContent className="p-0">
           <dl className="grid grid-cols-1 divide-y sm:grid-cols-2 sm:divide-y-0 md:grid-cols-3">
-            <Detail icon={Phone} label="رقم الهاتف" value={summary?.phone} mono />
-            <Detail icon={MessageCircle} label="واتساب" value={summary?.whatsapp} mono />
+            <Detail icon={Phone} label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'} value={summary?.phone} mono />
+            <Detail icon={MessageCircle} label={locale === 'en' ? 'WhatsApp' : 'واتساب'} value={summary?.whatsapp} mono />
             <Detail
               icon={IdCard}
               label={
                 summary?.identityDocType
-                  ? (ar.identityDocType[summary.identityDocType as never] ?? 'وثيقة الإثبات')
-                  : 'وثيقة الإثبات'
+                  ? (labels.identityDocType[summary.identityDocType as never] ?? (locale === 'en' ? 'Identity Document' : 'وثيقة الإثبات'))
+                  : (locale === 'en' ? 'Identity Document' : 'وثيقة الإثبات')
               }
               value={summary?.identityDocNumberMasked}
               mono
-              hint="آخر ثلاثة أرقام فقط"
+              hint={locale === 'en' ? 'Last 3 digits only' : 'آخر ثلاثة أرقام فقط'}
             />
             <Detail
               icon={Flag}
-              label="الجنسية"
-              value={summary?.nationality ?? (summary?.isLebanese ? 'لبناني' : null)}
+              label={locale === 'en' ? 'Nationality' : 'الجنسية'}
+              value={
+                summary?.nationality ??
+                (summary?.isLebanese ? (locale === 'en' ? 'Lebanese' : 'لبناني') : null)
+              }
             />
             <Detail
               icon={Home}
-              label="صفة الإقامة"
+              label={locale === 'en' ? 'Residency Status' : 'صفة الإقامة'}
               value={
                 summary?.residentStatus
-                  ? (ar.residentStatus[summary.residentStatus as never] ?? summary.residentStatus)
+                  ? (labels.residentStatus[summary.residentStatus as never] ?? summary.residentStatus)
                   : null
               }
             />
             <Detail
               icon={HeartHandshake}
-              label="الحالة الاجتماعية"
+              label={locale === 'en' ? 'Marital Status' : 'الحالة الاجتماعية'}
               value={
                 summary?.maritalStatus
-                  ? (ar.maritalStatus[summary.maritalStatus as never] ?? summary.maritalStatus)
+                  ? (labels.maritalStatus[summary.maritalStatus as never] ?? summary.maritalStatus)
                   : null
               }
             />
             <Detail
               icon={Users}
-              label="عدد أفراد الأسرة"
+              label={locale === 'en' ? 'Family Members' : 'عدد أفراد الأسرة'}
               value={summary?.familySize ? String(summary.familySize) : null}
             />
             <Detail
               icon={FileDigit}
-              label="رقم السجل"
+              label={locale === 'en' ? 'Civil Record Number' : 'رقم السجل'}
               value={summary?.civilRecordNumberMasked}
               mono
             />
             <Detail
               icon={Building2}
-              label="عدد العقارات"
+              label={locale === 'en' ? 'Properties Count' : 'عدد العقارات'}
               value={summary ? String(summary.properties.length) : null}
             />
           </dl>
@@ -377,26 +373,28 @@ export default function MyFilePage({
       {/* ── What is owed, at a glance ── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
-          label="المستحق عليك"
-          value={formatLbp(summary?.fees.outstandingTotal ?? 0)}
+          label={locale === 'en' ? 'Amount Due' : 'المستحق عليك'}
+          value={formatLbp(summary?.fees.outstandingTotal ?? 0, locale)}
           icon={<Wallet className="size-5" aria-hidden />}
           tone={
             (summary?.fees.outstandingTotal ?? 0) > 0 ? 'destructive' : 'success'
           }
         />
         <StatCard
-          label="المسدَّد"
-          value={formatLbp(summary?.fees.paidTotal ?? 0)}
+          label={locale === 'en' ? 'Settled' : 'المسدَّد'}
+          value={formatLbp(summary?.fees.paidTotal ?? 0, locale)}
           icon={<BadgeCheck className="size-5" aria-hidden />}
           tone="success"
         />
         <StatCard
-          label="متأخّرات"
-          value={formatLbp(summary?.fees.overdueTotal ?? 0)}
+          label={locale === 'en' ? 'Overdue' : 'متأخّرات'}
+          value={formatLbp(summary?.fees.overdueTotal ?? 0, locale)}
           hint={
             (summary?.fees.overdueCount ?? 0) > 0
-              ? `${summary?.fees.overdueCount} مطالبة تجاوزت موعدها`
-              : 'لا متأخّرات'
+              ? (locale === 'en'
+                  ? `${summary?.fees.overdueCount} claims past due date`
+                  : `${summary?.fees.overdueCount} مطالبة تجاوزت موعدها`)
+              : (locale === 'en' ? 'No overdue claims' : 'لا متأخّرات')
           }
           icon={<Clock className="size-5" aria-hidden />}
           tone={(summary?.fees.overdueTotal ?? 0) > 0 ? 'destructive' : undefined}
@@ -409,7 +407,7 @@ export default function MyFilePage({
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2 text-lg">
               <MessageSquareWarning className="size-5 text-warning" aria-hidden />
-              ملاحظات من البلدية
+              {locale === 'en' ? 'Notes from Municipality' : 'ملاحظات من البلدية'}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -427,20 +425,22 @@ export default function MyFilePage({
 
       {/* ── Bills still open ── */}
       <PaymentList
-        title="رسوم مستحقة عليك"
+        title={locale === 'en' ? 'Outstanding Fees' : 'رسوم مستحقة عليك'}
         icon={Wallet}
         items={outstanding}
-        empty="لا توجد رسوم مستحقة — ملفّك مسدَّد بالكامل."
+        empty={locale === 'en' ? 'No outstanding fees — your file is fully settled.' : 'لا توجد رسوم مستحقة — ملفّك مسدَّد بالكامل.'}
         onPay={payWithWhish}
         payingId={payingId}
+        locale={locale}
       />
 
       {/* ── Bills settled ── */}
       <PaymentList
-        title="رسوم سدّدتها"
+        title={locale === 'en' ? 'Settled Fees' : 'رسوم سدّدتها'}
         icon={BadgeCheck}
         items={settled}
-        empty="لم تُسجَّل أي دفعة بعد."
+        empty={locale === 'en' ? 'No recorded payments yet.' : 'لم تُسجَّل أي دفعة بعد.'}
+        locale={locale}
       />
 
       {/* ── What is registered in their name ── */}
@@ -448,29 +448,31 @@ export default function MyFilePage({
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2 text-lg">
             <Building2 className="size-5" aria-hidden />
-            عقاراتك المسجّلة {summary ? `(${summary.properties.length})` : ''}
+            {locale === 'en' ? 'Registered Properties' : 'عقاراتك المسجّلة'}{' '}
+            {summary ? `(${summary.properties.length})` : ''}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {!summary || summary.properties.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">لا توجد عقارات مسجّلة.</p>
+            <p className="p-6 text-sm text-muted-foreground">
+              {locale === 'en' ? 'No registered properties.' : 'لا توجد عقارات مسجّلة.'}
+            </p>
           ) : (
             <ul className="divide-y">
               {summary.properties.map((property) => {
-                // Only the facts that apply to this property type — a plot has
-                // no floor, a tent has no area, and printing «—» for each is
-                // noise a citizen has to read past to find what is there.
                 const facts = [
-                  property.unitArea ? `${property.unitArea} م²` : null,
-                  property.floor ? `الطابق ${property.floor}` : null,
+                  property.unitArea ? `${property.unitArea} ${locale === 'en' ? 'm²' : 'م²'}` : null,
+                  property.floor ? `${locale === 'en' ? 'Floor ' : 'الطابق '}${property.floor}` : null,
                   property.side,
                   property.landType
-                    ? (ar.landType[property.landType as never] ?? property.landType)
+                    ? (labels.landType[property.landType as never] ?? property.landType)
                     : null,
                   property.unitType
-                    ? (ar.unitType[property.unitType as never] ?? property.unitType)
+                    ? (labels.unitType[property.unitType as never] ?? property.unitType)
                     : null,
-                  property.unitCount > 0 ? `${property.unitCount} وحدة` : null,
+                  property.unitCount > 0
+                    ? `${property.unitCount} ${locale === 'en' ? 'units' : 'وحدة'}`
+                    : null,
                   property.tentLocation,
                 ].filter(Boolean) as string[];
 
@@ -479,19 +481,19 @@ export default function MyFilePage({
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 space-y-1">
                         <p className="font-medium">
-                          {ar.propertyType[property.propertyType as never] ??
+                          {labels.propertyType[property.propertyType as never] ??
                             property.propertyType}
                           {property.buildingName ? ` — ${property.buildingName}` : ''}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {property.neighborhood} · رقم العقار{' '}
+                          {property.neighborhood} · {locale === 'en' ? 'Parcel #' : 'رقم العقار '}
                           <span className="font-mono" dir="ltr">
                             {property.propertyNumber}
                           </span>
                         </p>
                       </div>
                       <Badge variant="secondary" className="w-fit shrink-0">
-                        {ar.occupancyType[property.occupancyType as never] ??
+                        {labels.occupancyType[property.occupancyType as never] ??
                           property.occupancyType}
                       </Badge>
                     </div>
@@ -509,12 +511,9 @@ export default function MyFilePage({
                       </div>
                     ) : null}
 
-                    {/* A tenant's landlord is on the municipality's record and
-                        is the person they chase about the property, so it is
-                        shown rather than left to the office to look up. */}
                     {property.landlordName ? (
                       <p className="text-xs text-muted-foreground">
-                        المالك: {property.landlordName}
+                        {locale === 'en' ? 'Owner: ' : 'المالك: '}{property.landlordName}
                         {property.landlordPhone ? (
                           <>
                             {' · '}
@@ -534,7 +533,9 @@ export default function MyFilePage({
       </Card>
 
       <p className="pb-4 text-center text-sm text-muted-foreground">
-        للاستفسار أو الاعتراض على أي مبلغ، يرجى مراجعة البلدية.
+        {locale === 'en'
+          ? 'For inquiries or objections regarding any amount, please visit the municipality.'
+          : 'للاستفسار أو الاعتراض على أي مبلغ، يرجى مراجعة البلدية.'}
       </p>
     </div>
   );
@@ -590,9 +591,6 @@ function StatCard({
 
 /**
  * One list of bills.
- *
- * Shared by the owed and the settled sections so a citizen reads the same row
- * shape twice rather than learning two layouts for the same fact.
  */
 function PaymentList({
   title,
@@ -601,15 +599,18 @@ function PaymentList({
   empty,
   onPay,
   payingId,
+  locale = 'ar',
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
   items: CitizenPaymentItem[];
   empty: string;
-  /** Omitted on the settled list — there is nothing left to pay there. */
   onPay?: (paymentId: string) => void;
   payingId?: string | null;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
+
   return (
     <Card>
       <CardHeader className="border-b">
@@ -629,32 +630,35 @@ function PaymentList({
               return (
                 <li
                   key={payment.id}
-                  // Stacks on a phone and only becomes a row from `sm` up: the
-                  // amount and its badge were wrapping under the title at 360px
-                  // and reading as a second bill.
                   className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium">{payment.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {settled && payment.paidAt ? (
-                        <>سُدّد في {formatDate(payment.paidAt)}</>
+                        <>
+                          {locale === 'en' ? 'Paid on ' : 'سُدّد في '}
+                          {formatDate(payment.paidAt)}
+                        </>
                       ) : (
                         <>
-                          استحقاق {formatDate(payment.dueDate)}
+                          {locale === 'en' ? 'Due ' : 'استحقاق '}
+                          {formatDate(payment.dueDate)}
                           {partly
-                            ? ` · سدّدت ${formatLbp(payment.paidAmount)} من ${formatLbp(payment.amount)}`
+                            ? (locale === 'en'
+                                ? ` · Paid ${formatLbp(payment.paidAmount, locale)} of ${formatLbp(payment.amount, locale)}`
+                                : ` · سدّدت ${formatLbp(payment.paidAmount, locale)} من ${formatLbp(payment.amount, locale)}`)
                             : ''}
                         </>
                       )}
                       {settled && payment.paymentMethod
-                        ? ` · ${ar.paymentMethod[payment.paymentMethod as never] ?? ''}`
+                        ? ` · ${labels.paymentMethod[payment.paymentMethod as never] ?? ''}`
                         : ''}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold tabular-nums">
-                      {formatLbp(settled ? payment.amount : payment.remaining)}
+                      {formatLbp(settled ? payment.amount : payment.remaining, locale)}
                     </span>
                     <Badge
                       variant="outline"
@@ -668,13 +672,10 @@ function PaymentList({
                               : 'text-muted-foreground'
                       }
                     >
-                      {ar.paymentStatus[payment.paymentStatus as never] ??
+                      {labels.paymentStatus[payment.paymentStatus as never] ??
                         payment.paymentStatus}
                     </Badge>
 
-                    {/* Offered only where it can do something: a bill already
-                        awaiting confirmation would start a second checkout
-                        against money that may have already moved. */}
                     {onPay && payment.paymentStatus !== 'PENDING_REVIEW' ? (
                       <Button
                         size="sm"
@@ -687,7 +688,7 @@ function PaymentList({
                         ) : (
                           <CreditCard className="size-4" aria-hidden />
                         )}
-                        ادفع عبر Whish
+                        {locale === 'en' ? 'Pay with Whish' : 'ادفع عبر Whish'}
                       </Button>
                     ) : null}
                   </div>

@@ -17,6 +17,7 @@ export function ZoneLegend({
   onVisibleChange,
   activeZoneId,
   onSelectZone,
+  locale = 'ar',
 }: {
   zones: ZoneSummary[];
   visible: boolean;
@@ -24,29 +25,27 @@ export function ZoneLegend({
   /** Highlighted row, when the map is filtered to one sector. */
   activeZoneId?: string | null;
   onSelectZone?: (zoneId: string | null) => void;
+  locale?: string;
 }) {
   if (zones.length === 0) return null;
 
   return (
-    /* Physical right, below the registered-parcel counter. Not the logical
-       `end-3`: under RTL that resolves to the left edge, where Mapbox's own
-       zoom and compass controls live, and the panel covered them.
-
-       `top-32` below `sm`: the parcel-count box above drops to `top-16` there
-       to clear the search pill, which goes full-width on a narrow map, and at
-       `top-24` this panel would land on the counter in turn. */
     <div className="absolute right-3 top-32 z-10 w-56 overflow-hidden rounded-lg border bg-card/95 shadow-sm backdrop-blur sm:top-24">
       <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
         <span className="flex items-center gap-1.5 text-sm font-bold">
           <Layers className="size-4 text-primary" aria-hidden />
-          القطاعات
+          {locale === 'en' ? 'Sectors' : 'القطاعات'}
         </span>
         <Button
           variant="ghost"
           size="icon"
           className="size-7"
           onClick={() => onVisibleChange(!visible)}
-          aria-label={visible ? 'إخفاء القطاعات' : 'إظهار القطاعات'}
+          aria-label={
+            visible
+              ? (locale === 'en' ? 'Hide sectors' : 'إخفاء القطاعات')
+              : (locale === 'en' ? 'Show sectors' : 'إظهار القطاعات')
+          }
           aria-pressed={visible}
         >
           {visible ? (

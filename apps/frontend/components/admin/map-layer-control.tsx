@@ -21,26 +21,43 @@ import { BASEMAPS, type BasemapId } from './map-styles';
 export function MapLayerControl({
   value,
   onChange,
+  locale = 'ar',
 }: {
   value: BasemapId;
   onChange: (next: BasemapId) => void;
+  locale?: string;
 }) {
+  const getLabel = (id: BasemapId) => {
+    if (locale === 'en') {
+      switch (id) {
+        case 'satellite':
+          return 'Satellite';
+        case 'light':
+          return 'Light';
+        case 'dark':
+          return 'Dark';
+      }
+    }
+    switch (id) {
+      case 'satellite':
+        return 'قمر صناعي';
+      case 'light':
+        return 'خريطة فاتحة';
+      case 'dark':
+        return 'خريطة داكنة';
+    }
+  };
+
   return (
     <div
       className={cn(
         'pointer-events-auto absolute bottom-6 left-1/2 z-20 -translate-x-1/2',
         'flex items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-lg backdrop-blur',
-        /*
-          Lifted above the parcel sheet on a phone, where that sheet claims the
-          bottom 68dvh. Driven by the `data-sheet-open` attribute the map sets
-          on its container rather than by a prop, so a control that has no
-          business knowing about the sheet does not grow a parameter for it.
-        */
         'transition-[bottom] duration-300',
         'group-data-[sheet-open]/map:bottom-[calc(68dvh_+_1.5rem)] sm:group-data-[sheet-open]/map:bottom-6',
       )}
       role="group"
-      aria-label="نمط الخريطة"
+      aria-label={locale === 'en' ? 'Map style' : 'نمط الخريطة'}
     >
       <Layers className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
 
@@ -53,10 +70,9 @@ export function MapLayerControl({
             size="sm"
             onClick={() => onChange(basemap.id)}
             aria-pressed={active}
-            // Override the button's default radius to fit the segmented control.
             className={cn('rounded-md', active ? 'shadow-sm' : 'text-muted-foreground')}
           >
-            {basemap.label}
+            {getLabel(basemap.id)}
           </Button>
         );
       })}
