@@ -641,7 +641,6 @@ export function CitizenForm({
             </Button>
           </div>
         </div>
-        </div>
       </div>
     </div>
   );

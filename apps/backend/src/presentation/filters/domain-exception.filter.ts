@@ -100,6 +100,69 @@ export class DomainExceptionFilter implements ExceptionFilter {
       };
     }
 
+    /*
+     * A Prisma constraint that reached the filter is a *bug*, not a business
+     * rule: every one of these has a service-layer check that should have run
+     * first and thrown a `DomainError` naming the actual conflict — which
+     * national id, which sector, which worker.
+     *
+     * They are mapped anyway, because 500 with a correlation id is a worse
+     * answer to "this email is taken" than 409 is. But the wording stays
+     * deliberately unspecific. An earlier revision phrased P2002 as «يوجد
+     * تعارض مع تكليف أو سجل قائم مسبقاً» — a *sector assignment* clash — from a
+     * filter that also serves citizen registration, payments and staff
+     * accounts, so a duplicate national id told the clerk about a تكليف. A
+     * generic sentence is not a good error message; a confidently wrong one is
+     * worse.
+     *
+     * Each is logged at error level with the constraint it hit, because the
+     * fix belongs in the service that let it through.
+     */
+    const prismaCode =
+      typeof exception === 'object' &&
+      exception !== null &&
+      'code' in exception &&
+      typeof (exception as { code: unknown }).code === 'string'
+        ? (exception as { code: string }).code
+        : null;
+
+    if (prismaCode === 'P2002' || prismaCode === 'P2003' || prismaCode === 'P2025') {
+      this.logger.error(
+        `Unhandled Prisma ${prismaCode} reached the exception filter (correlationId=${correlationId ?? 'none'}). ` +
+          'A service-layer check is missing — this should have been a DomainError.',
+        exception instanceof Error ? exception.stack : undefined,
+      );
+
+      if (prismaCode === 'P2002') {
+        return {
+          status: HttpStatus.CONFLICT,
+          body: {
+            code: 'CONFLICT',
+            message: 'هذه البيانات مسجّلة مسبقاً',
+            correlationId,
+          },
+        };
+      }
+      if (prismaCode === 'P2003') {
+        return {
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+          body: {
+            code: 'VALIDATION_ERROR',
+            message: 'أحد السجلات المرتبطة بهذه العملية غير موجود',
+            correlationId,
+          },
+        };
+      }
+      return {
+        status: HttpStatus.NOT_FOUND,
+        body: {
+          code: 'NOT_FOUND',
+          message: 'السجل المطلوب غير موجود',
+          correlationId,
+        },
+      };
+    }
+
     /**
      * Anything unrecognised is a bug. The client gets a generic message and the
      * correlation id — enough for a citizen to quote to the municipality, and

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   OUTCOME_DISPOSITION,
@@ -7,11 +7,17 @@ import {
   splitEvenly,
   type AssignZoneInput,
   type FieldDraftPayload,
+  type FieldDraftSummary,
+  type PromotedDraftInfo,
+  type PromotionFailure,
+  type RegisteredCitizenSummary,
   type SyncBatchInput,
   type SyncBatchResult,
   type SyncRecordResult,
   type VisitDisposition,
   type VisitOutcome,
+  type Worklist as SharedWorklist,
+  type WorklistParcel as SharedWorklistParcel,
   type ZoneCoverage,
 } from '@mechanization/shared-schemas';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
@@ -50,6 +56,21 @@ import { Prisma } from '../../../generated/tenant-client';
 /** How many offending numbers a refusal names before it summarises, as in ZonesService. */
 const MAX_NAMED_PARCELS = 5;
 
+/**
+ * A person's name for a list row, or null when there is not enough of one yet.
+ *
+ * Null rather than an empty string on purpose: a half-entered draft with no
+ * first name should render as «المواطن / الشقة ٢», not as a blank where a name
+ * should be, and only a nullable field lets the UI tell the two apart.
+ */
+function fullName(parts: readonly unknown[]): string | null {
+  const name = parts
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join(' ')
+    .trim();
+  return name.length > 0 ? name : null;
+}
+
 /** "عقارات مكلَّفة لـ ندى: 401، 402 و3 غيرها" — names a few, then counts. */
 function namedClashes(clashes: readonly string[], claimedBy: ReadonlyMap<string, string>): string {
   const named = clashes.slice(0, MAX_NAMED_PARCELS);
@@ -77,33 +98,20 @@ export interface AssignmentSummary {
   createdAt: Date;
 }
 
-/** One door on a worker's list, with everything needed to work it offline. */
-export interface WorklistParcel {
-  parcelNumber: string;
-  zoneId: string;
-  zoneCode: string;
-  latitude: number | null;
-  longitude: number | null;
-  /** A citizen is already registered here — nothing to collect. */
-  registered: boolean;
-  lastOutcome: VisitOutcome | null;
-  lastDisposition: VisitDisposition | null;
-  lastVisitedAt: Date | null;
-  nextVisitAt: Date | null;
-  visitCount: number;
-  /**
-   * An unfinished draft to resume, carried in full so the device can keep
-   * editing it with no network at all.
-   */
-  draft: { clientId: string; payload: FieldDraftPayload; gaps: string[] } | null;
-}
-
-export interface Worklist {
-  /** Server clock at the moment the bundle was built, shown as "synced at". */
-  generatedAt: Date;
-  zones: Array<{ id: string; name: string; code: string; color: string; dueAt: Date | null }>;
-  parcels: WorklistParcel[];
-}
+/**
+ * The worklist shape is declared once, in `@mechanization/shared-schemas`, and
+ * instantiated here at `Date` — the service's own date representation, before
+ * JSON turns them into strings for the device.
+ *
+ * These aliases exist so the rest of the file reads unchanged. What must not
+ * come back is a *second* declaration of the shape: the last one drifted from
+ * the object this service actually returns, and the device papered over the
+ * difference with casts.
+ */
+export type WorklistParcelDraft = FieldDraftSummary<Date>;
+export type WorklistParcel = SharedWorklistParcel<Date>;
+export type Worklist = SharedWorklist<Date>;
+export type { RegisteredCitizenSummary };
 
 export interface FollowUpItem {
   parcelNumber: string;
@@ -178,6 +186,8 @@ export function partitionZone(
 
 @Injectable()
 export class FieldWorkService {
+  private readonly logger = new Logger(FieldWorkService.name);
+
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly citizens: CitizensService,
@@ -269,22 +279,44 @@ export class FieldWorkService {
 
     const shares = this.resolveShares(zone.parcelNumbers, active, input);
 
-    const created = await this.db.$transaction(
-      shares.map((parcelNumbers, index) =>
-        this.db.fieldAssignment.create({
-          data: {
-            zoneId: input.zoneId,
-            inspectorId: input.inspectorIds[index]!,
-            assignedById: actor.id,
-            parcelNumbers,
-            note: input.note ?? null,
-            dueAt: input.dueAt ?? null,
-          },
-          include: {
-            zone: { select: { name: true, code: true, parcelNumbers: true } },
-            inspector: { select: { firstName: true, lastName: true } },
-          },
-        }),
+    /*
+     * `assignedById` is a foreign key into this tenant's users, and a session
+     * can outlive the row behind it — a supervisor deleted mid-shift, or a
+     * token minted against another tenant's schema. Writing the id blind turns
+     * that into a raw P2003 at the database.
+     *
+     * Checked rather than assumed, but *not* silently nulled: an assignment
+     * with no author is a hole in the audit trail, and "who moved this sector"
+     * is the first question asked when a worker's parcels change under them.
+     * A caller whose own account is gone should be told so.
+     */
+    const actorUser = await this.db.user.findUnique({
+      where: { id: actor.id },
+      select: { id: true },
+    });
+    if (!actorUser) {
+      throw new NotFoundError('الحساب الذي يمنح التكليف غير موجود في هذه البلدية');
+    }
+    const assignedById = actorUser.id;
+
+    const created = await withConnectionRetry(() =>
+      this.db.$transaction(
+        shares.map((parcelNumbers, index) =>
+          this.db.fieldAssignment.create({
+            data: {
+              zoneId: input.zoneId,
+              inspectorId: input.inspectorIds[index]!,
+              assignedById,
+              parcelNumbers,
+              note: input.note ?? null,
+              dueAt: input.dueAt ?? null,
+            },
+            include: {
+              zone: { select: { name: true, code: true, parcelNumbers: true } },
+              inspector: { select: { firstName: true, lastName: true } },
+            },
+          }),
+        ),
       ),
     );
 
@@ -443,7 +475,6 @@ export class FieldWorkService {
       where: { zoneId: { in: zoneIds }, releasedAt: null },
       select: { id: true, zoneId: true, parcelNumbers: true },
     });
-
     const parcelToZone = new Map<string, { id: string; code: string; dueAt: Date | null }>();
     for (const assignment of assignments) {
       const share = partitionZone(
@@ -465,40 +496,161 @@ export class FieldWorkService {
       return { generatedAt: new Date(), zones: [], parcels: [] };
     }
 
-    const [coordinates, registered, latestVisits, drafts] = await Promise.all([
-      this.db.parcel.findMany({
-        where: { parcelNumber: { in: parcelNumbers } },
-        select: { parcelNumber: true, latitude: true, longitude: true },
-      }),
-      // "Registered" means somebody's claim already names this parcel. Distinct
-      // because an apartment block is one number shared by every resident.
-      this.db.propertyEntry.findMany({
-        where: { propertyNumber: { in: parcelNumbers } },
-        select: { propertyNumber: true },
-        distinct: ['propertyNumber'],
-      }),
-      this.latestVisits(parcelNumbers),
-      this.db.fieldDraft.findMany({
-        where: { parcelNumber: { in: parcelNumbers }, promotedAt: null },
-        orderBy: { deviceUpdatedAt: 'desc' },
-      }),
-    ]);
+    /*
+     * The drafts come first and alone, because the per-household visit query
+     * below is keyed on their ids.
+     *
+     * The alternative — one `fieldVisit.findMany` over every parcel on the list
+     * — pulled every visit ever recorded for a whole sector into memory on each
+     * sync, unfiltered and unprojected, to use at most one row per draft. On a
+     * dense zone that is tens of thousands of rows for a few dozen. One extra
+     * round trip is the cheaper half of that trade by a wide margin.
+     */
+    const drafts = await this.db.fieldDraft.findMany({
+      // Neither filed nor taken back. A promoted household is a citizen record
+      // now; a discarded one should never have existed. Both stop being work,
+      // and the device retires whichever of them it is still holding.
+      where: { parcelNumber: { in: parcelNumbers }, promotedAt: null, discardedAt: null },
+      orderBy: { deviceUpdatedAt: 'desc' },
+    });
+    const draftIds = drafts.map((draft) => draft.id);
+
+    const [coordinates, registered, parcelLevelVisits, draftVisits, attemptCounts] =
+      await Promise.all([
+        this.db.parcel.findMany({
+          where: { parcelNumber: { in: parcelNumbers } },
+          select: { parcelNumber: true, latitude: true, longitude: true },
+        }),
+        /*
+         * Not `distinct: ['propertyNumber']` any more, and deliberately so: the
+         * question changed from "is anybody registered here" to "who". An
+         * apartment block wants all five names, so a worker knocking on the
+         * sixth door can see the other five are already done.
+         */
+        this.db.propertyEntry.findMany({
+          where: { propertyNumber: { in: parcelNumbers } },
+          select: {
+            propertyNumber: true,
+            registration: {
+              select: {
+                referenceNumber: true,
+                citizen: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    middleName: true,
+                    lastName: true,
+                    phone: true,
+                  },
+                },
+              },
+            },
+          },
+        }),
+        /*
+         * `draftId: null` is the load-bearing clause.
+         *
+         * A parcel's own outcome is now only what was said about the *building*
+         * — a locked gate, a demolition, an address that does not exist. Take
+         * the latest visit of any kind and one finished apartment marks the
+         * whole block DONE, which is precisely the bug this feature exists to
+         * remove.
+         */
+        this.db.fieldVisit.findMany({
+          where: { parcelNumber: { in: parcelNumbers }, draftId: null },
+          orderBy: [{ parcelNumber: 'asc' }, { visitedAt: 'desc' }],
+          distinct: ['parcelNumber'],
+          select: {
+            parcelNumber: true,
+            outcome: true,
+            disposition: true,
+            visitedAt: true,
+            nextVisitAt: true,
+          },
+        }),
+        draftIds.length === 0
+          ? Promise.resolve([])
+          : this.db.fieldVisit.findMany({
+              where: { draftId: { in: draftIds } },
+              orderBy: [{ draftId: 'asc' }, { visitedAt: 'desc' }],
+              distinct: ['draftId'],
+              select: {
+                draftId: true,
+                outcome: true,
+                disposition: true,
+                visitedAt: true,
+                nextVisitAt: true,
+                note: true,
+                proxyName: true,
+                proxyPhone: true,
+              },
+            }),
+        // Knocks on this door, all of them — the count a worker reads as "I
+        // have been here three times", which is a fact about the building.
+        this.db.fieldVisit.groupBy({
+          by: ['parcelNumber'],
+          where: { parcelNumber: { in: parcelNumbers } },
+          _count: { _all: true },
+        }),
+      ]);
 
     const coordinateOf = new Map(coordinates.map((p) => [p.parcelNumber, p]));
-    const registeredSet = new Set(registered.map((p) => p.propertyNumber));
-    const visitOf = new Map(latestVisits.map((v) => [v.parcelNumber, v]));
-    // Newest draft wins where a parcel somehow has two — ordered above, so the
-    // first one seen for a number is the one to resume.
-    const draftOf = new Map<string, (typeof drafts)[number]>();
+    const visitOf = new Map(parcelLevelVisits.map((v) => [v.parcelNumber, v]));
+    const attemptOf = new Map(attemptCounts.map((a) => [a.parcelNumber, a._count._all]));
+    const draftVisitOf = new Map(
+      draftVisits.flatMap((v) => (v.draftId ? [[v.draftId, v] as const] : [])),
+    );
+
+    const draftsByParcel = new Map<string, Array<(typeof drafts)[number]>>();
     for (const draft of drafts) {
-      if (!draftOf.has(draft.parcelNumber)) draftOf.set(draft.parcelNumber, draft);
+      const list = draftsByParcel.get(draft.parcelNumber) ?? [];
+      list.push(draft);
+      draftsByParcel.set(draft.parcelNumber, list);
+    }
+
+    const registeredCitizensByParcel = new Map<string, RegisteredCitizenSummary[]>();
+    for (const row of registered) {
+      const citizen = row.registration?.citizen;
+      if (!citizen) continue;
+      const list = registeredCitizensByParcel.get(row.propertyNumber) ?? [];
+      // One citizen, several property entries on the same number — a landlord
+      // registering four units — is one name at the door, not four.
+      if (list.some((existing) => existing.id === citizen.id)) continue;
+      list.push({
+        id: citizen.id,
+        name: fullName([citizen.firstName, citizen.middleName, citizen.lastName]) ?? 'مواطن مسجّل',
+        phone: citizen.phone ?? null,
+        referenceNumber: row.registration?.referenceNumber ?? null,
+      });
+      registeredCitizensByParcel.set(row.propertyNumber, list);
     }
 
     const parcels: WorklistParcel[] = parcelNumbers.map((parcelNumber) => {
       const zone = parcelToZone.get(parcelNumber)!;
       const visit = visitOf.get(parcelNumber);
-      const draft = draftOf.get(parcelNumber);
+      const parcelDrafts = draftsByParcel.get(parcelNumber) ?? [];
       const point = coordinateOf.get(parcelNumber);
+      const regCitizens = registeredCitizensByParcel.get(parcelNumber) ?? [];
+
+      const formattedDrafts: WorklistParcelDraft[] = parcelDrafts.map((d) => {
+        const payload = d.payload as FieldDraftPayload;
+        const personal = (payload.personal ?? {}) as Record<string, unknown>;
+        const dVisit = draftVisitOf.get(d.id);
+        return {
+          clientId: d.clientId,
+          payload,
+          gaps: d.gaps,
+          citizenName: fullName([personal.firstName, personal.middleName, personal.lastName]),
+          updatedAt: d.deviceUpdatedAt,
+          lastOutcome: dVisit?.outcome ?? null,
+          lastDisposition: dVisit?.disposition ?? null,
+          lastVisitedAt: dVisit?.visitedAt ?? null,
+          nextVisitAt: dVisit?.nextVisitAt ?? null,
+          note: dVisit?.note ?? null,
+          proxyName: dVisit?.proxyName ?? null,
+          proxyPhone: dVisit?.proxyPhone ?? null,
+        };
+      });
 
       return {
         parcelNumber,
@@ -506,19 +658,14 @@ export class FieldWorkService {
         zoneCode: zone.code,
         latitude: point?.latitude ?? null,
         longitude: point?.longitude ?? null,
-        registered: registeredSet.has(parcelNumber),
+        registered: regCitizens.length > 0,
+        registeredCitizens: regCitizens,
         lastOutcome: visit?.outcome ?? null,
         lastDisposition: visit?.disposition ?? null,
         lastVisitedAt: visit?.visitedAt ?? null,
         nextVisitAt: visit?.nextVisitAt ?? null,
-        visitCount: visit ? Number(visit.attempts) : 0,
-        draft: draft
-          ? {
-              clientId: draft.clientId,
-              payload: draft.payload as FieldDraftPayload,
-              gaps: draft.gaps,
-            }
-          : null,
+        visitCount: attemptOf.get(parcelNumber) ?? 0,
+        drafts: formattedDrafts,
       };
     });
 
@@ -592,6 +739,7 @@ export class FieldWorkService {
           clientId: draft.clientId,
           ok: false,
           error: `العقار ${draft.parcelNumber} ليس ضمن قطاعك`,
+          code: 'PARCEL_NOT_ASSIGNED',
         });
         continue;
       }
@@ -649,11 +797,16 @@ export class FieldWorkService {
           clientId: draft.clientId,
           ok: false,
           error: caught instanceof Error ? caught.message : 'تعذّر حفظ المسودة',
+          code: 'SERVER_ERROR',
         });
       }
     }
 
     const visitResults: SyncRecordResult[] = [];
+    const promotedDrafts: PromotedDraftInfo[] = [];
+    const promotionFailures: PromotionFailure[] = [];
+    /** Citizens this batch created, so it is not told they superseded itself. */
+    const promotedCitizenIds = new Set<string>();
     const touchedParcels = new Set<string>();
 
     for (const visit of batch.visits) {
@@ -662,6 +815,7 @@ export class FieldWorkService {
           clientId: visit.clientId,
           ok: false,
           error: `العقار ${visit.parcelNumber} ليس ضمن قطاعك`,
+          code: 'PARCEL_NOT_ASSIGNED',
         });
         continue;
       }
@@ -692,6 +846,45 @@ export class FieldWorkService {
             null;
         }
 
+        let citizenId: string | null = visit.citizenId ?? null;
+
+        /*
+         * A door reported COMPLETED files the household then and there.
+         *
+         * This is the one place the feature spends its own credibility: the
+         * worker was told «ستُسجَّل رسمياً عند المزامنة», so the sync that says
+         * "saved" must either have filed the record or say why it could not.
+         * Both branches below therefore report something — one into
+         * `promotedDrafts`, one into `promotionFailures`. Nothing is swallowed.
+         *
+         * The draft is validated by `adminCreateCitizenSchema`, the same object
+         * `draftGaps` uses at the door, so incompleteness cannot reach here.
+         * What can is everything the doorstep cannot check: a national id
+         * already on the register, a rule that needs the database to answer.
+         */
+        if (visit.outcome === 'COMPLETED' && draftId) {
+          const promotion = await this.promoteFiledDraft(tenantSlug, draftId, actor);
+          if (promotion.ok) {
+            citizenId = promotion.citizenId;
+            promotedCitizenIds.add(promotion.citizenId);
+            if (visit.draftClientId) {
+              promotedDrafts.push({
+                draftClientId: visit.draftClientId,
+                citizenId: promotion.citizenId,
+                parcelNumber: visit.parcelNumber,
+                referenceNumber: promotion.referenceNumber,
+                citizenName: promotion.citizenName ?? undefined,
+              });
+            }
+          } else if (visit.draftClientId) {
+            promotionFailures.push({
+              draftClientId: visit.draftClientId,
+              parcelNumber: visit.parcelNumber,
+              error: promotion.error,
+            });
+          }
+        }
+
         await this.db.fieldVisit.create({
           data: {
             clientId: visit.clientId,
@@ -708,7 +901,7 @@ export class FieldWorkService {
             proxyName: visit.proxyName ?? null,
             proxyPhone: visit.proxyPhone ?? null,
             draftId,
-            citizenId: visit.citizenId ?? null,
+            citizenId,
           },
         });
 
@@ -719,6 +912,98 @@ export class FieldWorkService {
           clientId: visit.clientId,
           ok: false,
           error: caught instanceof Error ? caught.message : 'تعذّر حفظ الزيارة',
+          code: 'SERVER_ERROR',
+        });
+      }
+    }
+
+    /*
+     * Discards last, and the order is load-bearing.
+     *
+     * A worker can create a household, record a visit against it, and only then
+     * realise it was the wrong door — all offline, all in this one envelope.
+     * Applied in this order the row is created, the visit attaches, and the row
+     * is then marked discarded. In any other order the discard lands on a draft
+     * that does not exist yet, reports "nothing to do", and the mistake
+     * survives its own correction.
+     */
+    const discardResults: SyncRecordResult[] = [];
+    for (const discard of batch.discards ?? []) {
+      if (!allowed.has(discard.parcelNumber)) {
+        discardResults.push({
+          clientId: discard.clientId,
+          ok: false,
+          error: `العقار ${discard.parcelNumber} ليس ضمن قطاعك`,
+          code: 'PARCEL_NOT_ASSIGNED',
+        });
+        continue;
+      }
+
+      try {
+        const existing = await this.db.fieldDraft.findUnique({
+          where: { clientId: discard.draftClientId },
+          select: { id: true, promotedAt: true, discardedAt: true, parcelNumber: true },
+        });
+
+        /*
+         * Two idempotent non-failures, both reported as `duplicate`.
+         *
+         * Never pushed: the worker created the household and discarded it in
+         * the same offline session, and the device dropped the queued draft
+         * before it ever left. Already discarded: a retried batch. Both mean
+         * "there is nothing here any more" — which is what was asked for, so
+         * the device should clear the entry rather than keep retrying forever.
+         */
+        if (!existing || existing.discardedAt) {
+          discardResults.push({ clientId: discard.clientId, ok: true, duplicate: true });
+          continue;
+        }
+
+        /*
+         * A filed household is not a mistake any more; it is a citizen on the
+         * municipality's register, and unmaking that is not a field action. The
+         * refusal is explicit so the worker is told why rather than left with a
+         * discard that silently did nothing.
+         */
+        if (existing.promotedAt) {
+          discardResults.push({
+            clientId: discard.clientId,
+            ok: false,
+            error: 'هذا المواطن مسجَّل رسمياً — لا يمكن حذفه من الجهاز. راجع البلدية.',
+            code: 'DRAFT_ALREADY_FILED',
+          });
+          continue;
+        }
+
+        await this.db.fieldDraft.update({
+          where: { id: existing.id },
+          data: { discardedAt: discard.discardedAt, discardReason: discard.reason },
+        });
+
+        // Audited by name. This is the one thing a field worker can do that
+        // removes work from the queue without visiting anybody, so "who, when
+        // and why" has to be answerable later.
+        this.record({
+          tenantSlug,
+          action: 'FIELD_DRAFT_DISCARDED',
+          entityType: 'FieldDraft',
+          entityId: existing.id,
+          after: {
+            parcelNumber: existing.parcelNumber,
+            reason: discard.reason,
+            discardedAt: discard.discardedAt,
+          },
+          actor,
+        });
+
+        touchedParcels.add(discard.parcelNumber);
+        discardResults.push({ clientId: discard.clientId, ok: true });
+      } catch (caught) {
+        discardResults.push({
+          clientId: discard.clientId,
+          ok: false,
+          error: caught instanceof Error ? caught.message : 'تعذّر حذف المسودة',
+          code: 'SERVER_ERROR',
         });
       }
     }
@@ -731,17 +1016,109 @@ export class FieldWorkService {
       after: {
         visits: visitResults.filter((r) => r.ok && !r.duplicate).length,
         drafts: draftResults.filter((r) => r.ok && !r.duplicate).length,
-        rejected: [...visitResults, ...draftResults].filter((r) => !r.ok).length,
+        discarded: discardResults.filter((r) => r.ok && !r.duplicate).length,
+        rejected: [...visitResults, ...draftResults, ...discardResults].filter((r) => !r.ok).length,
       },
       actor,
     });
 
     const [supersededParcels, conflictedParcels] = await Promise.all([
-      this.supersededAmong(touchedParcels),
+      this.supersededAmong(touchedParcels, promotedCitizenIds),
       this.conflictsAmong(touchedParcels, actor.id),
     ]);
 
-    return { drafts: draftResults, visits: visitResults, supersededParcels, conflictedParcels };
+    return {
+      drafts: draftResults,
+      visits: visitResults,
+      discards: discardResults,
+      promotedDrafts,
+      promotionFailures,
+      supersededParcels,
+      conflictedParcels,
+    };
+  }
+
+  /**
+   * `promoteDraft`, with every failure turned into something reportable.
+   *
+   * Two failures are not failures and are folded back into success:
+   *
+   *  - the draft is already promoted, which is what a *retried* push of the
+   *    same completed visit looks like and must stay idempotent;
+   *  - the same, discovered by re-reading the row after a lost race.
+   *
+   * Everything else is logged with its stack and handed back in Arabic. The
+   * previous version caught all of it into `{}`, which meant a household could
+   * be reported "filed" on the device and exist nowhere on the register, with
+   * no trace in the logs that it had ever been attempted.
+   */
+  private async promoteFiledDraft(
+    tenantSlug: string,
+    draftId: string,
+    actor: { id: string; role: string },
+  ): Promise<
+    | { ok: true; citizenId: string; referenceNumber: string; citizenName: string | null }
+    | { ok: false; error: string }
+  > {
+    const alreadyFiled = async (): Promise<
+      { ok: true; citizenId: string; referenceNumber: string; citizenName: string | null } | null
+    > => {
+      const row = await this.db.fieldDraft.findUnique({
+        where: { id: draftId },
+        select: {
+          promotedCitizenId: true,
+          promotedCitizen: {
+            select: {
+              firstName: true,
+              middleName: true,
+              lastName: true,
+              registrations: {
+                select: { referenceNumber: true },
+                orderBy: { submittedAt: 'desc' },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+      if (!row?.promotedCitizenId) return null;
+      const citizen = row.promotedCitizen;
+      return {
+        ok: true,
+        citizenId: row.promotedCitizenId,
+        // Empty only if the citizen row lost its registration, which cannot
+        // happen through any path this service owns. Never a placeholder that
+        // the device would then render as a real reference number.
+        referenceNumber: citizen?.registrations[0]?.referenceNumber ?? '',
+        citizenName: citizen
+          ? fullName([citizen.firstName, citizen.middleName, citizen.lastName])
+          : null,
+      };
+    };
+
+    try {
+      const promoted = await this.promoteDraft(tenantSlug, draftId, actor);
+      return { ...promoted, ok: true, citizenName: null };
+    } catch (caught) {
+      const existing = await alreadyFiled();
+      if (existing) return existing;
+
+      const message =
+        caught instanceof Error ? caught.message : 'تعذّر تسجيل المسودة في السجل الرسمي';
+      this.logger.error(
+        `Automatic promotion failed for draft ${draftId} (tenant ${tenantSlug}, inspector ${actor.id}): ${message}`,
+        caught instanceof Error ? caught.stack : undefined,
+      );
+      this.record({
+        tenantSlug,
+        action: 'FIELD_DRAFT_PROMOTION_FAILED',
+        entityType: 'FieldDraft',
+        entityId: draftId,
+        after: { error: message },
+        actor,
+      });
+      return { ok: false, error: message };
+    }
   }
 
   /**
@@ -782,10 +1159,34 @@ export class FieldWorkService {
    * door, offline and unable to see it. The device drops these from its
    * worklist rather than sending someone back to a finished house.
    */
-  private async supersededAmong(parcelNumbers: Set<string>): Promise<string[]> {
+  private async supersededAmong(
+    parcelNumbers: Set<string>,
+    promotedCitizenIds: ReadonlySet<string> = new Set(),
+  ): Promise<string[]> {
     if (parcelNumbers.size === 0) return [];
     const rows = await this.db.propertyEntry.findMany({
-      where: { propertyNumber: { in: [...parcelNumbers] } },
+      where: {
+        propertyNumber: { in: [...parcelNumbers] },
+        /*
+         * "Somebody else" is the whole meaning of the word, and it now has to
+         * be said explicitly.
+         *
+         * Filing a completed household creates a property entry for the parcel
+         * the worker is standing on. Without this clause the very next line of
+         * the response told them a stranger had registered the house they had
+         * just finished registering — every single time — and the device
+         * dutifully marked it as work taken away from them.
+         *
+         * Excluded: citizens created by this batch, and every citizen this
+         * worker has ever promoted from their own drafts. The second half
+         * matters for a retried push, where the promotion happened in an
+         * earlier batch and `promotedCitizenIds` is empty.
+         */
+        registration: {
+          citizenId: { notIn: [...promotedCitizenIds] },
+          citizen: { draftsPromotedTo: { none: {} } },
+        },
+      },
       select: { propertyNumber: true },
       distinct: ['propertyNumber'],
     });
@@ -933,7 +1334,7 @@ export class FieldWorkService {
       },
       include: {
         inspector: { select: { firstName: true, lastName: true } },
-        draft: { select: { gaps: true, promotedAt: true } },
+        draft: { select: { gaps: true, promotedAt: true, discardedAt: true } },
       },
       orderBy: [{ visitedAt: 'desc' }],
       take: limit * 4,

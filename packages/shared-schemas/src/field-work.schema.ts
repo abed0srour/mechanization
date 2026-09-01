@@ -365,6 +365,55 @@ export const upsertDraftSchema = z.object({
 
 export type UpsertDraftInput = z.infer<typeof upsertDraftSchema>;
 
+/**
+ * ─────────────────────  Taking back a household that was a mistake  ──────────
+ *
+ * «مواطن جديد» tapped twice; a tenant entered against the neighbouring
+ * building; a family recorded at the wrong door. Until this existed there was
+ * no way to undo any of it — and because an open draft counts as unfinished
+ * work, the mistake also pinned its whole parcel in «مستحقة», sending the
+ * worker back to a real door indefinitely for a record that was a typo.
+ *
+ * It travels through the outbox like everything else rather than through its
+ * own endpoint, because the moment a mistake is noticed is the moment it was
+ * made — at a doorstep, with no signal. A discard that needed the network would
+ * be a discard nobody could perform.
+ *
+ * Deliberately *not* a delete, on either side: the visits recorded against this
+ * household are the record of knocks that genuinely happened at that door, and
+ * they survive being wrong about who lived behind it.
+ */
+export const discardDraftSchema = z.object({
+  /**
+   * The discard's own id, generated on the device — the idempotency key for
+   * this record in the outbox and in the response, exactly as `clientId` works
+   * for a draft or a visit. Distinct from the household it names, so a queued
+   * discard cannot collide with the queued draft it is about.
+   */
+  clientId: uuid,
+  /** The household being taken back. Names an existing draft. */
+  draftClientId: uuid,
+  parcelNumber: z.string().trim().min(1, 'رقم العقار مطلوب').max(40),
+  /**
+   * Why, in the worker's own words, and required.
+   *
+   * Removing a household from the queue on one person's say-so is the same
+   * class of act as closing a parcel with `DEMOLISHED`, and
+   * `OUTCOME_REQUIRES_NOTE` already settled that such an act costs a sentence.
+   * Ten characters is not a real bar to anyone with a reason; it is a bar to
+   * «.» and to a mis-tap on a confirm button.
+   */
+  reason: z
+    .string()
+    .trim()
+    .min(10, 'اذكر سبب الحذف بجملة قصيرة')
+    .max(300, 'السبب طويل — اختصره'),
+  /** Device clock at the moment it was discarded. */
+  discardedAt: z.coerce.date(),
+});
+
+export type DiscardDraftInput = z.infer<typeof discardDraftSchema>;
+
 // ─────────────────────────────────  Sync  ────────────────────────────────
 
 /**
@@ -375,6 +424,13 @@ export type UpsertDraftInput = z.infer<typeof upsertDraftSchema>;
  * a window between them in which the server holds a visit pointing at a draft
  * it has never seen.
  *
+ * Discards travel last, and the order is load-bearing in the same way. A worker
+ * can create a household, record a visit against it and then realise it was the
+ * wrong door — all inside one offline session, all in one envelope. Applied in
+ * this order the server creates it, records the visit, and then marks it
+ * discarded; in any other order the discard lands on a row that does not exist
+ * yet and the mistake survives the correction.
+ *
  * Batched rather than one-request-per-record because a worker who spent a day
  * in a sector with no signal comes back with a hundred of them, and a hundred
  * round trips over a village connection is how a sync gets abandoned halfway.
@@ -382,9 +438,86 @@ export type UpsertDraftInput = z.infer<typeof upsertDraftSchema>;
 export const syncBatchSchema = z.object({
   drafts: z.array(upsertDraftSchema).max(200),
   visits: z.array(recordVisitSchema).max(200),
+  /**
+   * Optional so that a device running an older build — one that has never heard
+   * of discards — still validates against this schema. Every other field here
+   * predates that concern; this one is the first addition since the contract
+   * went to real phones.
+   */
+  discards: z.array(discardDraftSchema).max(200).optional(),
 });
 
 export type SyncBatchInput = z.infer<typeof syncBatchSchema>;
+
+/**
+ * ─────────────────────  Why one record would not go through  ─────────────────
+ *
+ * A rejected record stays in the outbox forever by design — discarding a
+ * worker's day because the server disliked it would be worse. But "stays
+ * forever" is only defensible if the worker can find out *why* and what to do
+ * about it, and until now the answer was an Arabic sentence rendered nowhere.
+ *
+ * A code rather than only a message, because the two questions have different
+ * answers. The message says what happened; the code is what lets the device say
+ * **who can fix it and how** — and that is the half a worker at a door actually
+ * needs. Matching on the message text would have worked until the first time
+ * somebody reworded it.
+ */
+export type SyncFailureCode =
+  /** The parcel is not in this worker's share. Only a supervisor can fix it. */
+  | 'PARCEL_NOT_ASSIGNED'
+  /** The household is already a citizen on the register; it cannot be discarded. */
+  | 'DRAFT_ALREADY_FILED'
+  /** The record breaks its own schema — a missing required note, usually. */
+  | 'INVALID_RECORD'
+  /** Anything the server did not expect. Genuinely a bug, and reported as one. */
+  | 'SERVER_ERROR';
+
+/** What went wrong, and who can do something about it. */
+export interface SyncFailureGuidance {
+  /** One line naming the problem, for a list row. */
+  title: string;
+  /** What the worker should actually do next. */
+  resolution: string;
+  /**
+   * Whether the worker can fix this themselves at all.
+   *
+   * The distinction matters more than it looks: telling someone to fix
+   * something only their supervisor can change is how a queue sits untouched
+   * for a fortnight while everybody assumes somebody else is on it.
+   */
+  actor: 'worker' | 'supervisor';
+  /** True when the record can safely be dropped instead of fixed. */
+  droppable: boolean;
+}
+
+export const SYNC_FAILURE_GUIDANCE: Record<SyncFailureCode, SyncFailureGuidance> = {
+  PARCEL_NOT_ASSIGNED: {
+    title: 'هذا العقار ليس ضمن قطاعك',
+    resolution:
+      'راجع المشرف ليضيف العقار إلى تكليفك، ثم اضغط «مزامنة» مرة أخرى. سيُرسل تلقائياً بعد التعديل.',
+    actor: 'supervisor',
+    droppable: false,
+  },
+  DRAFT_ALREADY_FILED: {
+    title: 'هذا المواطن مسجَّل رسمياً — لا يمكن حذفه',
+    resolution: 'أصبح سجلاً في البلدية. إن كان التسجيل خاطئاً فالتعديل يتم من البلدية لا من الجهاز.',
+    actor: 'supervisor',
+    droppable: true,
+  },
+  INVALID_RECORD: {
+    title: 'السجل غير مكتمل ولا يقبله الخادم',
+    resolution: 'افتح السجل وأكمل الحقل الناقص — غالباً ملاحظة مطلوبة لهذه النتيجة — ثم احفظه.',
+    actor: 'worker',
+    droppable: false,
+  },
+  SERVER_ERROR: {
+    title: 'خطأ غير متوقع من الخادم',
+    resolution: 'حاول المزامنة لاحقاً. إن تكرر الأمر أبلغ المشرف برقم العقار.',
+    actor: 'supervisor',
+    droppable: false,
+  },
+};
 
 /** Per-record outcome, so the device knows exactly what to drop from its queue. */
 export interface SyncRecordResult {
@@ -392,6 +525,8 @@ export interface SyncRecordResult {
   ok: boolean;
   /** Present on failure — shown to the worker, and kept in the queue. */
   error?: string;
+  /** Present on failure. Drives the "how do I fix this" text on the device. */
+  code?: SyncFailureCode;
   /**
    * Set when the server already had this `clientId`. Not an error: it is the
    * expected result of a retried push, and the device should clear it.
@@ -399,16 +534,65 @@ export interface SyncRecordResult {
   duplicate?: boolean;
 }
 
+/**
+ * A draft the server turned into a real citizen record during this sync.
+ *
+ * The device needs this to stop showing the draft as outstanding work. It
+ * cannot infer it: the draft it pushed and the citizen that came out the other
+ * side share no identifier the device generated, which is exactly why the
+ * server has to name the pair.
+ */
+export interface PromotedDraftInfo {
+  draftClientId: string;
+  citizenId: string;
+  parcelNumber: string;
+  referenceNumber: string;
+  citizenName?: string;
+}
+
+/**
+ * A draft that was *supposed* to become a citizen record and did not.
+ *
+ * Reported rather than swallowed. The worker was told at the door that this
+ * household was finished; if the register disagreed — a duplicate national id,
+ * a rule the doorstep validator does not model — that is a thing they and a
+ * supervisor have to see, not a silent gap between what the device shows and
+ * what the municipality holds.
+ */
+export interface PromotionFailure {
+  draftClientId: string;
+  parcelNumber: string;
+  /** Arabic, already phrased for the worker. */
+  error: string;
+}
+
 export interface SyncBatchResult {
   drafts: SyncRecordResult[];
   visits: SyncRecordResult[];
   /**
-   * Parcels that were registered by someone else — the citizen filed online, or
-   * another worker got there first — and are no longer this device's work.
+   * One result per discard.
    *
-   * The device removes these from its worklist. This is the answer to the one
-   * duplicate path that per-worker assignment does not close: a citizen using
-   * the public wizard while the worker is standing at their door, offline.
+   * `duplicate: true` covers both idempotent cases and neither is an error: a
+   * household the server has never seen (discarded before it was ever pushed)
+   * and one already discarded (a retried batch). Both mean "there is nothing
+   * here any more", which is what was asked for.
+   */
+  discards: SyncRecordResult[];
+  /** Drafts automatically filed as official citizens during this sync. */
+  promotedDrafts: PromotedDraftInfo[];
+  /** Drafts whose automatic filing failed, and why. */
+  promotionFailures: PromotionFailure[];
+  /**
+   * Parcels that somebody *else* registered while this device was offline — the
+   * citizen filed through the public wizard, or another worker got there first.
+   *
+   * Never includes a parcel this batch's own promotions registered: a worker
+   * finishing a household must not be told a stranger beat them to it.
+   *
+   * The device marks these registered rather than deleting them. Deleting was
+   * right when a parcel meant one household; it is wrong now that a cadastral
+   * number is a whole building, because the other four apartments in it are
+   * still this worker's job.
    */
   supersededParcels: string[];
   /**
@@ -422,6 +606,306 @@ export interface SyncBatchResult {
    * citizen records to merge.
    */
   conflictedParcels: string[];
+}
+
+// ──────────────────────────────  Worklist  ───────────────────────────────
+
+/**
+ * ─────────────────────  One shape, three date representations  ───────────────
+ *
+ * The worklist crosses two boundaries — Prisma → HTTP → IndexedDB — and dates
+ * change representation at each: `Date` in the service, an ISO string once JSON
+ * has been through it, an ISO string again on the device.
+ *
+ * Everything else about the shape is identical, and it used to be declared
+ * three times. Predictably the three drifted: the service returned per-draft
+ * visit state that its own declared return type did not mention, the frontend's
+ * DTO still described the single-draft world, and the sync layer papered over
+ * the gap with `as` casts. The casts are what hid the drift.
+ *
+ * So the shape is written once, parameterised by how dates are spelled. The
+ * service instantiates it at `Date`, the API client and the device at `string`,
+ * and a field added here is a compile error in every consumer that has not
+ * caught up — which is the entire point.
+ */
+
+/**
+ * One citizen/household being worked at a door.
+ *
+ * A cadastral number is a *building*, not a house: an apartment block is one
+ * number shared by every owner and tenant inside it. So the unit of field work
+ * is this — a person and their case — and a parcel carries a list of them.
+ * Visit state hangs here, not on the parcel, because apartment 1 being finished
+ * says nothing about apartment 2 being empty.
+ */
+export interface FieldDraftSummary<TDate = string> {
+  clientId: string;
+  payload: FieldDraftPayload;
+  /**
+   * The gap list as of the last write, for cheap list rendering only.
+   *
+   * Never branch on it. `draftGaps(payload)` is the truth and is the same
+   * validator promotion runs; this is a cache that a stale pull can contradict.
+   */
+  gaps: string[];
+  /** Derived from the payload at write time, so a list row need not parse it. */
+  citizenName: string | null;
+  updatedAt: TDate | null;
+
+  /**
+   * The last visit *to this household*, which is the whole feature.
+   *
+   * All seven fields are non-optional and explicitly nullable. Optional fields
+   * were how "clear the return date" became "keep the old return date": every
+   * merge in the sync path was written as `patch.x ?? current.x`, and `??`
+   * cannot tell "leave this alone" from "set this to nothing". Required-and-
+   * nullable removes the ambiguity at the type level.
+   */
+  lastOutcome: VisitOutcome | null;
+  lastDisposition: VisitDisposition | null;
+  lastVisitedAt: TDate | null;
+  nextVisitAt: TDate | null;
+  note: string | null;
+  proxyName: string | null;
+  proxyPhone: string | null;
+}
+
+/**
+ * Somebody already on the register at this parcel.
+ *
+ * Shown at the door so a worker does not collect a household the municipality
+ * already holds — the single most common wasted visit, and the one that creates
+ * duplicate citizen records when it is not caught.
+ *
+ * No review status: `Registration.status` is vestigial in this system (see the
+ * note where `ReportStatus` used to live in `enums.ts`). A row exists because a
+ * clerk or a promotion put it there, and that is all "registered" means here —
+ * the same rule `coverage()` counts by, deliberately.
+ */
+export interface RegisteredCitizenSummary {
+  id: string;
+  name: string;
+  phone: string | null;
+  referenceNumber: string | null;
+}
+
+/** One door on a worker's list, with everything needed to work it offline. */
+export interface WorklistParcel<TDate = string> {
+  parcelNumber: string;
+  zoneId: string;
+  zoneCode: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** At least one claim already names this number. */
+  registered: boolean;
+  /** Everyone the register already holds here. `registered` is `.length > 0`. */
+  registeredCitizens: RegisteredCitizenSummary[];
+  /**
+   * The last visit to the *parcel as a whole* — a locked gate, a demolished
+   * building, an address that does not exist. Distinct from a household's own
+   * state: those live on `drafts`.
+   */
+  lastOutcome: VisitOutcome | null;
+  lastDisposition: VisitDisposition | null;
+  lastVisitedAt: TDate | null;
+  nextVisitAt: TDate | null;
+  visitCount: number;
+  /** Every open household on this parcel, newest edit first. */
+  drafts: Array<FieldDraftSummary<TDate>>;
+}
+
+export interface Worklist<TDate = string> {
+  generatedAt: TDate;
+  zones: Array<{ id: string; name: string; code: string; color: string; dueAt: TDate | null }>;
+  parcels: Array<WorklistParcel<TDate>>;
+}
+
+// ────────────────────────────  Where a case stands  ──────────────────────
+
+/**
+ * ───────────────────────────  One state, four names  ─────────────────────────
+ *
+ * The worker's tabs — لم تُزَر / مستحقة / بانتظار / منجزة — have to *partition*
+ * the list. If a door can be counted twice, or in none of them, the counts stop
+ * being trustworthy and the tabs stop being a plan for the day.
+ *
+ * They stopped partitioning the moment a parcel grew several households: "done"
+ * was still asked of the parcel while "waiting" was asked of its drafts, so a
+ * building whose apartments were all finished could appear in neither. Hence
+ * one function, used by every filter, every count and every badge.
+ *
+ * The ordering is a priority, and it is the worker's own: anything owed today
+ * outranks anything owed later, which outranks anything finished. A building
+ * with three closed apartments and one due tomorrow is a building to visit
+ * tomorrow, not a finished building.
+ */
+export type CaseState =
+  /** Nothing recorded at all. */
+  | 'todo'
+  /** Owed now: the return date has arrived, or a retry has no date at all. */
+  | 'due'
+  /** Owed later, or owed by somebody else — a وكيل, a document, a decision. */
+  | 'waiting'
+  /** Finished or abandoned; no further visit will change it. */
+  | 'closed';
+
+function returnDateReached(nextVisitAt: Date | string | null, now: Date): boolean {
+  if (!nextVisitAt) return false;
+  const at = nextVisitAt instanceof Date ? nextVisitAt : new Date(nextVisitAt);
+  return !Number.isNaN(at.getTime()) && at.getTime() <= now.getTime();
+}
+
+interface VisitStateLike {
+  lastOutcome: VisitOutcome | null;
+  lastDisposition: VisitDisposition | null;
+  nextVisitAt: Date | string | null;
+}
+
+function dispositionState(state: VisitStateLike, now: Date): CaseState | null {
+  const disposition = state.lastDisposition ?? null;
+  if (!disposition) return null;
+  if (disposition === 'DONE' || disposition === 'CLOSED') return 'closed';
+  // A scheduled return that has come round is due, whichever side it was
+  // waiting on. This is the whole mechanism behind «بانتظار مستندات» surfacing
+  // by itself on the day the citizen promised the paperwork.
+  if (returnDateReached(state.nextVisitAt, now)) return 'due';
+  // RETRY with no date is "come back, I did not say when" — which means today.
+  if (disposition === 'RETRY') return state.nextVisitAt ? 'waiting' : 'due';
+  return 'waiting';
+}
+
+/**
+ * Where one household stands.
+ *
+ * An open draft with no outcome yet is `due`, not `todo`: somebody started
+ * writing this household down and stopped. That is unfinished work, and the
+ * one thing worse than never having knocked is a half-filled form nobody
+ * returns to.
+ */
+export function draftCaseState(draft: VisitStateLike, now: Date = new Date()): CaseState {
+  return dispositionState(draft, now) ?? 'due';
+}
+
+/**
+ * Where a whole door stands, across every household behind it.
+ *
+ * `parcel.lastDisposition` here is the *parcel-level* visit only — a locked
+ * gate, a demolished building — never a household's. A completed apartment
+ * must not close the building it is in.
+ */
+export function parcelCaseState(
+  parcel: {
+    registered: boolean;
+    lastOutcome: VisitOutcome | null;
+    lastDisposition: VisitDisposition | null;
+    nextVisitAt: Date | string | null;
+    drafts: readonly VisitStateLike[];
+  },
+  now: Date = new Date(),
+): CaseState {
+  const parcelLevel = dispositionState(parcel, now);
+  // A closed *parcel* closes everything on it: there is no apartment 2 in a
+  // demolished building.
+  if (parcelLevel === 'closed' && parcel.drafts.length === 0) return 'closed';
+  if (parcel.lastDisposition === 'CLOSED') return 'closed';
+
+  const households = parcel.drafts.map((draft) => draftCaseState(draft, now));
+  if (households.includes('due') || parcelLevel === 'due') return 'due';
+  if (households.includes('waiting') || parcelLevel === 'waiting') return 'waiting';
+  if (parcel.registered || households.length > 0 || parcelLevel === 'closed') return 'closed';
+  return 'todo';
+}
+
+// ────────────────────────  Reconciling a device's view  ──────────────────────
+
+/**
+ * Has anything about *the visit* changed, as opposed to about the form?
+ *
+ * The distinction is what keeps `field_visits` meaning something. Reopening a
+ * finished household to correct a misspelt street is an edit to a draft; going
+ * back to the door is a visit. Treating every save as the second inflated the
+ * attempt count on every parcel, and made a fresh promotion attempt against a
+ * citizen already on the register each time.
+ *
+ * A household with no outcome yet always counts as changed — the first save is
+ * always a visit.
+ */
+export function visitStateChanged<TDate>(
+  draft: Pick<
+    FieldDraftSummary<TDate>,
+    'lastOutcome' | 'nextVisitAt' | 'note' | 'proxyName' | 'proxyPhone'
+  > | null,
+  next: {
+    lastOutcome: VisitOutcome | null;
+    nextVisitAt: TDate | null;
+    note: string | null;
+    proxyName: string | null;
+    proxyPhone: string | null;
+  },
+): boolean {
+  if (!draft?.lastOutcome) return true;
+  return (
+    draft.lastOutcome !== next.lastOutcome ||
+    String(draft.nextVisitAt ?? '') !== String(next.nextVisitAt ?? '') ||
+    (draft.note ?? '') !== (next.note ?? '') ||
+    (draft.proxyName ?? '') !== (next.proxyName ?? '') ||
+    (draft.proxyPhone ?? '') !== (next.proxyPhone ?? '')
+  );
+}
+
+/**
+ * ───────────────────  Whose version of a household wins  ─────────────────────
+ *
+ * A pull replaces the worklist wholesale — the server is the truth about what
+ * is assigned. Drafts are the exception: one entered at a door ten minutes ago
+ * exists only on the device, and wholesale replacement would erase it before it
+ * was ever pushed. So drafts, and only drafts, are merged.
+ *
+ * Three cases, and the third is the one that was missing:
+ *
+ *  1. **Server only.** Take it — another device, or an earlier sync.
+ *  2. **Both.** Take whichever was edited later, *whole*. Not field-by-field:
+ *     half of a stale draft merged into half of a fresh one is a record that
+ *     existed on neither side. Last-write-wins by device clock is correct here
+ *     specifically because the only writer is the one worker the parcel is
+ *     assigned to, and it is the same rule the server applies on push.
+ *  3. **Device only.** Take it — *unless* it is retired. A draft absent from
+ *     the server is usually one the server has not been told about, which is
+ *     why the union exists. But it is also exactly what a **promoted** draft
+ *     looks like: the server stops sending a household the moment it becomes a
+ *     real citizen record. Without the retired set the two are
+ *     indistinguishable, and every pull resurrected finished work — pinning its
+ *     parcel in the drafts list with no way to clear it.
+ */
+export function mergeDraftLists<TDate>(
+  serverDrafts: ReadonlyArray<FieldDraftSummary<TDate>>,
+  localDrafts: ReadonlyArray<FieldDraftSummary<TDate>>,
+  retired: ReadonlySet<string> = new Set(),
+): Array<FieldDraftSummary<TDate>> {
+  const merged = new Map<string, FieldDraftSummary<TDate>>();
+
+  for (const draft of serverDrafts) {
+    if (retired.has(draft.clientId)) continue;
+    merged.set(draft.clientId, draft);
+  }
+
+  for (const draft of localDrafts) {
+    if (retired.has(draft.clientId)) continue;
+    const fromServer = merged.get(draft.clientId);
+    if (!fromServer || editedAt(draft) > editedAt(fromServer)) {
+      merged.set(draft.clientId, draft);
+    }
+  }
+
+  return [...merged.values()].sort((a, b) => editedAt(b) - editedAt(a));
+}
+
+function editedAt<TDate>(draft: FieldDraftSummary<TDate>): number {
+  if (draft.updatedAt === null || draft.updatedAt === undefined) return 0;
+  const at =
+    draft.updatedAt instanceof Date ? draft.updatedAt : new Date(String(draft.updatedAt));
+  const time = at.getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 // ──────────────────────────────  Assignment  ─────────────────────────────

@@ -9,11 +9,12 @@ import type {
   NumberingSequence,
   SequenceKey,
   AssignZoneInput,
-  FieldDraftPayload,
   SyncBatchInput,
   SyncBatchResult,
   VisitDisposition,
   VisitOutcome,
+  Worklist,
+  WorklistParcel,
   ZoneCoverage,
 } from '@mechanization/shared-schemas';
 
@@ -1613,26 +1614,18 @@ export async function disableStaffTotp(
 }
 // ─────────────────────────────  Field work  ──────────────────────────────
 
-export interface WorklistParcelDto {
-  parcelNumber: string;
-  zoneId: string;
-  zoneCode: string;
-  latitude: number | null;
-  longitude: number | null;
-  registered: boolean;
-  lastOutcome: VisitOutcome | null;
-  lastDisposition: VisitDisposition | null;
-  lastVisitedAt: string | null;
-  nextVisitAt: string | null;
-  visitCount: number;
-  draft: { clientId: string; payload: FieldDraftPayload; gaps: string[] } | null;
-}
-
-export interface WorklistDto {
-  generatedAt: string;
-  zones: Array<{ id: string; name: string; code: string; color: string; dueAt: string | null }>;
-  parcels: WorklistParcelDto[];
-}
+/**
+ * The worklist is not re-declared here.
+ *
+ * `WorklistParcel` is defined once in `@mechanization/shared-schemas`,
+ * parameterised by how dates are spelled, and instantiated at `string` on this
+ * side of JSON. A hand-written DTO is how the frontend came to still describe
+ * the single-draft world months after the server had stopped serving it — and
+ * the sync layer papered over the difference with `as` casts, which is exactly
+ * the kind of silence a type is supposed to break.
+ */
+export type WorklistParcelDto = WorklistParcel<string>;
+export type WorklistDto = Worklist<string>;
 
 export interface AssignmentDto {
   id: string;

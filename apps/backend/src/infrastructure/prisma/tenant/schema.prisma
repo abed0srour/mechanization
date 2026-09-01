@@ -637,6 +637,26 @@ model FieldDraft {
   promotedCitizen   User?     @relation("DraftPromotedCitizen", fields: [promotedCitizenId], references: [id], onDelete: SetNull)
   promotedAt        DateTime?
 
+  /// Set when the worker says this household should never have existed — the
+  /// «مواطن جديد» button tapped twice, a tenant entered against the wrong
+  /// building. It leaves the worklist and the follow-up queue, and cannot be
+  /// promoted.
+  ///
+  /// Soft, not a DELETE, for two reasons that both matter. `FieldVisit.draftId`
+  /// is `onDelete: SetNull`, so a hard delete would quietly cut visits loose
+  /// from the household they were about — and those visits are the record of
+  /// work genuinely done at that door, which survives the mistake. And a row
+  /// that vanishes leaves no answer to "where did that go", which for anything
+  /// a field worker can do unilaterally is the question a supervisor eventually
+  /// asks.
+  discardedAt DateTime?
+
+  /// Why, in the worker's own words. Required by `discardDraftSchema`: removing
+  /// a household from the queue on one person's say-so is the same class of act
+  /// as closing a parcel, and `OUTCOME_REQUIRES_NOTE` already decided that
+  /// costs a sentence.
+  discardReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -644,6 +664,9 @@ model FieldDraft {
 
   @@index([parcelNumber])
   @@index([inspectorId, promotedAt])
+  /// Serves the worklist's "open households on these parcels", which is the
+  /// hottest read in the feature and now carries a second null check.
+  @@index([parcelNumber, promotedAt, discardedAt])
   @@map("field_drafts")
 }
 

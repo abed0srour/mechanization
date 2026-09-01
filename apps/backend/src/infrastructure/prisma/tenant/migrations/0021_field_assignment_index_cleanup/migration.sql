@@ -1,0 +1,35 @@
+-- Drop the assignment index that a zone-per-worker model needed and a
+-- parcel-per-worker model forbids.
+--
+-- `field_assignments_active_zone_key` was UNIQUE on ("zoneId") WHERE
+-- releasedAt IS NULL: one active assignment per sector, full stop. That was
+-- right while a sector was handed to exactly one person.
+--
+-- It is wrong now. A sector of six hundred parcels is split between three
+-- collectors working it at once, and exclusivity moved down to the *parcel* —
+-- enforced by `field_assignments_active_zone_inspector_key` (one active
+-- assignment per zone per worker) plus the overlap check in
+-- `FieldWorkService.resolveShares`. Where the old index survives, the second
+-- collector put on any sector is a raw P2002 with nothing useful to say.
+--
+-- No committed migration creates it, and it is present in none of the
+-- currently provisioned schemas — 0019_field_work already ships the corrected
+-- pair. It can only survive on a schema built from the revision of 0019 that
+-- predates that correction, or from a `prisma db push` of the schema as it
+-- stood then. `IF EXISTS` makes this a no-op everywhere else, which today is
+-- everywhere; it is kept as the explicit cleanup rather than left to chance,
+-- because a schema quietly carrying an index nobody else has is exactly the
+-- one-municipality-only runtime failure `migrate-all-tenants` exists to avoid.
+--
+-- ────────────────────────────────────────────────────────────────────────────
+-- Why a new migration rather than an edit to 0019, where the index used to be
+-- created:
+--
+-- `tenant-migrator.ts` records applied migrations by **name** in each schema's
+-- `_tenant_migrations` table, and never looks at their contents again. Editing
+-- an already-applied file therefore does not fail loudly and does not re-run —
+-- it does *nothing at all*, silently, on every schema that already holds that
+-- name, which is every provisioned tenant. Tenant migrations are append-only
+-- not because a checksum enforces it but because nothing enforces it. This is
+-- the append.
+DROP INDEX IF EXISTS "field_assignments_active_zone_key";
