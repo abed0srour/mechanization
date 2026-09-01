@@ -162,7 +162,7 @@ export function AdminShell({
             wide table's intrinsic width wins the flex negotiation and pushes
             the whole column past the viewport, which is how a page ends up
             scrolling horizontally as a whole instead of inside its table. */}
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto bg-background">{children}</main>
       </div>
 
       <CommandPalette

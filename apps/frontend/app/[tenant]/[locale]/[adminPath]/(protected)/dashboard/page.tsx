@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
+  ArrowDown,
+  ArrowUp,
   Banknote,
   BarChart3,
   Building,
@@ -15,6 +17,7 @@ import {
   Home,
   Layers,
   Map as MapIcon,
+  Minus,
   Receipt,
   RefreshCw,
   Store,
@@ -108,6 +111,36 @@ function monthLabels(month: string, locale: string = 'ar'): { short: string; lon
 /** `12480` → `12,480`, or a skeleton's worth of nothing while it loads. */
 function count(value: number | undefined): string {
   return value?.toLocaleString('en-US') ?? '—';
+}
+
+/**
+ * Change between the two most recently *completed* months of `monthly`.
+ *
+ * The current calendar month (the series' last entry) is still accruing —
+ * on the 1st it holds almost nothing — so comparing it against last month
+ * would make every dashboard load near the start of a month read as a
+ * collapse. Comparing the two months before it instead means the figure
+ * never depends on what day of the month it happens to be.
+ */
+function monthlyTrend(
+  monthly: DashboardAnalytics['monthly'] | undefined,
+  key: 'collected' | 'overdue',
+  goodWhenUp: boolean,
+  locale: string,
+): { pct: number; goodWhenUp: boolean; caption: string } | null {
+  if (!monthly || monthly.length < 3) return null;
+  const current = monthly[monthly.length - 2];
+  const previous = monthly[monthly.length - 3];
+  if (previous[key] === 0) return null;
+
+  const pct = ((current[key] - previous[key]) / previous[key]) * 100;
+  const currentLabel = monthLabels(current.month, locale).short;
+  const previousLabel = monthLabels(previous.month, locale).short;
+  return {
+    pct,
+    goodWhenUp,
+    caption: locale === 'en' ? `${currentLabel} vs ${previousLabel}` : `${currentLabel} مقابل ${previousLabel}`,
+  };
 }
 
 /**
@@ -293,6 +326,15 @@ export default function StaffDashboard({
     [monthly, locale],
   );
 
+  const collectedTrend = useMemo(
+    () => monthlyTrend(data?.monthly, 'collected', true, locale),
+    [data, locale],
+  );
+  const overdueTrend = useMemo(
+    () => monthlyTrend(data?.monthly, 'overdue', false, locale),
+    [data, locale],
+  );
+
   /** Resolves each unit card against whichever of the two maps it reads. */
   const unitCards = useMemo(
     () =>
@@ -448,6 +490,7 @@ export default function StaffDashboard({
             tone="destructive"
             value={data ? <Money amount={data.overdueTotal} /> : '—'}
             loading={loading}
+            trend={overdueTrend}
           >
             <dl className="space-y-2.5">
               <DetailRow
@@ -472,6 +515,7 @@ export default function StaffDashboard({
             tone="success"
             value={data ? <Money amount={data.collectedTotal} /> : '—'}
             loading={loading}
+            trend={collectedTrend}
             extra={
               <div className="space-y-1.5">
                 <div className="flex items-baseline justify-between gap-2 text-xs">
@@ -671,6 +715,7 @@ function KpiCard({
   tone = 'primary',
   value,
   alert,
+  trend,
   extra,
   loading,
   children,
@@ -682,6 +727,8 @@ function KpiCard({
   value: React.ReactNode;
   /** A caveat about the figure itself, above the rule — see the population card. */
   alert?: string | null;
+  /** Change against the prior complete month, on the two cards with a monthly series. */
+  trend?: { pct: number; goodWhenUp: boolean; caption: string } | null;
   /** The meter, on the one card whose figure is a rate against a limit. */
   extra?: React.ReactNode;
   loading: boolean;
@@ -714,6 +761,13 @@ function KpiCard({
         {loading ? <Skeleton className="h-[1em] w-28" /> : value}
       </div>
 
+      {!loading && trend ? (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+          <TrendChip pct={trend.pct} goodWhenUp={trend.goodWhenUp} />
+          <span className="truncate text-muted-foreground">{trend.caption}</span>
+        </div>
+      ) : null}
+
       {extra ? <div className="mt-4">{extra}</div> : null}
 
       {alert ? (
@@ -734,6 +788,40 @@ function KpiCard({
         {children}
       </div>
     </article>
+  );
+}
+
+/**
+ * A small +/− pill for the change beside a KPI card's figure.
+ *
+ * Direction (the arrow) and valence (the colour) are computed separately —
+ * an increase is `success` on the collected card and `destructive` on the
+ * overdue one, so the colour always means "this is moving the right way",
+ * never just "the number went up".
+ */
+function TrendChip({ pct, goodWhenUp }: { pct: number; goodWhenUp: boolean }) {
+  const flat = Math.abs(pct) < 0.05;
+  const up = pct > 0;
+  const good = flat ? null : up === goodWhenUp;
+
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 font-semibold tabular-nums',
+        good === null && 'bg-muted text-muted-foreground',
+        good === true && 'bg-success/10 text-success',
+        good === false && 'bg-destructive/10 text-destructive',
+      )}
+    >
+      {flat ? (
+        <Minus className="size-3" aria-hidden />
+      ) : up ? (
+        <ArrowUp className="size-3" aria-hidden />
+      ) : (
+        <ArrowDown className="size-3" aria-hidden />
+      )}
+      {flat ? '0%' : `${up ? '+' : ''}${pct.toFixed(1)}%`}
+    </span>
   );
 }
 
