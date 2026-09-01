@@ -2,7 +2,8 @@
 
 import { use } from 'react';
 import Link from 'next/link';
-import { FileQuestion } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Compass } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -25,19 +26,29 @@ export default function AdminNotFound({
 }) {
   const { tenant, locale, adminPath } = use(params);
   const base = `/${tenant}/${locale}/${adminPath}`;
+  const pathname = usePathname();
 
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-6 text-center">
+    <div className="relative flex min-h-[65vh] flex-col items-center justify-center gap-7 overflow-hidden px-6 text-center">
+      {/* Same soft primary glow the sign-in screen uses — a plain grey icon on
+          an otherwise blank page reads as broken; this reads as designed. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 flex items-center justify-center"
+      >
+        <div className="size-[26rem] rounded-full bg-primary/10 blur-3xl" />
+      </div>
+
       <span
         aria-hidden
-        className="flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground"
+        className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15"
       >
-        <FileQuestion className="size-7" />
+        <Compass className="size-8" />
       </span>
 
       <div className="space-y-2">
         <p className="font-mono text-sm tracking-[0.2em] text-muted-foreground">404</p>
-        <h1 className="font-display text-xl font-bold tracking-tight">
+        <h1 className="font-display text-2xl font-bold tracking-tight">
           {locale === 'en' ? 'Page Not Found' : 'الصفحة غير موجودة'}
         </h1>
         <p className="mx-auto max-w-sm text-sm leading-relaxed text-muted-foreground">
@@ -45,9 +56,19 @@ export default function AdminNotFound({
             ? 'This link does not match any page in the admin portal. It may be outdated or mistyped.'
             : 'هذا الرابط لا يقابل أي صفحة في لوحة الإدارة. قد يكون قديماً أو مكتوباً بشكل خاطئ.'}
         </p>
+        {/* The path itself, so a stale bookmark or a fat-fingered edit is
+            visible rather than guessed at. */}
+        {pathname ? (
+          <p
+            dir="ltr"
+            className="mx-auto mt-2 max-w-sm truncate rounded-md border border-border/60 bg-muted/60 px-3 py-1.5 font-mono text-xs text-muted-foreground"
+          >
+            {pathname}
+          </p>
+        ) : null}
       </div>
 
-      <Button asChild variant="outline">
+      <Button asChild className="shadow-sm">
         <Link href={base}>
           {locale === 'en' ? 'Return to Admin Portal' : 'العودة إلى لوحة الإدارة'}
         </Link>

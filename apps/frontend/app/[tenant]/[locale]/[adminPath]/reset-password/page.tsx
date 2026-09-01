@@ -8,7 +8,6 @@ import {
   EyeOff,
   Loader2,
   Lock,
-  ShieldCheck,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { ApiRequestError, confirmStaffPasswordReset, logApiError } from '@/lib/api-client';
@@ -124,9 +123,9 @@ export default function ResetPasswordPage({
       <div className="w-full max-w-[400px]">
         <div
           aria-hidden
-          className="mx-auto mb-7 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15"
+          className="mx-auto mb-7 flex size-14 items-center justify-center"
         >
-          <ShieldCheck className="size-6" />
+          <img src="/logo.png" alt="" className="size-14 object-contain" />
         </div>
 
         {link.kind === 'invalid' ? (

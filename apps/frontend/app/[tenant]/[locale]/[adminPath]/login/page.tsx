@@ -195,8 +195,8 @@ export default function StaffLogin({
           className="pointer-events-none absolute -top-32 -end-24 size-80 rounded-full bg-white/10 blur-3xl"
         />
 
-        <div className="relative flex size-12 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
-          <ShieldCheck className="size-6" aria-hidden />
+        <div className="relative flex size-14 items-center justify-center">
+          <img src="/logo.png" alt="" className="size-14 object-contain" aria-hidden />
         </div>
 
         {/**
@@ -253,7 +253,7 @@ export default function StaffLogin({
         </div>
 
         <p className="relative text-sm text-primary-foreground/90">
-          {locale === 'en' ? 'Access restricted to authorized personnel.' : 'الدخول مقتصر على الحسابات المصرّح لها.'}
+          {locale === 'en' ? '© 2026 — Access restricted to authorized personnel.' : '© 2026 — الدخول مقتصر على الحسابات المصرّح لها.'}
         </p>
       </aside>
 
@@ -266,9 +266,9 @@ export default function StaffLogin({
           <div className="mb-9 space-y-2.5">
             <div
               aria-hidden
-              className="mb-7 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15 lg:hidden"
+              className="mb-7 flex size-14 items-center justify-center lg:hidden"
             >
-              <ShieldCheck className="size-6" />
+              <img src="/logo.png" alt="" className="size-14 object-contain" />
             </div>
             <h1 className="font-display text-3xl font-bold tracking-tight">
               {totpStage ? tAuth('totpPrompt') : tAuth('staffLoginTitle')}

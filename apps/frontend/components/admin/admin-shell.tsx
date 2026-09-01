@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { AdminHeader } from '@/components/admin/admin-header';
 import { AdminSidebar, SidebarNav } from '@/components/admin/admin-sidebar';
 import { CommandPalette } from '@/components/admin/command-palette';
@@ -123,11 +123,8 @@ export function AdminShell({
             )}
           >
             <div className="flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
-              <span
-                aria-hidden
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-              >
-                <ShieldCheck className="size-[18px]" />
+              <span aria-hidden className="flex size-9 shrink-0 items-center justify-center">
+                <img src="/logo.png" alt="" className="size-9 object-contain" />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">

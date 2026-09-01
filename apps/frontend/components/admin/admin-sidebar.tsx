@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import {
   activeNavItem,
   localizedGroupLabel,
@@ -159,11 +159,8 @@ export function AdminSidebar({
       >
         {!collapsed ? (
           <>
-            <span
-              aria-hidden
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            >
-              <ShieldCheck className="size-[18px]" />
+            <span aria-hidden className="flex size-9 shrink-0 items-center justify-center">
+              <img src="/logo.png" alt="" className="size-9 object-contain" />
             </span>
             <p className="min-w-0 flex-1 truncate text-sm font-semibold">
               {locale === 'en' ? 'Municipality Portal' : 'لوحة البلدية'}
