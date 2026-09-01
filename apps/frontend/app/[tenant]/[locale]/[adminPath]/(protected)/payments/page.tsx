@@ -622,6 +622,7 @@ export default function PaymentsPage({
           onOpenChange={(next) => {
             if (!next) setReceipt(null);
           }}
+          tenant={tenant}
           citizen={receipt.citizen}
           payment={receipt.payment}
           receivedAmount={receipt.received}

@@ -831,6 +831,7 @@ function FeesPanel({
         onOpenChange={(next) => {
           if (!next) setReceipt(null);
         }}
+        tenant={tenant}
         citizen={citizen}
         payment={receipt?.payment ?? null}
         receivedAmount={receipt?.received}

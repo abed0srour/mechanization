@@ -509,6 +509,7 @@ export default function SettlePaymentPage({
             router.push(`${base}/fees`);
           }
         }}
+        tenant={tenant}
         citizen={receipt?.citizen ?? ({} as CitizenProfile)}
         payment={receipt?.payment ?? null}
         municipalityName={municipalityName}

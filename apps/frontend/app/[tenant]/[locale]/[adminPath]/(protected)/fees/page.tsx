@@ -793,6 +793,7 @@ export default function FeesPage({
             void load();
           }
         }}
+        tenant={tenant}
         citizen={receipt?.citizen ?? ({} as CitizenProfile)}
         payment={receipt?.payment ?? null}
         municipalityName={municipalityName}
