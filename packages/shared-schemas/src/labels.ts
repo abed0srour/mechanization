@@ -83,9 +83,7 @@ export const ar = {
   /** How the municipality paid out, not how a citizen paid in. */
   expensePaymentMethod: {
     CASH: 'نقداً',
-    BANK_TRANSFER: 'تحويل مصرفي',
-    CHEQUE: 'شيك',
-    OTHER: 'أخرى',
+    WHISH_MONEY: 'تحويل Whish Money',
   } satisfies Record<ExpensePaymentMethod, string>,
 
   /** Staff roles as the municipality names them, not as the enum spells them. */
@@ -218,9 +216,7 @@ export const en = {
 
   expensePaymentMethod: {
     CASH: 'Cash',
-    BANK_TRANSFER: 'Bank Transfer',
-    CHEQUE: 'Cheque',
-    OTHER: 'Other',
+    WHISH_MONEY: 'Whish Money Transfer',
   } satisfies Record<ExpensePaymentMethod, string>,
 
   staffRole: {

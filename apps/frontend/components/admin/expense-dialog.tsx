@@ -5,7 +5,7 @@ import { Loader2, Receipt } from 'lucide-react';
 import {
   EXPENSE_CATEGORY,
   EXPENSE_PAYMENT_METHOD,
-  CURRENCY_CODES,
+  EXPENSE_CURRENCY,
   getLabels,
 } from '@mechanization/shared-schemas';
 import type { AdminExpenseItem } from '@/lib/api-client';
@@ -186,7 +186,7 @@ export function ExpenseDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CURRENCY_CODES.map((code) => (
+                    {EXPENSE_CURRENCY.map((code) => (
                       <SelectItem key={code} value={code}>
                         {code}
                       </SelectItem>

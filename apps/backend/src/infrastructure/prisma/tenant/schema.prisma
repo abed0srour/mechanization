@@ -640,15 +640,13 @@ enum ExpenseCategory {
   OTHER
 }
 
-/// How the municipality itself paid out, as distinct from `PaymentMethod` —
-/// that enum is how a *citizen* pays the municipality, and COLLECTOR/WHISH_MONEY
-/// describe a محصّل's round and a citizen's transfer, neither of which is
-/// meaningful for money going the other way to a vendor or an employee.
+/// How the municipality actually pays out, in practice: cash from the office,
+/// or a Whish transfer. A separate enum from `PaymentMethod` — that one also
+/// carries COLLECTOR, which describes a محصّل's round and means nothing for
+/// money going the other way, out to a vendor or an employee.
 enum ExpensePaymentMethod {
   CASH
-  BANK_TRANSFER
-  CHEQUE
-  OTHER
+  WHISH_MONEY
 }
 
 /// The rule an administrator writes once: "500,000 LBP of رسم النفايات, every

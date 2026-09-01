@@ -1,10 +1,19 @@
 import { z } from 'zod';
-import { CURRENCY_CODES } from './fee.schema';
 
 /**
  * Municipal expenses — money the municipality spends, the mirror of
  * `fee.schema.ts`, which is money it receives.
  */
+
+/**
+ * Narrower than `CURRENCY_CODES` in `fee.schema.ts` (which also offers EUR
+ * for citizen billing): this municipality only ever pays out in LBP or USD.
+ */
+export const EXPENSE_CURRENCY = ['LBP', 'USD'] as const;
+export const expenseCurrencySchema = z.enum(EXPENSE_CURRENCY, {
+  errorMap: () => ({ message: 'العملة مطلوبة' }),
+});
+export type ExpenseCurrency = (typeof EXPENSE_CURRENCY)[number];
 
 export const EXPENSE_CATEGORY = [
   'SALARIES',
@@ -22,12 +31,12 @@ export const expenseCategorySchema = z.enum(EXPENSE_CATEGORY, {
 export type ExpenseCategory = (typeof EXPENSE_CATEGORY)[number];
 
 /**
- * Distinct from `paymentMethodSchema` in `fee.schema.ts`, which is how a
- * *citizen* pays the municipality — COLLECTOR and WHISH_MONEY describe a
- * محصّل's round and a citizen's transfer, neither meaningful for money going
- * the other way, out to a vendor or an employee.
+ * How the municipality actually pays out, in practice: cash from the office,
+ * or a Whish transfer. A separate enum from `paymentMethodSchema` in
+ * `fee.schema.ts` because that one also carries COLLECTOR, which describes a
+ * محصّل's round — meaningless for money going out to a vendor or an employee.
  */
-export const EXPENSE_PAYMENT_METHOD = ['CASH', 'BANK_TRANSFER', 'CHEQUE', 'OTHER'] as const;
+export const EXPENSE_PAYMENT_METHOD = ['CASH', 'WHISH_MONEY'] as const;
 export const expensePaymentMethodSchema = z.enum(EXPENSE_PAYMENT_METHOD, {
   errorMap: () => ({ message: 'طريقة الدفع مطلوبة' }),
 });
@@ -53,7 +62,7 @@ export const createExpenseSchema = z.object({
     .min(3, 'الوصف قصير جداً')
     .max(300, 'الوصف طويل جداً'),
   amount: expenseAmount,
-  currency: z.enum(CURRENCY_CODES).default('LBP'),
+  currency: expenseCurrencySchema.default('LBP'),
   /** ISO date string; defaults to today when omitted. */
   expenseDate: z.string().min(1).optional(),
   payee: z.string().trim().max(120, 'اسم المستفيد طويل جداً').optional().or(z.literal('')),
