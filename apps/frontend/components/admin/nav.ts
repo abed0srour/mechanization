@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Users,
   UsersRound,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -83,6 +84,17 @@ export const NAV_GROUPS: NavGroup[] = [
         labelEn: 'Fees & Billing',
         icon: Receipt,
         keywords: ['رسم', 'مطالبة', 'فاتورة', 'دفع', 'fees', 'billing'],
+      },
+      // The spending counterpart to fees: what the municipality pays out
+      // rather than what it is owed. Same audience as the fees ledger, minus
+      // COLLECTOR — a محصّل's round has nothing to do with municipal spend.
+      {
+        path: '/expenses',
+        label: 'المصاريف',
+        labelEn: 'Expenses',
+        icon: Wallet,
+        roles: ['SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT'],
+        keywords: ['مصروف', 'إنفاق', 'رواتب', 'صيانة', 'محروقات', 'expenses', 'spending'],
       },
       // Read-only: the ledger above answers "who owes what", this answers
       // "what has been paid". An auditor lives here.

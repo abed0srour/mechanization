@@ -7,6 +7,7 @@ export * from './registration.schema';
 export * from './admin-citizen.schema';
 export * from './citizen-import.schema';
 export * from './fee.schema';
+export * from './expense.schema';
 export * from './auth.schema';
 export * from './tenant.schema';
 export * from './zone.schema';

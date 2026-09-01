@@ -14,6 +14,7 @@ import { InternalCronController } from './controllers/internal-cron.controller';
 import { RegistrationController } from './controllers/registration.controller';
 import { TenantController } from './controllers/tenant.controller';
 import { FeesController } from './controllers/fees.controller';
+import { ExpensesController } from './controllers/expenses.controller';
 import { StaffController } from './controllers/staff.controller';
 import { ZonesController } from './controllers/zones.controller';
 import { DomainExceptionFilter } from './filters/domain-exception.filter';
@@ -36,6 +37,7 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
     CitizenController,
     CadastreController,
     FeesController,
+    ExpensesController,
     StaffController,
     ZonesController,
     BackupController,

@@ -11,6 +11,7 @@ import type {
   StaffRole,
   UnitType,
 } from './enums';
+import type { ExpenseCategory, ExpensePaymentMethod } from './expense.schema';
 
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
@@ -66,6 +67,26 @@ export const ar = {
     WHISH_MONEY: 'تحويل Whish Money',
     COLLECTOR: 'عبر المحصّل',
   },
+
+  /** What a municipal expense was for. */
+  expenseCategory: {
+    SALARIES: 'رواتب وأجور',
+    UTILITIES: 'كهرباء ومياه',
+    MAINTENANCE: 'صيانة',
+    INFRASTRUCTURE: 'أشغال وبنى تحتية',
+    FUEL: 'محروقات',
+    EQUIPMENT: 'معدات وتجهيزات',
+    ADMINISTRATIVE: 'مصاريف إدارية',
+    OTHER: 'أخرى',
+  } satisfies Record<ExpenseCategory, string>,
+
+  /** How the municipality paid out, not how a citizen paid in. */
+  expensePaymentMethod: {
+    CASH: 'نقداً',
+    BANK_TRANSFER: 'تحويل مصرفي',
+    CHEQUE: 'شيك',
+    OTHER: 'أخرى',
+  } satisfies Record<ExpensePaymentMethod, string>,
 
   /** Staff roles as the municipality names them, not as the enum spells them. */
   staffRole: {
@@ -183,6 +204,24 @@ export const en = {
     WHISH_MONEY: 'Whish Money Transfer',
     COLLECTOR: 'Via Collector',
   },
+
+  expenseCategory: {
+    SALARIES: 'Salaries & Wages',
+    UTILITIES: 'Utilities',
+    MAINTENANCE: 'Maintenance',
+    INFRASTRUCTURE: 'Infrastructure & Public Works',
+    FUEL: 'Fuel',
+    EQUIPMENT: 'Equipment & Supplies',
+    ADMINISTRATIVE: 'Administrative',
+    OTHER: 'Other',
+  } satisfies Record<ExpenseCategory, string>,
+
+  expensePaymentMethod: {
+    CASH: 'Cash',
+    BANK_TRANSFER: 'Bank Transfer',
+    CHEQUE: 'Cheque',
+    OTHER: 'Other',
+  } satisfies Record<ExpensePaymentMethod, string>,
 
   staffRole: {
     SUPER_ADMIN: 'System Administrator',

@@ -1463,6 +1463,123 @@ export function setNoticeActive(
   );
 }
 
+// ──────────────────────────────  Expenses  ──────────────────────────────
+
+export interface AdminExpenseItem {
+  id: string;
+  category: string;
+  description: string;
+  amount: number;
+  currency: string;
+  expenseDate: string;
+  payee: string | null;
+  paymentMethod: string;
+  reference: string | null;
+  notes: string | null;
+  createdById: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archived: boolean;
+}
+
+export interface ExpenseSummary {
+  total: number;
+  byCategory: Array<{ category: string; count: number; total: number }>;
+  byMonth: Array<{ month: string; amount: number }>;
+}
+
+export function getExpenses(
+  tenant: string,
+  token: string,
+  filter: {
+    category?: string;
+    search?: string;
+    archived?: boolean;
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams();
+  if (filter.category) query.set('category', filter.category);
+  if (filter.search) query.set('search', filter.search);
+  if (filter.archived) query.set('archived', 'true');
+  if (filter.from) query.set('from', filter.from);
+  if (filter.to) query.set('to', filter.to);
+  if (filter.limit !== undefined) query.set('limit', String(filter.limit));
+  if (filter.offset !== undefined) query.set('offset', String(filter.offset));
+  const suffix = query.toString() ? `?${query}` : '';
+  return apiFetch<{ items: AdminExpenseItem[]; total: number }>(
+    tenant,
+    `/expenses${suffix}`,
+    { token, signal },
+  );
+}
+
+export function getExpenseSummary(
+  tenant: string,
+  token: string,
+  range: { from?: string; to?: string } = {},
+) {
+  const query = new URLSearchParams();
+  if (range.from) query.set('from', range.from);
+  if (range.to) query.set('to', range.to);
+  const suffix = query.toString() ? `?${query}` : '';
+  return apiFetch<ExpenseSummary>(tenant, `/expenses/summary${suffix}`, { token });
+}
+
+export interface ExpenseInput {
+  category: string;
+  description: string;
+  amount: number;
+  currency?: string;
+  expenseDate?: string;
+  payee?: string;
+  paymentMethod?: string;
+  reference?: string;
+  notes?: string;
+}
+
+export function createExpense(tenant: string, token: string, input: ExpenseInput) {
+  return apiFetch<AdminExpenseItem>(tenant, '/expenses', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateExpense(
+  tenant: string,
+  token: string,
+  id: string,
+  input: Partial<ExpenseInput>,
+) {
+  return apiFetch<AdminExpenseItem>(tenant, `/expenses/${encodeURIComponent(id)}`, {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Soft-delete — reversible via `restoreExpense`. */
+export function archiveExpense(tenant: string, token: string, id: string) {
+  return apiFetch<{ success: boolean }>(tenant, `/expenses/${encodeURIComponent(id)}`, {
+    token,
+    method: 'DELETE',
+  });
+}
+
+export function restoreExpense(tenant: string, token: string, id: string) {
+  return apiFetch<{ success: boolean; alreadyActive: boolean }>(
+    tenant,
+    `/expenses/${encodeURIComponent(id)}/restore`,
+    { token, method: 'POST' },
+  );
+}
+
 // ─────────────────────────  Backup and restore  ─────────────────────────
 
 export interface SnapshotManifest {

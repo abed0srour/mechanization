@@ -161,6 +161,7 @@ model User {
   recordedTransactions  PaymentTransaction[] @relation("TransactionRecordedBy")
   targetedFeeNotices    FeeNotice[]          @relation("FeeTargetCitizen")
   issuedFeeNotices      FeeNotice[]          @relation("FeeIssuedBy")
+  createdExpenses       Expense[]            @relation("ExpenseCreatedBy")
 
   /// Staff email is unique within the municipality (i.e. within this schema).
   @@unique([email])
@@ -628,6 +629,28 @@ enum PaymentMethod {
   COLLECTOR
 }
 
+enum ExpenseCategory {
+  SALARIES
+  UTILITIES
+  MAINTENANCE
+  INFRASTRUCTURE
+  FUEL
+  EQUIPMENT
+  ADMINISTRATIVE
+  OTHER
+}
+
+/// How the municipality itself paid out, as distinct from `PaymentMethod` —
+/// that enum is how a *citizen* pays the municipality, and COLLECTOR/WHISH_MONEY
+/// describe a محصّل's round and a citizen's transfer, neither of which is
+/// meaningful for money going the other way to a vendor or an employee.
+enum ExpensePaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
 /// The rule an administrator writes once: "500,000 LBP of رسم النفايات, every
 /// month, for every resident". Issuing it fans out into one `CitizenPayment`
 /// per matching citizen — this row is the template, never the debt.
@@ -818,6 +841,46 @@ model PaymentTransaction {
   /// What the municipality took today, across every collector and clerk.
   @@index([occurredAt])
   @@map("payment_transactions")
+}
+
+/// Money the municipality spends — رواتب، صيانة، محروقات — the mirror of
+/// `CitizenPayment`, which is money the municipality *receives*. Soft-deleted
+/// (`deletedAt`) rather than removed: a spent expense is a fiscal fact, and an
+/// archive a clerk can restore is safer than a delete they cannot undo.
+model Expense {
+  id String @id @default(uuid()) @db.Uuid
+
+  category    ExpenseCategory @default(OTHER)
+  description String
+  /// What was actually paid, in `currency`. LBP travels as whole pounds
+  /// elsewhere in this schema, but USD/EUR expenses (a contractor invoiced in
+  /// dollars) are common enough here that this stays a real decimal.
+  amount      Decimal         @db.Decimal(14, 2)
+  currency    String          @default("LBP")
+  expenseDate DateTime        @default(now())
+
+  /// Who was paid — a contractor, a supplier, an employee. Free text: the
+  /// municipality's vendors are not registered users of this system.
+  payee         String?
+  paymentMethod ExpensePaymentMethod @default(CASH)
+  /// A cheque number, transfer reference, or receipt number — whatever a clerk
+  /// reconciling the books would look for.
+  reference     String?
+  notes         String?
+
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Archived, not deleted — see the model comment.
+  deletedAt DateTime?
+
+  /// The list screen's default view: active expenses, newest first, optionally
+  /// narrowed to one category.
+  @@index([category, expenseDate])
+  @@index([expenseDate])
+  @@map("expenses")
 }
 
 enum BloodType {

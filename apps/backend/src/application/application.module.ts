@@ -16,6 +16,7 @@ import { ReportingService } from './features/reporting/reporting.service';
 import { TenantService } from './features/tenant/tenant.service';
 import { FeesService } from './features/fees/fees.service';
 import { PaymentLedgerService } from './features/fees/payment-ledger.service';
+import { ExpensesService } from './features/expenses/expenses.service';
 import { StaffService } from './features/staff/staff.service';
 import { ZonesService } from './features/zones/zones.service';
 
@@ -48,6 +49,7 @@ import { ZonesService } from './features/zones/zones.service';
     CitizensService,
     FeesService,
     PaymentLedgerService,
+    ExpensesService,
     StaffService,
     ZonesService,
     BackupService,
@@ -67,6 +69,7 @@ import { ZonesService } from './features/zones/zones.service';
     CitizensService,
     FeesService,
     PaymentLedgerService,
+    ExpensesService,
     StaffService,
     ZonesService,
     BackupService,
