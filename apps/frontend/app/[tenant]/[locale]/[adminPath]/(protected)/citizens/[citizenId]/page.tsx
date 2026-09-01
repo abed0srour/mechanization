@@ -472,6 +472,8 @@ export default function CitizenProfilePage({
         fees={citizen.fees}
         canManage={canManage}
         municipalityName={municipalityName}
+        governorate={settings?.governorate}
+        district={settings?.district}
         contactPhone={settings?.contactPhone}
         officeWhatsapp={settings?.whatsappNumber}
         locale={locale}
@@ -595,6 +597,8 @@ function FeesPanel({
   fees,
   canManage,
   municipalityName,
+  governorate,
+  district,
   contactPhone,
   officeWhatsapp,
   locale = 'ar',
@@ -605,6 +609,8 @@ function FeesPanel({
   fees: CitizenFeeTotals;
   canManage: boolean;
   municipalityName: string;
+  governorate?: string | null;
+  district?: string | null;
   contactPhone?: string | null;
   officeWhatsapp?: string | null;
   locale?: string;
@@ -829,6 +835,8 @@ function FeesPanel({
         payment={receipt?.payment ?? null}
         receivedAmount={receipt?.received}
         municipalityName={municipalityName}
+        governorate={governorate}
+        district={district}
         contactPhone={contactPhone}
         officeWhatsapp={officeWhatsapp}
       />

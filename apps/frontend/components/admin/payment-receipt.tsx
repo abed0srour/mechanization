@@ -66,6 +66,8 @@ export function PaymentReceipt({
   citizen,
   payment,
   municipalityName,
+  governorate,
+  district,
   contactPhone,
   officeWhatsapp,
   receivedAmount,
@@ -76,6 +78,10 @@ export function PaymentReceipt({
   citizen: CitizenProfile;
   payment: CitizenProfilePayment | null;
   municipalityName: string;
+  /** المحافظة — from settings, not hardcoded: every municipality sits under a different one. */
+  governorate?: string | null;
+  /** القضاء / قائمقامية — same reasoning as `governorate`. */
+  district?: string | null;
   contactPhone?: string | null;
   officeWhatsapp?: string | null;
   receivedAmount?: number;
@@ -181,38 +187,47 @@ export function PaymentReceipt({
               boxShadow: '0 0 0 1px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08)',
             }}
           >
-            {/* Outer Frame with Corner Ticks */}
-            <div className="relative border-2 border-black p-2 bg-white">
+            {/* Outer Frame with Corner Ticks — a thin outer rule and a bold inner
+                one, rather than two equally heavy borders stacked, is what
+                reads as typeset rather than drawn in a form builder. */}
+            <div className="relative border border-black/70 p-2.5 bg-white">
               {/* Corner tick marks (Printing / Boundary Marks) */}
-              <div className="pointer-events-none absolute -top-3 -start-3 size-6 border-e-2 border-b-2 border-black" />
-              <div className="pointer-events-none absolute -top-3 -end-3 size-6 border-s-2 border-b-2 border-black" />
-              <div className="pointer-events-none absolute -bottom-3 -start-3 size-6 border-e-2 border-t-2 border-black" />
-              <div className="pointer-events-none absolute -bottom-3 -end-3 size-6 border-s-2 border-t-2 border-black" />
+              <div className="pointer-events-none absolute -top-2.5 -start-2.5 size-5 border-e-2 border-b-2 border-black" />
+              <div className="pointer-events-none absolute -top-2.5 -end-2.5 size-5 border-s-2 border-b-2 border-black" />
+              <div className="pointer-events-none absolute -bottom-2.5 -start-2.5 size-5 border-e-2 border-t-2 border-black" />
+              <div className="pointer-events-none absolute -bottom-2.5 -end-2.5 size-5 border-s-2 border-t-2 border-black" />
 
               {/* Inner Solid Border */}
-              <div className="border-[2px] border-black p-5 sm:p-6 bg-white space-y-4">
+              <div className="border-2 border-black p-5 sm:p-6 bg-white space-y-4">
                 {/* 1. Top Header */}
                 <header className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
-                  {/* Left Header Title */}
-                  <div className="text-center pt-2">
+                  {/* Right (first, in RTL): receipt number stamp, bill title, and rule */}
+                  <div className="text-center pt-1 space-y-1.5">
+                    <div className="mx-auto inline-flex items-center gap-1.5 rounded-sm border border-black/60 px-2 py-0.5 text-[10px] font-bold tracking-wide text-black">
+                      <span>رقم الوصل</span>
+                      <span className="font-mono">{receiptNumber(payment)}</span>
+                    </div>
                     <h2 className="text-xl sm:text-2xl font-black tracking-tight font-sans">
-                      ايصال جباية بدل النفايات
+                      وصل بدل {payment.title || 'رسوم بلدية'}
                     </h2>
                     <div className="w-16 h-[2px] bg-black mx-auto mt-1" />
                   </div>
 
-                  {/* Right Header: Republic of Lebanon Emblem & Municipality Details */}
+                  {/* Left (second, in RTL): Republic of Lebanon Emblem & Municipality Details,
+                      drawn from settings — governorate/district differ per municipality. */}
                   <div className="text-center space-y-0.5 leading-tight">
                     <div className="flex justify-center -mb-1">
                       <LebaneseRepublicCalligraphy className="h-9 w-44 text-black" />
                     </div>
                     <p className="text-xs font-bold text-black">
-                      وزارة الداخلية والبلديات ـ محافظة الجنوب
+                      وزارة الداخلية والبلديات{governorate ? ` ـ محافظة ${governorate}` : ''}
                     </p>
-                    <p className="text-xs font-bold text-black">قائمقامية صور</p>
+                    {district ? (
+                      <p className="text-xs font-bold text-black">قائمقامية {district}</p>
+                    ) : null}
                     <div className="pt-0.5">
                       <span className="inline-block border-b-2 border-black pb-0.5 text-base sm:text-lg font-black text-black">
-                        بلدية {municipalityName || 'البازورية'}
+                        بلدية {municipalityName || '—'}
                       </span>
                     </div>
                   </div>
@@ -266,7 +281,7 @@ export function PaymentReceipt({
                 </section>
 
                 {/* 3. Checkboxes Row (طبيعة الإشغال والصفة) */}
-                <section className="border-y-2 border-black py-2.5 my-2">
+                <section className="border-y border-black/70 py-2.5 my-2">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <CheckboxItem label="سكني" checked={!isCommercial} />
                     <CheckboxItem label="تجاري / مهني" checked={isCommercial} />
@@ -309,11 +324,18 @@ export function PaymentReceipt({
                   />
                 </section>
 
-                {/* 5. Signatures Footer */}
+                {/* 5. Signatures Footer, with a seal placeholder between the two — the
+                    third mark a physical municipal receipt carries alongside them. */}
                 <div className="pt-4 border-t-2 border-black flex items-center justify-around text-center text-xs sm:text-sm text-black">
                   <div>
                     <p className="font-bold">توقيع أمين الصندوق</p>
                     <div className="w-24 sm:w-32 border-b-2 border-black mt-6 mx-auto" />
+                  </div>
+                  <div
+                    aria-hidden
+                    className="flex size-16 shrink-0 items-center justify-center rounded-full border border-dashed border-black/40 text-[10px] font-bold text-black/40"
+                  >
+                    الختم
                   </div>
                   <div>
                     <p className="font-bold">توقيع المكلف</p>

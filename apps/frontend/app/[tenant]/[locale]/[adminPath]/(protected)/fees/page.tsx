@@ -796,6 +796,8 @@ export default function FeesPage({
         citizen={receipt?.citizen ?? ({} as CitizenProfile)}
         payment={receipt?.payment ?? null}
         municipalityName={municipalityName}
+        governorate={settings?.governorate}
+        district={settings?.district}
         contactPhone={settings?.contactPhone}
         officeWhatsapp={settings?.whatsappNumber}
         receivedAmount={receipt?.received}

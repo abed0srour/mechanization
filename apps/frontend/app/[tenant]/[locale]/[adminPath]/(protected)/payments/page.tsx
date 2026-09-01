@@ -626,6 +626,8 @@ export default function PaymentsPage({
           payment={receipt.payment}
           receivedAmount={receipt.received}
           municipalityName={municipalityName}
+          governorate={settings?.governorate}
+          district={settings?.district}
           contactPhone={settings?.contactPhone}
           officeWhatsapp={settings?.whatsappNumber}
         />
