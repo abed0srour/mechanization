@@ -31,7 +31,7 @@
 */
 
 /** Bump to retire every cache this worker wrote. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 
 const SHELL_CACHE = `mechanization-shell-${VERSION}`;
 const ASSET_CACHE = `mechanization-assets-${VERSION}`;
@@ -74,6 +74,31 @@ self.addEventListener('activate', (event) => {
 });
 
 /**
+ * Every `/_next/static/…` path a page's HTML actually references.
+ *
+ * Not a DOM parser — service workers do not reliably have one — a single
+ * global regex over the raw response text. Next emits these as ordinary
+ * `href="…"` / `src="…"` attributes (plus, in dev, a `?v=` cache-busting
+ * query the production build does not carry), so matching up to the next
+ * quote or backslash catches every shape without caring which tag it sat
+ * inside.
+ *
+ * Deliberately *not* excluded: `)`. A route group segment — this app has
+ * `(protected)` on every admin path — puts a literal parenthesis in the URL
+ * itself, and stopping there truncated the match to a path Next never served,
+ * silently dropping every asset the page-specific chunk needed.
+ *
+ * Deliberately excluded: `\`. The same href reappears, escaped, inside the
+ * inline RSC payload Next embeds as a JSON string (`self.__next_f.push(...)`)
+ * — without this, the match runs on past that escaped quote and produces a
+ * second, malformed copy of the URL with a trailing backslash that can only
+ * ever fail to fetch.
+ */
+function staticAssetUrlsIn(html) {
+  return [...new Set(html.match(/\/_next\/static\/[^\s"'\\]+/g) ?? [])];
+}
+
+/**
  * Routes to fetch and keep, sent by the page once it knows them.
  *
  * Only ever the two screens the field work runs through — the entry form and
@@ -81,6 +106,16 @@ self.addEventListener('activate', (event) => {
  * whose tab was discarded can relaunch cold, with no signal, straight into the
  * form. Widening this list would cache more authenticated HTML for no offline
  * benefit, so it stays at two.
+ *
+ * Caching the document is not enough on its own. A service worker does not
+ * control the page that registers it until that page's *next* load — every
+ * script and stylesheet the first visit ever made was already fetched
+ * straight from the network, past the worker entirely — so without this, the
+ * HTML lands on a discarded-tab relaunch with no CSS and no JavaScript behind
+ * it: a page of plain, unstyled links that respond to nothing. Reading the
+ * cached document back out for the paths it references, and fetching each of
+ * those in turn, is what a browser's own navigation would have triggered
+ * anyway; this only does it once, up front, instead of leaving it to chance.
  */
 self.addEventListener('message', (event) => {
   const data = event.data;
@@ -88,17 +123,41 @@ self.addEventListener('message', (event) => {
 
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(SHELL_CACHE);
+      const shell = await caches.open(SHELL_CACHE);
+      const assets = await caches.open(ASSET_CACHE);
+      const assetUrls = new Set();
+
       await Promise.all(
         data.routes.map(async (route) => {
           try {
             // `reload` so warming refreshes a stale shell rather than
             // re-storing whatever the HTTP cache happens to be holding.
             const response = await fetch(route, { cache: 'reload', credentials: 'same-origin' });
-            if (response.ok) await cache.put(route, response);
+            if (!response.ok) return;
+
+            // Read the asset list from a clone — the original body is still
+            // needed whole for the cache entry below.
+            for (const url of staticAssetUrlsIn(await response.clone().text())) {
+              assetUrls.add(url);
+            }
+            await shell.put(route, response);
           } catch {
             // Offline, or the route 404s on this deploy. Either way the
             // previous copy stands and the officer is no worse off.
+          }
+        }),
+      );
+
+      await Promise.all(
+        [...assetUrls].map(async (url) => {
+          // Content-hashed and immutable: an entry already on disk is still
+          // correct, and re-fetching it would only cost the officer data.
+          if (await assets.match(url)) return;
+          try {
+            const response = await fetch(url);
+            if (response.ok) await assets.put(url, response);
+          } catch {
+            // One missing chunk degrades the shell; it does not sink it.
           }
         }),
       );
