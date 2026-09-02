@@ -9,6 +9,7 @@ import {
   MapPin,
   Plus,
   Trash2,
+  TriangleAlert,
   Users,
   X,
 } from 'lucide-react';
@@ -866,19 +867,12 @@ function PropertyNumberField({
 
   const neighbours = settled ? result.registeredCount : 0;
 
-  const error = unknown
-    ? (locale === 'en'
-        ? 'This parcel number was not found in the municipality cadastre. Check the title deed.'
-        : 'هذا الرقم غير موجود في السجل العقاري للبلدية. تأكّد من الرقم المدوّن على سند الملكية.')
-    : undefined;
-
   return (
     <Field
       label={locale === 'en' ? 'Property Number' : 'رقم العقار'}
       htmlFor={`pn-${index}`}
       path={flagPath(index, 'propertyNumber')}
       required
-      error={error}
     >
       <Input
         id={`pn-${index}`}
@@ -886,16 +880,31 @@ function PropertyNumberField({
         dir="ltr"
         placeholder={locale === 'en' ? 'e.g. 1024' : 'مثال: ١٠٢٤'}
         className="text-start"
-        invalid={unknown}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
 
       {checking ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-          {locale === 'en' ? 'Checking…' : 'جارٍ التحقق…'}
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" aria-hidden />
+          {locale === 'en' ? 'Checking cadastre…' : 'جارٍ التحقق من الكاداستر…'}
         </p>
+      ) : null}
+
+      {unknown ? (
+        <div className="rounded-md border border-warning/30 bg-warning/5 p-2 text-xs text-warning space-y-1">
+          <p className="font-medium flex items-center gap-1.5">
+            <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+            {locale === 'en'
+              ? 'This parcel number is not currently in the municipality cadastre.'
+              : 'هذا الرقم غير مدرج في السجل العقاري للبلدية حالياً.'}
+          </p>
+          <p className="text-[11px] text-muted-foreground leading-normal">
+            {locale === 'en'
+              ? 'You can save this record now and verify or edit the number during review after syncing.'
+              : 'يمكنك حفظ السجل الآن وتصحيح الرقم لاحقاً عند مراجعة الطلب بعد المزامنة.'}
+          </p>
+        </div>
       ) : null}
 
       {confirmed ? (
