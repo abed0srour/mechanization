@@ -10,6 +10,16 @@
       would be one more thing to fail — and a broken error page is worse than a
       plain one. The system font stack renders Arabic correctly on every device
       this portal runs on.
+
+      No script tag, and — the mistake the first version of this page made —
+      no inline event handler either. This page is served through the same
+      middleware as every other route, so it carries the same Content-Security-
+      Policy: a per-request nonce plus `strict-dynamic`, with no `unsafe-inline`
+      fallback. An `onclick="…"` attribute is exactly as blocked as a `<script>`
+      tag under that policy, and a cached static file can never carry a nonce
+      that matches whatever the policy generates for a future request. Both
+      controls below are therefore plain `<a href>` elements — a link the
+      browser navigates on its own needs no script's permission to run.
     -->
     <style>
       :root { color-scheme: light dark; }
@@ -29,6 +39,7 @@
         body { background: #090e17; color: #e2e8f0; }
         .card { background: #0f172a; border-color: #1e293b; }
         .note { background: #1e293b; }
+        .secondary { border-color: #1e293b; color: #e2e8f0; }
       }
       .card {
         max-width: 30rem;
@@ -48,18 +59,16 @@
         font-size: 0.8125rem;
         text-align: start;
       }
-      button {
-        margin-top: 1rem;
-        width: 100%;
+      .actions { margin-top: 1rem; display: grid; gap: 0.5rem; }
+      .primary, .secondary {
+        display: block;
         padding: 0.625rem 1rem;
-        font: inherit;
         font-weight: 600;
-        color: #ffffff;
-        background: #1d4ed8;
-        border: 0;
         border-radius: 0.5rem;
-        cursor: pointer;
+        text-decoration: none;
       }
+      .primary { color: #ffffff; background: #1d4ed8; }
+      .secondary { color: #0f172a; background: transparent; border: 1px solid #e2e8f0; }
     </style>
   </head>
   <body>
@@ -79,7 +88,30 @@
         لإعادة إدخال أي منها.
       </div>
 
-      <button type="button" onclick="location.reload()">إعادة المحاولة</button>
+      <div class="actions">
+        <!--
+          Placeholders, not real paths — this file is one static asset shared
+          by every municipality, cached once, with no way to know here which
+          tenant a future stranded visit will belong to. The service worker
+          rewrites both before this page is ever shown; see `offlinePageFor`
+          in sw.js. Left unresolved only if that rewrite could not determine a
+          tenant at all, which the two lines below still fail toward safely —
+          a dead link, not a broken page.
+        -->
+        <a class="primary" href="__CITIZENS_NEW__">تسجيل مواطن جديد</a>
+        <a class="secondary" href="__CITIZENS_LIST__">سجل المواطنين وقائمة الانتظار</a>
+      </div>
+
+      <!--
+        An empty `href` is a link to the current document's own URL — the
+        browser navigates there and re-runs exactly the request that landed on
+        this page, without a script asking it to. That re-attempt is what
+        "إعادة المحاولة" means here: try reaching the page this was actually
+        supposed to be, not just reload this fallback.
+      -->
+      <p style="margin-top: 0.75rem">
+        <a href="">إعادة المحاولة</a>
+      </p>
     </main>
   </body>
 </html>

@@ -194,6 +194,41 @@ async function cacheFirst(request) {
 }
 
 /**
+ * The offline fallback page, its two dead-end links resolved to this
+ * municipality's actual admin path.
+ *
+ * `offline.html` is one static file shared by every tenant and cached once
+ * at install time, with no way to know then which municipality a future
+ * stranded navigation will belong to. This fills that in — from the failed
+ * request's own URL, which always carries `/{tenant}/{locale}/{adminPath}`
+ * as its first three segments — in the worker's own script rather than an
+ * inline `<script>` on the page, which this app's Content-Security-Policy
+ * (a per-request nonce plus `strict-dynamic`, no `unsafe-inline`) would
+ * silently refuse to run: a cached static file can never carry a nonce that
+ * matches whatever the policy generates for a request made an hour later.
+ *
+ * Falls back to leaving the placeholders in place — a dead link, not a
+ * broken page — for the one pathname shape that cannot happen from inside
+ * this app: fewer than three segments, which the middleware itself already
+ * redirects to a 404 before any real screen is reached.
+ */
+async function offlinePageFor(pathname) {
+  const cache = await caches.open(SHELL_CACHE);
+  const page = await cache.match(OFFLINE_PAGE);
+  if (!page) return undefined;
+
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length < 3) return page;
+
+  const base = `/${segments.slice(0, 3).join('/')}`;
+  const html = (await page.text())
+    .replaceAll('__CITIZENS_NEW__', `${base}/citizens/new`)
+    .replaceAll('__CITIZENS_LIST__', `${base}/citizens`);
+
+  return new Response(html, { headers: page.headers });
+}
+
+/**
  * The network decides, and the cache catches it when the network cannot.
  *
  * Network-first rather than cache-first for documents, so a deployed fix
@@ -217,7 +252,10 @@ async function networkFirst(request, { fallback, store = true } = {}) {
     const hit = await cache.match(request, { ignoreVary: true });
     if (hit) return hit;
     if (fallback) {
-      const page = await cache.match(fallback);
+      // A callback rather than a fixed cache key: the offline page is not a
+      // static asset here, it is one built fresh per request — see
+      // `offlinePageFor` above.
+      const page = await fallback();
       if (page) return page;
     }
     throw error;
@@ -244,7 +282,10 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      networkFirst(request, { fallback: OFFLINE_PAGE, store: isShellRoute(url.pathname) }),
+      networkFirst(request, {
+        fallback: () => offlinePageFor(url.pathname),
+        store: isShellRoute(url.pathname),
+      }),
     );
     return;
   }
