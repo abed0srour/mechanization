@@ -34,6 +34,7 @@ import {
   setCitizenActive,
 } from '@/lib/api-client';
 import { ImportCitizensDialog } from '@/components/admin/import-citizens-dialog';
+import { ShellLink } from '@/components/admin/shell-nav';
 import { OfflineQueuePanel } from '@/components/admin/offline-queue';
 import { PageHeader } from '@/components/ui/page-header';
 import type { CitizenListItem } from '@/lib/api-client';
@@ -703,10 +704,10 @@ export default function CitizensPage({
                 <FileSpreadsheet className="size-4" aria-hidden />
                 {locale === 'en' ? 'Import from file' : 'استيراد من ملف'}
               </Button>
-              <Link href={`${base}/citizens/new`} className={buttonVariants()}>
+              <ShellLink href={`${base}/citizens/new`} className={buttonVariants()}>
                 <UserPlus className="size-4" aria-hidden />
                 {locale === 'en' ? 'Register new citizen' : 'تسجيل مواطن جديد'}
-              </Link>
+              </ShellLink>
             </>
           ) : null
         }

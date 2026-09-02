@@ -1,11 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { CloudOff, Loader2, Pencil, RefreshCw, TriangleAlert, Trash2 } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useState } from 'react';
 import { useOfflineQueue } from '@/lib/offline-sync';
+import { ShellLink } from './shell-nav';
 import { cn } from '@/lib/utils';
 
 /**
@@ -65,12 +65,12 @@ export function OfflineQueueNotice({
         ) : null}
       </p>
 
-      <Link
+      <ShellLink
         href={href}
         className="shrink-0 font-medium text-primary underline-offset-4 hover:underline"
       >
         {locale === 'en' ? 'View queue' : 'عرض القائمة'}
-      </Link>
+      </ShellLink>
 
       <Button
         type="button"
@@ -201,7 +201,7 @@ export function OfflineQueuePanel({
               who spots their own mistake before it was ever attempted should
               not have to wait for a rejection to be allowed to correct it.
             */}
-            <Link
+            <ShellLink
               href={`${base}/citizens/queue/${item.id}`}
               className={cn(
                 buttonVariants({ variant: 'outline', size: 'sm' }),
@@ -210,7 +210,7 @@ export function OfflineQueuePanel({
             >
               <Pencil className="size-3.5" aria-hidden />
               {locale === 'en' ? 'Edit' : 'تعديل'}
-            </Link>
+            </ShellLink>
 
             {item.status === 'blocked' ? (
               <>

@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, CloudOff, UserPlus, UserRoundPen } from 'lucide-react';
 import {
@@ -19,6 +18,7 @@ import { buttonVariants } from '@/components/ui/button';
 import type { PropertyDraft, UnitDraft } from '@/components/citizen/property-card';
 import { LoadingState } from '@/components/ui/states';
 import { flagsFromArray, flagsToArray } from '@/components/ui/field';
+import { ShellLink, shellNavigate } from './shell-nav';
 import { OfflineQueueNotice } from './offline-queue';
 import { offlineStorageAvailable } from '@/lib/offline-db';
 import {
@@ -263,6 +263,19 @@ export function CitizenEditor({
           router.replace(`${base}/login`);
           return;
         }
+        if (!citizenId && !queueId) {
+          // Creating a new citizen should never be blocked by network failure
+          setConfig({
+            slug: tenant,
+            name: tenant,
+            nameAr: tenant,
+            enabledPropertyTypes: ['BUILDING', 'HOUSE', 'LAND', 'TENT'],
+            requiredDocuments: [],
+            branding: {},
+          });
+          setInitial(EMPTY_CITIZEN);
+          return;
+        }
         setLoadError(
           caught instanceof ApiRequestError && caught.status === 404
             ? (locale === 'en' ? 'No citizen found with this ID.' : 'لا يوجد مواطن بهذا المعرّف.')
@@ -318,7 +331,7 @@ export function CitizenEditor({
                 ? 'This record had already been sent — there was nothing left to update.'
                 : 'كان هذا السجل قد أُرسل بالفعل — لا حاجة لتحديثه.',
           );
-          router.push(`${base}/citizens`);
+          shellNavigate(router, `${base}/citizens`);
         } catch (caught) {
           logApiError(caught);
           setError(
@@ -351,7 +364,7 @@ export function CitizenEditor({
               ? 'Saved on this device — it will sync automatically when you are back online.'
               : 'حُفظ على هذا الجهاز — سيُرسل تلقائياً عند عودة الاتصال.',
           );
-          router.push(`${base}/citizens`);
+          shellNavigate(router, `${base}/citizens`);
           return;
         } catch (caught) {
           // IndexedDB refused — a private window, a full disk, the store held
@@ -405,7 +418,7 @@ export function CitizenEditor({
                 ? 'Connection lost — saved on this device and queued for sync.'
                 : 'انقطع الاتصال — حُفظ السجل على الجهاز وسيُرسل تلقائياً.',
             );
-            router.push(`${base}/citizens`);
+            shellNavigate(router, `${base}/citizens`);
             return;
           } catch (queueFailure) {
             logApiError(queueFailure);
@@ -439,9 +452,9 @@ export function CitizenEditor({
         >
           {loadError}
         </p>
-        <Link href={`${base}/citizens`} className={buttonVariants({ variant: 'outline' })}>
+        <ShellLink href={`${base}/citizens`} className={buttonVariants({ variant: 'outline' })}>
           {locale === 'en' ? 'Back to Citizens Registry' : 'رجوع إلى سجل المواطنين'}
-        </Link>
+        </ShellLink>
       </div>
     );
   }
@@ -456,7 +469,7 @@ export function CitizenEditor({
 
   return (
     <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <Link
+      <ShellLink
         href={cancelHref}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
@@ -464,7 +477,7 @@ export function CitizenEditor({
         {editing
           ? (locale === 'en' ? 'Back to Citizen Profile' : 'رجوع إلى ملف المواطن')
           : (locale === 'en' ? 'Back to Citizens Registry' : 'رجوع إلى سجل المواطنين')}
-      </Link>
+      </ShellLink>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -529,7 +542,7 @@ export function CitizenEditor({
         // that already lives on this device either way.
         offline={isQueuedEdit ? false : willQueue}
         onSubmit={(values) => void submit(values)}
-        onCancel={() => router.push(cancelHref)}
+        onCancel={() => shellNavigate(router, cancelHref)}
         locale={locale}
       />
     </div>

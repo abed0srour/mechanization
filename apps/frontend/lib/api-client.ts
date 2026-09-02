@@ -129,11 +129,45 @@ export interface PublicTenantConfig {
 /**
  * The municipality's public branding and enabled property types.
  * Unauthenticated — the staff entry form reads it before a tenant is known.
+ * Cached in localStorage for offline resiliency.
  */
-export function getTenantConfig(tenant: string) {
-  return cachedRequest(`tenant-config:${tenant}`, 5 * 60 * 1000, () =>
-    apiFetch<PublicTenantConfig>(tenant, '/tenant/config'),
-  );
+export function getTenantConfig(tenant: string): Promise<PublicTenantConfig> {
+  return cachedRequest(`tenant-config:${tenant}`, 5 * 60 * 1000, async () => {
+    try {
+      const config = await apiFetch<PublicTenantConfig>(tenant, '/tenant/config');
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          localStorage.setItem(`mechanization.tenant_config.${tenant}`, JSON.stringify(config));
+        } catch {
+          // Ignore quota / localStorage errors
+        }
+      }
+      return config;
+    } catch (caught) {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stored = localStorage.getItem(`mechanization.tenant_config.${tenant}`);
+        if (stored) {
+          try {
+            return JSON.parse(stored) as PublicTenantConfig;
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      }
+      // If network error / offline, return a safe fallback so the offline form can still render
+      if (caught instanceof ApiRequestError && caught.status === 0) {
+        return {
+          slug: tenant,
+          name: tenant,
+          nameAr: tenant,
+          enabledPropertyTypes: ['BUILDING', 'HOUSE', 'LAND', 'TENT'],
+          requiredDocuments: [],
+          branding: {},
+        };
+      }
+      throw caught;
+    }
+  });
 }
 
 export interface PropertyNumberCheck {
