@@ -756,7 +756,7 @@ export default function CitizensPage({
         registered — putting the queue anywhere else invites reading the table
         below as the complete register when it is not yet.
       */}
-      <OfflineQueuePanel tenant={tenant} locale={locale} />
+      <OfflineQueuePanel tenant={tenant} base={base} locale={locale} />
 
       {/*
         The review queue, offered only when there is one.

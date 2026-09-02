@@ -6,9 +6,11 @@ import { loadSession } from './session';
 import {
   dequeue,
   enqueue,
+  getQueued,
   listQueued,
   offlineStorageAvailable,
   recordAttempt,
+  reviseQueued,
   retryLater,
   type QueuedSubmission,
 } from './offline-db';
@@ -249,6 +251,49 @@ export async function retrySubmission(tenant: string, id: string): Promise<void>
   await retryLater(id);
   await refreshQueue(tenant);
   await syncQueue(tenant);
+}
+
+/**
+ * One queued record, for an officer opening it to correct it.
+ *
+ * Scoped to the tenant even though the lookup is by id alone: an id typed by
+ * hand, or a stale bookmark, must not surface another municipality's queued
+ * record. In practice a staff session is already scoped to one tenant and
+ * this can only really happen by mistake — the check is cheap enough to keep
+ * regardless.
+ */
+export async function getQueuedSubmission(
+  tenant: string,
+  id: string,
+): Promise<QueuedSubmission | null> {
+  if (!offlineStorageAvailable()) return null;
+  const item = await getQueued(id);
+  return item && item.tenant === tenant ? item : null;
+}
+
+/**
+ * Replaces a queued record's payload and immediately tries to deliver it.
+ *
+ * The immediate attempt is what makes fixing a blocked record feel like
+ * fixing it: without triggering a drain here, the corrected record would sit
+ * as `pending` again until the next `online` event or a manual «مزامنة»,
+ * which reads as though the edit changed nothing.
+ *
+ * Returns `false` when the record was already gone by the time this ran — a
+ * second tab's drain delivered it in the moment between opening the edit
+ * screen and pressing save. The caller reports that honestly rather than
+ * claiming an update that never landed anywhere.
+ */
+export async function reviseSubmission(
+  tenant: string,
+  id: string,
+  payload: QueuedSubmission['payload'],
+  displayName: string,
+): Promise<boolean> {
+  const found = await reviseQueued(id, { payload, displayName });
+  await refreshQueue(tenant);
+  if (found) void syncQueue(tenant);
+  return found;
 }
 
 /** Abandons a record for good. Only ever called behind a confirmation. */

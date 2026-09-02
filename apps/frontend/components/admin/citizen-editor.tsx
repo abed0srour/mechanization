@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, UserPlus, UserRoundPen } from 'lucide-react';
+import { ArrowRight, CloudOff, UserPlus, UserRoundPen } from 'lucide-react';
 import {
   ApiRequestError,
   createCitizen,
@@ -21,7 +21,13 @@ import { LoadingState } from '@/components/ui/states';
 import { flagsFromArray, flagsToArray } from '@/components/ui/field';
 import { OfflineQueueNotice } from './offline-queue';
 import { offlineStorageAvailable } from '@/lib/offline-db';
-import { queueSubmission, useOfflineQueue, useOnlineStatus } from '@/lib/offline-sync';
+import {
+  getQueuedSubmission,
+  queueSubmission,
+  reviseSubmission,
+  useOfflineQueue,
+  useOnlineStatus,
+} from '@/lib/offline-sync';
 import { useToast } from '@/components/ui/toast';
 import {
   CitizenForm,
@@ -95,16 +101,24 @@ export function CitizenEditor({
   adminPath,
   /** Absent = creating. */
   citizenId,
+  /**
+   * The id of a record still sitting in this device's offline queue —
+   * present only on `citizens/queue/[queueId]`, and mutually exclusive with
+   * `citizenId`: a queued record has no server citizen to be an id for yet.
+   */
+  queueId,
 }: {
   tenant: string;
   locale: string;
   adminPath: string;
   citizenId?: string;
+  queueId?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
   const base = `/${tenant}/${locale}/${adminPath}`;
   const editing = citizenId !== undefined;
+  const isQueuedEdit = queueId !== undefined;
 
   const online = useOnlineStatus();
   // Mounting this is also what starts the sync engine and drains any backlog,
@@ -113,7 +127,8 @@ export function CitizenEditor({
   const queue = useOfflineQueue(tenant);
 
   /**
-   * Offline entry is for *new* records only.
+   * Offline entry is for *new* records only — never a correction to a citizen
+   * already on the server.
    *
    * A correction is a read-modify-write against a row this device may hold a
    * stale copy of — queued for hours and replayed later, it would silently
@@ -121,8 +136,12 @@ export function CitizenEditor({
    * someone new has no such conflict: the record does not exist yet, and the
    * `clientSubmissionId` covers the only race that remains. So an edit made
    * with no connection fails honestly and is retried by a person.
+   *
+   * Correcting a *queued* record is a third thing entirely, and excluded here
+   * for the opposite reason: it always writes back to the queue, connection or
+   * not, so it has no need of the network-first/fallback dance this decides.
    */
-  const canQueue = !editing && offlineStorageAvailable();
+  const canQueue = !editing && !isQueuedEdit && offlineStorageAvailable();
   const willQueue = canQueue && !online;
 
   const [token, setToken] = useState<string | null>(null);
@@ -160,13 +179,47 @@ export function CitizenEditor({
       try {
         // The tenant config decides which أنواع العقارات this municipality
         // accepts, so the form cannot offer one that would be refused on save.
-        const [tenantConfig, form] = await Promise.all([
+        // `getQueuedSubmission` touches only IndexedDB, not the network — it
+        // runs alongside the other two rather than blocking on them.
+        const [tenantConfig, form, queued] = await Promise.all([
           getTenantConfig(tenant),
           citizenId ? getCitizenForm(tenant, token, citizenId) : Promise.resolve(null),
+          queueId ? getQueuedSubmission(tenant, queueId) : Promise.resolve(null),
         ]);
         if (cancelled) return;
 
         setConfig(tenantConfig);
+
+        if (queueId) {
+          if (!queued) {
+            // Synced by another tab, or discarded, in the time between the
+            // link being shown and being followed. Not an error to alarm
+            // over — the record reaching the municipality is the outcome
+            // this whole feature wants.
+            setLoadError(
+              locale === 'en'
+                ? 'This record is no longer in the queue — it may have already been sent.'
+                : 'هذا السجل لم يعد في قائمة الانتظار — ربما أُرسل بالفعل.',
+            );
+            return;
+          }
+
+          setInitial({
+            personal: queued.payload.personal,
+            contact: queued.payload.contact,
+            properties:
+              queued.payload.properties.length > 0
+                ? queued.payload.properties.map(toDraft)
+                : EMPTY_CITIZEN.properties,
+            flags: flagsFromArray(queued.payload.flags),
+          });
+
+          // Shown as though it were the result of this visit's own attempt —
+          // which it is: it is why this record needed opening at all, and
+          // repeating it here saves a trip back to the queue panel to recall.
+          if (queued.lastError) setError(queued.lastError);
+          return;
+        }
 
         if (!form) {
           setInitial(EMPTY_CITIZEN);
@@ -222,7 +275,7 @@ export function CitizenEditor({
     return () => {
       cancelled = true;
     };
-  }, [tenant, token, citizenId, base, router, locale]);
+  }, [tenant, token, citizenId, queueId, base, router, locale]);
 
   const submit = useCallback(
     async (values: CitizenFormValues) => {
@@ -237,6 +290,47 @@ export function CitizenEditor({
         flags: flagsToArray(values.flags),
       };
 
+      const displayName =
+        [values.personal.firstName, values.personal.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || (locale === 'en' ? 'Unnamed record' : 'سجل بلا اسم');
+
+      /*
+        Correcting a record that is already sitting in the queue.
+
+        Never touches the network directly — `reviseSubmission` overwrites the
+        local copy and hands the drain a corrected record to try, whether that
+        happens in the next second (a connection is here right now, which is
+        usually why the record was opened) or the next time signal returns
+        (still offline, but the fix is no longer at risk of being lost to a
+        connection nobody controls).
+      */
+      if (queueId) {
+        try {
+          const found = await reviseSubmission(tenant, queueId, payload, displayName);
+          toast.success(
+            found
+              ? locale === 'en'
+                ? 'Updated — this record will be sent automatically.'
+                : 'تم التحديث — سيُعاد إرسال السجل تلقائياً.'
+              : locale === 'en'
+                ? 'This record had already been sent — there was nothing left to update.'
+                : 'كان هذا السجل قد أُرسل بالفعل — لا حاجة لتحديثه.',
+          );
+          router.push(`${base}/citizens`);
+        } catch (caught) {
+          logApiError(caught);
+          setError(
+            locale === 'en'
+              ? 'Could not update the record stored on this device.'
+              : 'تعذّر تحديث السجل المحفوظ على هذا الجهاز.',
+          );
+          setSubmitting(false);
+        }
+        return;
+      }
+
       /*
         No connection: the record is stored on this device and the officer
         moves on to the next household.
@@ -250,15 +344,7 @@ export function CitizenEditor({
       */
       if (willQueue) {
         try {
-          await queueSubmission({
-            tenant,
-            displayName:
-              [values.personal.firstName, values.personal.lastName]
-                .filter(Boolean)
-                .join(' ')
-                .trim() || (locale === 'en' ? 'Unnamed record' : 'سجل بلا اسم'),
-            payload,
-          });
+          await queueSubmission({ tenant, displayName, payload });
 
           toast.success(
             locale === 'en'
@@ -312,15 +398,7 @@ export function CitizenEditor({
         */
         if (canQueue && caught instanceof ApiRequestError && caught.status === 0) {
           try {
-            await queueSubmission({
-                tenant,
-              displayName:
-                [values.personal.firstName, values.personal.lastName]
-                  .filter(Boolean)
-                  .join(' ')
-                  .trim() || (locale === 'en' ? 'Unnamed record' : 'سجل بلا اسم'),
-              payload,
-            });
+            await queueSubmission({ tenant, displayName, payload });
 
             toast.success(
               locale === 'en'
@@ -342,7 +420,7 @@ export function CitizenEditor({
         setSubmitting(false);
       }
     },
-    [tenant, token, citizenId, base, router, locale, willQueue, canQueue, toast],
+    [tenant, token, citizenId, queueId, base, router, locale, willQueue, canQueue, toast],
   );
 
   const cancelHref = useMemo(
@@ -374,7 +452,7 @@ export function CitizenEditor({
     );
   }
 
-  const Icon = editing ? UserRoundPen : UserPlus;
+  const Icon = isQueuedEdit ? CloudOff : editing ? UserRoundPen : UserPlus;
 
   return (
     <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -398,18 +476,24 @@ export function CitizenEditor({
           </span>
           <div className="min-w-0 space-y-0.5">
             <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl text-foreground">
-              {editing
-                ? (locale === 'en' ? 'Edit Citizen Information' : 'تعديل بيانات مواطن')
-                : (locale === 'en' ? 'Register New Citizen' : 'تسجيل مواطن جديد')}
+              {isQueuedEdit
+                ? (locale === 'en' ? 'Correct Unsent Record' : 'تصحيح سجل غير مُرسَل')
+                : editing
+                  ? (locale === 'en' ? 'Edit Citizen Information' : 'تعديل بيانات مواطن')
+                  : (locale === 'en' ? 'Register New Citizen' : 'تسجيل مواطن جديد')}
             </h1>
             <p className="text-xs text-muted-foreground">
-              {editing
+              {isQueuedEdit
                 ? (locale === 'en'
-                    ? "Edits apply to this citizen's latest application. Prior submissions are preserved in their history."
-                    : 'التعديلات تُطبَّق على أحدث طلب لهذا المواطن. الطلبات السابقة تبقى كما هي في ملفه.')
-                : (locale === 'en'
-                    ? 'The application is registered with status "Pending" and appears in the verification queue.'
-                    : 'يُسجَّل الطلب بحالة «قيد الانتظار» ويظهر في قائمة المراجعة كأي طلب آخر.')}
+                    ? 'This record is stored only on this device and has not reached the municipality. Saving here updates the local copy and retries sending it automatically.'
+                    : 'هذا السجل محفوظ على هذا الجهاز فقط ولم يصل إلى البلدية بعد. الحفظ هنا يُحدّث النسخة المحلية ويعيد محاولة إرسالها تلقائياً.')
+                : editing
+                  ? (locale === 'en'
+                      ? "Edits apply to this citizen's latest application. Prior submissions are preserved in their history."
+                      : 'التعديلات تُطبَّق على أحدث طلب لهذا المواطن. الطلبات السابقة تبقى كما هي في ملفه.')
+                  : (locale === 'en'
+                      ? 'The application is registered with status "Pending" and appears in the verification queue.'
+                      : 'يُسجَّل الطلب بحالة «قيد الانتظار» ويظهر في قائمة المراجعة كأي طلب آخر.')}
             </p>
           </div>
         </div>
@@ -435,11 +519,15 @@ export function CitizenEditor({
       <CitizenForm
         tenant={tenant}
         config={config}
-        mode={editing ? 'edit' : 'create'}
+        mode={editing || isQueuedEdit ? 'edit' : 'create'}
         initial={initial}
         submitting={submitting}
         error={error}
-        offline={willQueue}
+        // A queued-edit always writes back to the queue, whatever the current
+        // connection is — the "will this be sent or stored?" framing belongs
+        // to a brand-new record's very first save, not to correcting one
+        // that already lives on this device either way.
+        offline={isQueuedEdit ? false : willQueue}
         onSubmit={(values) => void submit(values)}
         onCancel={() => router.push(cancelHref)}
         locale={locale}
