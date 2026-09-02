@@ -28,6 +28,7 @@ import {
   type UnitDraft,
 } from '@/components/citizen/property-card';
 import { FieldFlagProvider, flagsToArray } from '@/components/ui/field';
+import { UnverifiedFieldsDialog } from './unverified-fields-dialog';
 import { cn, scopeErrors } from '@/lib/utils';
 import { useSectionNav } from '@/lib/use-section-nav';
 
@@ -290,6 +291,7 @@ export function CitizenForm({
   const [values, setValues] = useState<CitizenFormValues>(initial);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showErrors, setShowErrors] = useState(false);
+  const [unverifiedDialogOpen, setUnverifiedDialogOpen] = useState(false);
   /** Which property cards are folded shut. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   /**
@@ -579,7 +581,7 @@ export function CitizenForm({
     <div className="space-y-5">
       <nav
         aria-label={locale === 'en' ? 'Form sections' : 'أقسام النموذج'}
-        className="sticky top-0 z-20 rounded-xl border border-border/80 bg-background/95 p-1.5 shadow-2xs backdrop-blur supports-[backdrop-filter]:bg-background/80"
+        className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/80 bg-background/95 p-1.5 shadow-2xs backdrop-blur supports-[backdrop-filter]:bg-background/80"
       >
         <ul className="flex flex-wrap items-center gap-1.5">
           {sections.map((section) => {
@@ -631,6 +633,25 @@ export function CitizenForm({
             );
           })}
         </ul>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setUnverifiedDialogOpen(true)}
+          className={cn(
+            'h-8 gap-1.5 px-3 text-xs font-medium transition-colors',
+            values.flags.size > 0
+              ? 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <FileQuestion className="size-3.5 shrink-0" aria-hidden />
+          <span>
+            {locale === 'en' ? 'Unverified Fields' : 'خانات غير مؤكَّدة'}
+            {values.flags.size > 0 ? ` (${values.flags.size})` : ''}
+          </span>
+        </Button>
       </nav>
 
       <FormSection
@@ -758,13 +779,24 @@ export function CitizenForm({
         ) : null}
 
         {flagSummary.length > 0 ? (
-          <div className="mb-2.5 space-y-1 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
-            <p className="flex items-center gap-1.5 font-semibold text-warning">
-              <FileQuestion className="size-3.5 shrink-0" aria-hidden />
-              {locale === 'en'
-                ? `Saving with ${flagSummary.length} unverified field(s) — the record will be marked "Requires Review".`
-                : `سيُحفظ السجل مع ${flagSummary.length} حقلاً غير مؤكَّد بحالة «يتطلب مراجعة».`}
-            </p>
+          <div className="mb-2.5 space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 font-semibold text-warning">
+                <FileQuestion className="size-3.5 shrink-0" aria-hidden />
+                {locale === 'en'
+                  ? `Saving with ${flagSummary.length} unverified field(s) — marked "Requires Review".`
+                  : `سيُحفظ السجل مع ${flagSummary.length} خانة غير مؤكَّدة بحالة «يتطلب مراجعة».`}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setUnverifiedDialogOpen(true)}
+                className="h-6 px-2 text-[11px] text-warning hover:bg-warning/15 hover:text-warning"
+              >
+                {locale === 'en' ? 'Manage' : 'تعديل الخانات'}
+              </Button>
+            </div>
             <ul className="grid gap-0.5 ps-1 sm:grid-cols-2">
               {flagSummary.map((flag) => (
                 <li key={flag.path} className="truncate text-muted-foreground">
@@ -830,6 +862,42 @@ export function CitizenForm({
         </div>
       </div>
     </div>
+
+    <UnverifiedFieldsDialog
+      open={unverifiedDialogOpen}
+      onOpenChange={setUnverifiedDialogOpen}
+      values={values}
+      onSaveFlags={(newFlags) => {
+        // Also prune fields from values if they are newly flagged
+        setValues((current) => {
+          let updated = { ...current, flags: newFlags };
+          // If a field is newly flagged, clear its value in current state
+          for (const path of newFlags.keys()) {
+            const [section, ...rest] = path.split('.');
+            if (section === 'personal' || section === 'contact') {
+              const field = rest[0];
+              const nextSec = { ...updated[section] };
+              delete nextSec[field];
+              updated = { ...updated, [section]: nextSec };
+            } else if (section === 'properties') {
+              const idx = Number(rest[0]);
+              const field = rest[1];
+              updated = {
+                ...updated,
+                properties: updated.properties.map((p, i) => {
+                  if (i !== idx) return p;
+                  const nextP = { ...p } as Record<string, unknown>;
+                  delete nextP[field];
+                  return nextP as PropertyDraft;
+                }),
+              };
+            }
+          }
+          return updated;
+        });
+      }}
+      locale={locale}
+    />
     </FieldFlagProvider>
   );
 }

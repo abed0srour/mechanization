@@ -117,62 +117,43 @@ export function Field({
           )}
         </Label>
 
-        {flaggable && path ? (
-          <button
-            type="button"
-            onClick={() => (flagged ? flagging?.clear(path) : flagging?.set(path, ''))}
-            aria-pressed={flagged}
-            className={cn(
-              'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors',
-              flagged
-                ? 'bg-warning/15 text-warning ring-1 ring-warning/40'
-                : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
-            )}
-          >
-            {flagged ? (
-              <X className="size-3 shrink-0" aria-hidden />
-            ) : (
-              <FileQuestion className="size-3 shrink-0" aria-hidden />
-            )}
-            {flagged
-              ? locale === 'en'
-                ? 'Undo'
-                : 'تراجع'
-              : locale === 'en'
-                ? 'Unverified'
-                : 'غير مؤكَّد'}
-          </button>
+        {flagged ? (
+          <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning ring-1 ring-warning/30">
+            <FileQuestion className="size-3" aria-hidden />
+            <span>{locale === 'en' ? 'Unverified' : 'غير مؤكَّد'}</span>
+          </span>
         ) : null}
       </div>
 
       {hint ? <p className="text-xs text-muted-foreground leading-normal">{hint}</p> : null}
 
       {/*
-        A flagged field's input is replaced rather than merely disabled.
-
-        The value is not kept — the record says this was never established, and
-        a greyed-out box still showing a half-typed number would contradict it
-        the moment anyone looked. What stands in its place is the question the
-        flag actually raises: why.
+        A flagged field's input is replaced by the reason input.
       */}
       {flagged && path ? (
-        <div className="space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2">
-          <Label htmlFor={reasonId} className="text-[11px] font-medium text-warning">
-            {locale === 'en'
-              ? 'Why is this missing? (required)'
-              : 'سبب عدم توفّر هذه المعلومة (إلزامي)'}
-          </Label>
-          <input
-            id={reasonId}
-            value={reason ?? ''}
-            onChange={(event) => flagging?.set(path, event.target.value)}
-            placeholder={
-              locale === 'en'
-                ? 'e.g. Title deed held by a relative in another town'
-                : 'مثال: سند الملكية عند أحد الأقارب خارج البلدة'
-            }
-            className="h-9 w-full rounded-md border border-warning/40 bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
-          />
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <input
+              id={reasonId}
+              value={reason ?? ''}
+              onChange={(event) => flagging?.set(path, event.target.value)}
+              placeholder={
+                locale === 'en'
+                  ? 'Why is this missing? (required)...'
+                  : 'سبب عدم توفّر هذه المعلومة (إلزامي)...'
+              }
+              className="flex h-10 w-full rounded-md border border-warning/50 bg-warning/5 px-3 py-2 text-xs text-foreground placeholder:text-warning/70 outline-none ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/50 focus-visible:ring-offset-2"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => flagging?.clear(path)}
+            title={locale === 'en' ? 'Undo unverified status' : 'تراجع عن غير مؤكَّد'}
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-1 rounded-md border border-warning/40 bg-warning/15 px-2.5 py-1 text-xs font-medium text-warning hover:bg-warning/25 transition-colors select-none"
+          >
+            <X className="size-3.5 shrink-0" aria-hidden />
+            <span>{locale === 'en' ? 'Undo' : 'تراجع'}</span>
+          </button>
         </div>
       ) : (
         children
