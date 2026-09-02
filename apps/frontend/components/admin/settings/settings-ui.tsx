@@ -92,7 +92,7 @@ export function AlignedFieldGrid({
 export function SettingsField({
   label,
   htmlFor,
-  hint,
+  hint: _hint,
   error,
   required,
   className,
@@ -123,18 +123,14 @@ export function SettingsField({
     <p role="alert" className="text-xs leading-relaxed text-destructive">
       {error}
     </p>
-  ) : hint ? (
-    <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
   ) : null;
 
   if (aligned) {
     return (
-      <div className={cn('row-span-3 grid min-w-0 grid-rows-subgrid gap-1.5', className)}>
-        {/* Anchored to the bottom of their tracks so a short label stays beside
-            its control when a neighbour's label wraps to two lines. */}
-        <div className="self-end">{caption}</div>
-        <div className="min-w-0 self-end">{children}</div>
-        {footnote ?? <span />}
+      <div className={cn('flex min-w-0 flex-col gap-1.5', className)}>
+        {caption}
+        {children}
+        {footnote}
       </div>
     );
   }
@@ -168,13 +164,8 @@ export function SettingsTabs<T extends string>({
   label: string;
 }) {
   return (
-    <nav aria-label={label}>
-      {/*
-        Wraps rather than scrolls. Six labels is two rows on a phone, and two
-        visible rows beat one row that hides half the sections off-screen behind
-        a horizontal scroll an administrator has no reason to suspect is there.
-      */}
-      <div className="flex h-auto w-full flex-wrap items-center gap-1 rounded-lg bg-muted p-1 text-muted-foreground sm:w-auto">
+    <nav aria-label={label} className="w-full overflow-hidden">
+      <div className="flex h-auto w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = active === item.id;
@@ -185,7 +176,7 @@ export function SettingsTabs<T extends string>({
               onClick={() => onSelect(item.id)}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all sm:flex-none',
+                'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all',
                 isActive
                   ? 'bg-background text-foreground shadow'
                   : 'hover:text-foreground',

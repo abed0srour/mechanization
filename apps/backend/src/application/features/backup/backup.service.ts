@@ -134,6 +134,16 @@ export interface RestoreReport {
  * the snapshot's tenant must match the target, its migration set must match,
  * and the caller must name the tenant back. See `restore`.
  */
+/**
+ * Strips database-generated columns (`GENERATED ALWAYS AS ... STORED`) from
+ * snapshot rows so that `createMany` does not attempt to insert a non-DEFAULT value.
+ */
+function sanitizeRowForSnapshot(row: unknown): unknown {
+  if (typeof row !== 'object' || row === null) return row;
+  const { searchText: _searchText, ...rest } = row as Record<string, unknown>;
+  return rest;
+}
+
 @Injectable()
 export class BackupService {
   private readonly logger = new Logger(BackupService.name);
@@ -185,7 +195,8 @@ export class BackupService {
     const counts: Record<string, number> = {};
 
     for (const table of TABLE_ORDER) {
-      const rows = await this.delegate(table).findMany();
+      const rawRows = await this.delegate(table).findMany();
+      const rows = rawRows.map((row) => sanitizeRowForSnapshot(row));
       tables[table] = rows;
       counts[table] = rows.length;
     }
@@ -346,15 +357,18 @@ export class BackupService {
         }
 
         for (const table of TABLE_ORDER) {
-          const rows = snapshot.tables[table] ?? [];
-          if (rows.length === 0) {
+          const rawRows = snapshot.tables[table] ?? [];
+          if (rawRows.length === 0) {
             written[table] = 0;
             continue;
           }
+          // Generated columns (`GENERATED ALWAYS AS ... STORED`) are computed
+          // by Postgres on insert/update and reject an explicit non-DEFAULT value.
+          const rows = rawRows.map((row) => sanitizeRowForSnapshot(row));
           // `createMany` in one call per table rather than a row at a time:
           // a register of ten thousand citizens is ten thousand round trips
           // otherwise, inside a transaction holding locks the whole while.
-          const result = await scoped(table).createMany({ data: rows });
+          const result = await scoped(table).createMany({ data: rows as never });
           written[table] = result.count;
         }
       },

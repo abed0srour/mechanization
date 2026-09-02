@@ -15,6 +15,7 @@ import type {
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
 import { ConflictError, NotFoundError } from '../../common/exceptions';
+import { searchTokens } from '../../common/search-terms';
 import { RedisCacheService } from '../../../infrastructure/cache/redis-cache.service';
 import { PaymentLedgerService } from './payment-ledger.service';
 
@@ -26,6 +27,9 @@ const PROPERTY_TYPE_CATEGORIES = new Set(['BUILDING', 'HOUSE', 'LAND', 'TENT']);
  * and a write drops the entry outright, so the TTL only bounds how long a
  * change made *outside* this service could go unseen.
  */
+/** A pasted invoice id, in any casing. Used to route a search to `id` equality. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const SETTINGS_CACHE_TTL_SECONDS = 300;
 
 /** Guards the period walk below against an unreachable target date. */
@@ -615,6 +619,7 @@ export class FeesService {
         paymentStatus: 'PENDING_REVIEW',
         paymentMethod: input.method as never,
         whishTransactionRef: input.whishTransactionRef ?? null,
+        isSeen: false,
         // Cleared so a previous rejection's note does not sit alongside a
         // fresh claim as though it applied to it.
         reviewNote: null,
@@ -632,11 +637,14 @@ export class FeesService {
   }
 
   /** The clerk's verification queue: everything claimed but not yet confirmed. */
-  async listPendingReview() {
+  async listPendingReview(unseenOnly: boolean = false) {
     const rows = await withConnectionRetry(() =>
       this.db.citizenPayment.findMany({
-        where: { paymentStatus: 'PENDING_REVIEW' },
-        orderBy: { updatedAt: 'asc' },
+        where: {
+          paymentStatus: 'PENDING_REVIEW',
+          ...(unseenOnly ? { isSeen: false } : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
         include: {
           citizen: {
             select: { id: true, firstName: true, lastName: true, phone: true, referenceNumber: true },
@@ -655,11 +663,43 @@ export class FeesService {
       dueDate: row.dueDate.toISOString(),
       paymentMethod: row.paymentMethod,
       whishTransactionRef: row.whishTransactionRef,
+      isSeen: row.isSeen,
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       citizenPhone: row.citizen.phone,
       citizenReference: row.citizen.referenceNumber,
     }));
+  }
+
+  /** Marks a pending payment notification as seen. */
+  async markAsSeen(paymentId: string) {
+    const payment = await this.db.citizenPayment.findUnique({
+      where: { id: paymentId },
+      select: { id: true, paymentStatus: true },
+    });
+    if (!payment) throw new NotFoundError('Payment', paymentId);
+
+    const updated = await withConnectionRetry(() =>
+      this.db.citizenPayment.update({
+        where: { id: paymentId },
+        data: { isSeen: true },
+        select: { id: true, isSeen: true },
+      }),
+    );
+
+    return { id: updated.id, isSeen: updated.isSeen };
+  }
+
+  /** Marks all pending payment notifications as seen. */
+  async markAllPendingAsSeen() {
+    const result = await withConnectionRetry(() =>
+      this.db.citizenPayment.updateMany({
+        where: { paymentStatus: 'PENDING_REVIEW', isSeen: false },
+        data: { isSeen: true },
+      }),
+    );
+
+    return { updatedCount: result.count };
   }
 
   /**
@@ -877,10 +917,39 @@ export class FeesService {
    * who owes it — a clerk taking cash at the counter needs to find the row by
    * the name in front of them.
    */
+  /** Returns unique fee titles registered in the municipality. */
+  async listDistinctTitles(): Promise<string[]> {
+    const [notices, payments] = await withConnectionRetry(() =>
+      Promise.all([
+        this.db.feeNotice.findMany({
+          select: { title: true },
+          distinct: ['title'],
+          orderBy: { title: 'asc' },
+        }),
+        this.db.citizenPayment.findMany({
+          select: { title: true },
+          distinct: ['title'],
+          orderBy: { title: 'asc' },
+        }),
+      ]),
+    );
+
+    const set = new Set<string>();
+    for (const n of notices) {
+      if (n.title?.trim()) set.add(n.title.trim());
+    }
+    for (const p of payments) {
+      if (p.title?.trim()) set.add(p.title.trim());
+    }
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }
+
   async listAllPayments(
     filter: {
       status?: string;
       search?: string;
+      feeTitle?: string;
       citizenId?: string;
       /** CASH | WHISH_MONEY. */
       method?: string;
@@ -896,7 +965,17 @@ export class FeesService {
       offset?: number;
     } = {},
   ) {
+    /*
+      A pasted invoice id is a lookup, not a search.
+
+      Handled as its own branch because `id` is a `uuid` column: it has no
+      `LIKE`, so it cannot take part in the substring matching below, and a
+      UUID folded into tokens would match nothing anyway. Whole-value equality
+      is also the only sensible reading — nobody types a fragment of one.
+    */
     const search = filter.search?.trim();
+    const exactId = search && UUID.test(search) ? search.toLowerCase() : undefined;
+    const tokens = exactId ? [] : searchTokens(search);
 
     /**
      * The page, and the ceiling on it.
@@ -913,6 +992,14 @@ export class FeesService {
       ...(filter.citizenId ? { citizenId: filter.citizenId } : {}),
       ...(filter.status ? { paymentStatus: filter.status as never } : {}),
       ...(filter.method ? { paymentMethod: filter.method as never } : {}),
+      ...(filter.feeTitle
+        ? {
+            OR: [
+              { feeNotice: { title: { equals: filter.feeTitle } } },
+              { searchText: { contains: searchTokens(filter.feeTitle)[0] || filter.feeTitle } },
+            ],
+          }
+        : {}),
       // PENDING_REVIEW belongs here despite `paidAmount` still being zero:
       // the citizen has declared a transfer, so there is a claimed
       // transaction with a method and a reference to show — it is simply
@@ -920,30 +1007,38 @@ export class FeesService {
       ...(filter.transactionsOnly
         ? { OR: [{ paidAmount: { gt: 0 } }, { paymentStatus: 'PENDING_REVIEW' as never }] }
         : {}),
-      ...(search
-        ? {
-            OR: [
-              { title: { contains: search, mode: 'insensitive' as const } },
-              { whishTransactionRef: { contains: search, mode: 'insensitive' as const } },
-              { id: { contains: search, mode: 'insensitive' as const } },
-              {
-                citizen: {
-                  OR: [
-                    { firstName: { contains: search, mode: 'insensitive' as const } },
-                    { middleName: { contains: search, mode: 'insensitive' as const } },
-                    { lastName: { contains: search, mode: 'insensitive' as const } },
-                    { referenceNumber: { contains: search, mode: 'insensitive' as const } },
-                    { phone: { contains: search } },
-                    { whatsapp: { contains: search } },
-                    { identityDocNumber: { contains: search, mode: 'insensitive' as const } },
-                    { residencyNumber: { contains: search, mode: 'insensitive' as const } },
-                    { civilRecordNumber: { contains: search, mode: 'insensitive' as const } },
-                  ],
-                },
-              },
-            ],
-          }
-        : {}),
+      /*
+        Every word of the query, somewhere in the folded text of the invoice or
+        its payer.
+
+        What was here could not match a person's name at all. It ORed
+        `firstName contains` against `middleName contains` against
+        `lastName contains`, so «أحمد نصرالله» asked for a *single column*
+        holding both words — and none does. Every two-word search on this
+        screen and on إدارة الرسوم returned nothing, which is not a
+        near-miss but the most ordinary way anyone looks anyone up.
+
+        `searchText` is a generated column per side of the join (migration
+        0018), folded to one alphabet; `searchTokens` folds the query the same
+        way. AND across tokens, OR across the two sides: both words have to
+        appear, either may appear on either side.
+
+        The payment's `id` is compared whole rather than by substring. It is a
+        `uuid` column, which has no `LIKE`, and nobody types a fragment of a
+        v4 UUID — it is pasted from a link or a log, entire.
+      */
+      ...(exactId
+        ? { id: exactId }
+        : tokens.length
+          ? {
+              AND: tokens.map((token) => ({
+                OR: [
+                  { searchText: { contains: token } },
+                  { citizen: { searchText: { contains: token } } },
+                ],
+              })),
+            }
+          : {}),
     };
 
     /**

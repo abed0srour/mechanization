@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ZodError } from 'zod';
 import {
   Building2,
+  CloudOff,
+  FileQuestion,
   IdCard,
   Loader2,
   Plus,
@@ -12,10 +13,10 @@ import {
   UsersRound,
 } from 'lucide-react';
 import {
+  adminCreateCitizenSubmissionSchema,
   allowedPropertyTypesFor,
-  contactDetailsSchema,
-  personalDetailsSchema,
-  propertyEntriesSchema,
+  getLabels,
+  PROPERTY_FIELD_MAP,
 } from '@mechanization/shared-schemas';
 import type { PublicTenantConfig } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ import {
   type PropertyDraft,
   type UnitDraft,
 } from '@/components/citizen/property-card';
+import { FieldFlagProvider, flagsToArray } from '@/components/ui/field';
 import { cn, scopeErrors } from '@/lib/utils';
 import { useSectionNav } from '@/lib/use-section-nav';
 
@@ -33,6 +35,14 @@ export interface CitizenFormValues {
   personal: Record<string, unknown>;
   contact: Record<string, unknown>;
   properties: PropertyDraft[];
+  /**
+   * Fields the officer recorded as «غير مؤكَّد», keyed by dot-path.
+   *
+   * A Map rather than the array the wire uses, because every operation this
+   * form performs on them is by path: is this field flagged, flag it, drop it
+   * when its card is deleted. `flagsToArray` converts at the edge.
+   */
+  flags: Map<string, string>;
 }
 
 /**
@@ -63,16 +73,85 @@ export const EMPTY_CITIZEN: CitizenFormValues = {
   personal: { isLebanese: true },
   contact: { whatsappSameAsPhone: true },
   properties: [{}],
+  flags: new Map(),
 };
 
-/** Turns a failed `safeParse` into the `"personal.firstName"` keys each section reads. */
-function fieldErrorsFrom(error: ZodError, prefix: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = [prefix, ...issue.path].join('.');
-    if (!(key in out)) out[key] = issue.message;
+/**
+ * Every dot-path this form is currently *asking about*.
+ *
+ * The form is branchy — رقم السجل exists only for a Lebanese citizen, a
+ * landlord block only for a tenant, وحدات المبنى only for a building — and an
+ * officer who flags a field and then changes the branch above it leaves a flag
+ * pointing at an input nobody can see. Stored, that flag would hold the record
+ * at «يتطلب مراجعة» over a question the form has stopped asking, and nothing on
+ * screen would explain why.
+ *
+ * So flags are pruned to this set. It is derived from the same
+ * `PROPERTY_FIELD_MAP` the cards render from, which is what keeps "what is on
+ * screen" and "what may be flagged" the same list.
+ */
+function askablePaths(values: CitizenFormValues): Set<string> {
+  const paths = new Set<string>([
+    'personal.firstName',
+    'personal.middleName',
+    'personal.lastName',
+    'personal.gender',
+    'personal.bloodType',
+    'personal.residentStatus',
+    'contact.maritalStatus',
+    'contact.familySize',
+    'contact.phone',
+  ]);
+
+  if (values.personal.isLebanese !== false) {
+    paths.add('personal.identityDocType');
+    paths.add('personal.identityDocNumber');
+    paths.add('personal.civilRecordNumber');
+  } else {
+    paths.add('personal.nationality');
+    paths.add('personal.identityDocNumber');
+    paths.add('personal.residencyNumber');
   }
-  return out;
+
+  if (values.contact.whatsappSameAsPhone === false) paths.add('contact.whatsapp');
+
+  values.properties.forEach((property, index) => {
+    const branch = PROPERTY_FIELD_MAP[property.propertyType as keyof typeof PROPERTY_FIELD_MAP];
+    for (const field of branch ?? []) paths.add(`properties.${index}.${field}`);
+    if (property.occupancyType === 'TENANT') {
+      paths.add(`properties.${index}.landlordName`);
+      paths.add(`properties.${index}.landlordPhone`);
+    }
+  });
+
+  return paths;
+}
+
+/**
+ * Renumbers property flags after the card at `removed` is deleted.
+ *
+ * Drops that card's own flags and shifts every higher index down by one, which
+ * is the same correction `removeProperty` applies to the collapsed set — for
+ * the same reason, and with worse consequences if it is skipped: a stale
+ * collapsed index folds the wrong card, a stale flag index misattributes a
+ * missing field to the wrong property.
+ */
+function reindexFlags(flags: ReadonlyMap<string, string>, removed: number): Map<string, string> {
+  const next = new Map<string, string>();
+
+  for (const [path, reason] of flags) {
+    const match = /^properties\.(\d+)\.(.+)$/.exec(path);
+    if (!match) {
+      next.set(path, reason);
+      continue;
+    }
+
+    const index = Number(match[1]);
+    if (index === removed) continue;
+    next.set(`properties.${index > removed ? index - 1 : index}.${match[2]}`, reason);
+  }
+
+  return next;
 }
 
 /** Drops UI-only fields and coerces the numeric strings the inputs produce. */
@@ -98,9 +177,28 @@ function toPayloadUnit(unit: UnitDraft): Record<string, unknown> {
   };
 }
 
+/** The submission exactly as the server will receive it. */
+export function toSubmission(values: CitizenFormValues) {
+  return {
+    personal: values.personal,
+    contact: values.contact,
+    properties: values.properties.map(toPayloadProperty),
+    flags: flagsToArray(values.flags),
+  };
+}
+
 /**
- * Validates the whole record at once, against the same schemas the server
+ * Validates the whole record at once, against the same schema the server
  * validates against.
+ *
+ * Not "the same rules" — the same object. `adminCreateCitizenSubmissionSchema`
+ * is what the controller's validation pipe runs, so what this form accepts and
+ * what the server accepts cannot drift, and neither can the subtler half: which
+ * complaints a «غير مؤكَّد» flag is allowed to excuse. That matters most in the
+ * case this feature exists for, where the officer is offline and the server is
+ * hours away from seeing the record — a browser that were more permissive would
+ * queue registrations that fail on arrival, in a settlement nobody is going
+ * back to.
  *
  * The wizard checked one step per «التالي» because that was the only moment it
  * could. A single page has no such moment, so everything is checked on save —
@@ -109,17 +207,32 @@ function toPayloadUnit(unit: UnitDraft): Record<string, unknown> {
  * at العقارات.
  */
 function validate(values: CitizenFormValues): Record<string, string> {
-  const personal = personalDetailsSchema.safeParse(values.personal);
-  const contact = contactDetailsSchema.safeParse(values.contact);
-  const properties = propertyEntriesSchema.safeParse(
-    values.properties.map(toPayloadProperty),
-  );
+  const result = adminCreateCitizenSubmissionSchema.safeParse(toSubmission(values));
+  if (result.success) return {};
 
-  return {
-    ...(personal.success ? {} : fieldErrorsFrom(personal.error, 'personal')),
-    ...(contact.success ? {} : fieldErrorsFrom(contact.error, 'contact')),
-    ...(properties.success ? {} : fieldErrorsFrom(properties.error, 'properties')),
-  };
+  const flagPaths = [...values.flags.keys()];
+  const out: Record<string, string> = {};
+
+  for (const issue of result.error.issues) {
+    /*
+      A complaint about a flag is shown on the field it excuses.
+
+      Zod reports it at `flags.3.reason`, which names nothing on screen — the
+      officer sees a reason box under رقم العقار, not a numbered list of flags.
+      Resolving the index back to the path is what puts "يرجى ذكر سبب…"
+      underneath the box it is about.
+    */
+    if (issue.path[0] === 'flags') {
+      const key = flagPaths[Number(issue.path[1])];
+      if (key && !(key in out)) out[key] = issue.message;
+      continue;
+    }
+
+    const key = issue.path.join('.');
+    if (!(key in out)) out[key] = issue.message;
+  }
+
+  return out;
 }
 
 /**
@@ -150,8 +263,10 @@ export function CitizenForm({
   initial,
   submitting,
   error,
+  offline = false,
   onSubmit,
   onCancel,
+  locale = 'ar',
 }: {
   tenant: string;
   config: PublicTenantConfig;
@@ -160,8 +275,17 @@ export function CitizenForm({
   submitting: boolean;
   /** Server-side failure, shown above the actions. */
   error: string | null;
+  /**
+   * The browser has no connection, so «حفظ» will queue rather than send.
+   *
+   * Said on the button rather than discovered after pressing it: an officer
+   * who does not know a record was stored locally has no reason to keep the
+   * portal open until it syncs, and closing it is how a queue is forgotten.
+   */
+  offline?: boolean;
   onSubmit: (values: CitizenFormValues) => void;
   onCancel: () => void;
+  locale?: string;
 }) {
   const [values, setValues] = useState<CitizenFormValues>(initial);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -192,6 +316,63 @@ export function CitizenForm({
     setValues((current) => ({ ...current, ...patch }));
   }, []);
 
+  /**
+   * Raise or amend a «غير مؤكَّد» flag — and empty the field it covers.
+   *
+   * Clearing the value is the substantive half. A flag says the value was
+   * never established; leaving a half-typed number underneath it would make
+   * the record contradict itself, and — because the server strips flagged
+   * fields before it validates anything — would be discarded on arrival
+   * anyway. Doing it here means what the officer sees is what gets stored.
+   *
+   * Amending an existing flag (typing in its reason box) does not re-clear,
+   * because there is nothing left to clear; the same code path handles both
+   * since clearing an already-empty field is a no-op.
+   */
+  const setFlag = useCallback((path: string, reason: string) => {
+    setValues((current) => {
+      const flags = new Map(current.flags);
+      flags.set(path, reason);
+
+      const [section, ...rest] = path.split('.');
+
+      if (section === 'personal' || section === 'contact') {
+        const field = rest[0];
+        const next = { ...current[section] };
+        delete next[field];
+        return { ...current, [section]: next, flags };
+      }
+
+      // properties.<index>.<field>
+      const index = Number(rest[0]);
+      const field = rest[1];
+      return {
+        ...current,
+        properties: current.properties.map((property, i) => {
+          if (i !== index) return property;
+          const next = { ...property } as Record<string, unknown>;
+          delete next[field];
+          return next as PropertyDraft;
+        }),
+        flags,
+      };
+    });
+  }, []);
+
+  /** Withdraws a flag. The field comes back empty, which is where it was. */
+  const clearFlag = useCallback((path: string) => {
+    setValues((current) => {
+      const flags = new Map(current.flags);
+      flags.delete(path);
+      return { ...current, flags };
+    });
+  }, []);
+
+  const flagging = useMemo(
+    () => ({ flags: values.flags, set: setFlag, clear: clearFlag, locale }),
+    [values.flags, setFlag, clearFlag, locale],
+  );
+
   const setProperty = useCallback((index: number, next: PropertyDraft) => {
     setValues((current) => ({
       ...current,
@@ -216,6 +397,15 @@ export function CitizenForm({
     setValues((current) => ({
       ...current,
       properties: current.properties.filter((_, i) => i !== index),
+      /*
+        Flags are addressed by card index, so deleting a card renumbers them.
+
+        Left alone, a flag on `properties.2.propertyNumber` would silently
+        become a flag on whatever card slid into position 2 — excusing a field
+        nobody said anything about, and holding that card's real gap against
+        the officer. The removed card's own flags go with it.
+      */
+      flags: reindexFlags(current.flags, index),
     }));
     // Indices above the removed card shift down by one; rebuilding the set
     // rather than deleting from it keeps the wrong card from folding shut.
@@ -269,6 +459,27 @@ export function CitizenForm({
     }));
   }, [allowedTypes, values.properties]);
 
+  /**
+   * A flag whose field the form has stopped asking about is withdrawn.
+   *
+   * Switching a card from خيمة to أرض, or a citizen from أجنبي to لبناني,
+   * retires whole groups of inputs. A flag left behind on one of them would
+   * hold the record at «يتطلب مراجعة» over a question nothing on screen is
+   * asking — the officer would see a complete form and an unexplained status.
+   */
+  useEffect(() => {
+    const askable = askablePaths(values);
+    if ([...values.flags.keys()].every((path) => askable.has(path))) return;
+
+    setValues((current) => {
+      const kept = new Map<string, string>();
+      for (const [path, reason] of current.flags) {
+        if (askable.has(path)) kept.set(path, reason);
+      }
+      return { ...current, flags: kept };
+    });
+  }, [values]);
+
   // Live once a save has been attempted, silent before it: flagging fields a
   // clerk has not reached yet turns a blank form red.
   useEffect(() => {
@@ -299,21 +510,79 @@ export function CitizenForm({
   const sectionInvalid = (prefix: string) =>
     Object.keys(shown).some((key) => key.startsWith(`${prefix}.`));
 
+  /**
+   * The «غير مؤكَّد» fields, named, above the save button.
+   *
+   * A flag is a per-field control, so a form with six of them scattered across
+   * three sections gives no sense of how much of the record is actually
+   * missing. This is the whole list in one place, read at the moment it
+   * matters: the officer is about to file the person, and this is what the
+   * record will say about itself when someone opens it next month.
+   */
+  const flagSummary = useMemo(() => {
+    const labels = getLabels(locale);
+    return [...values.flags].map(([path, reason]) => {
+      const segments = path.split('.');
+      const field = labels.citizenField[segments.at(-1) ?? ''] ?? segments.at(-1) ?? path;
+      const card = segments[0] === 'properties' ? Number(segments[1]) + 1 : null;
+      return {
+        path,
+        reason,
+        label:
+          card === null
+            ? field
+            : locale === 'en'
+              ? `${field} — property ${card}`
+              : `${field} — العقار ${card}`,
+      };
+    });
+  }, [values.flags, locale]);
+
+  const sections = useMemo(
+    () => [
+      {
+        id: 'personal',
+        step: locale === 'en' ? '1' : '١',
+        icon: IdCard,
+        title: locale === 'en' ? 'Personal Information' : 'البيانات الشخصية',
+        description:
+          locale === 'en'
+            ? 'Name as written on ID document, nationality, and residency status'
+            : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة',
+      },
+      {
+        id: 'contact',
+        step: locale === 'en' ? '2' : '٢',
+        icon: UsersRound,
+        title: locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة',
+        description:
+          locale === 'en'
+            ? 'Phone number used by citizen for login and tracking submissions'
+            : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه',
+      },
+      {
+        id: 'properties',
+        step: locale === 'en' ? '3' : '٣',
+        icon: Building2,
+        title: locale === 'en' ? 'Properties' : 'العقارات',
+        description:
+          locale === 'en'
+            ? 'Property parcel number verified against municipality records'
+            : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة',
+      },
+    ],
+    [locale],
+  );
+
   return (
-    <div className="space-y-6">
-      {/*
-        Jump links. This form is three to ten screens tall depending on how
-        many properties a household holds, and the two commonest jobs on it —
-        "fix the phone number" and "add another عقار" — live at opposite ends.
-        Scrolling to find them is the tax the single-page layout would
-        otherwise charge for losing the wizard's step buttons.
-      */}
+    <FieldFlagProvider value={flagging}>
+    <div className="space-y-5">
       <nav
-        aria-label="أقسام النموذج"
-        className="sticky top-0 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6"
+        aria-label={locale === 'en' ? 'Form sections' : 'أقسام النموذج'}
+        className="sticky top-0 z-20 rounded-xl border border-border/80 bg-background/95 p-1.5 shadow-2xs backdrop-blur supports-[backdrop-filter]:bg-background/80"
       >
-        <ul className="flex flex-wrap items-center gap-2">
-          {SECTIONS.map((section) => {
+        <ul className="flex flex-wrap items-center gap-1.5">
+          {sections.map((section) => {
             const Icon = section.icon;
             const invalid = sectionInvalid(section.id);
             const isActive = active === section.id;
@@ -321,49 +590,41 @@ export function CitizenForm({
               <li key={section.id}>
                 <button
                   type="button"
-                  onClick={() => jumpTo(section.id)}
+                  onClick={() => jumpTo(section.id as SectionId)}
                   aria-current={isActive ? 'true' : undefined}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
+                    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors select-none',
                     isActive
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-transparent bg-muted/60 text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                    // The error state outranks the active one: a clerk who has
-                    // scrolled past a broken section needs to see that from
-                    // here, and "you are here" is the less urgent fact.
+                      ? 'bg-primary text-primary-foreground shadow-2xs'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     invalid &&
                       !isActive &&
-                      'border-destructive/50 bg-destructive/10 text-destructive',
+                      'border border-destructive/30 bg-destructive/10 text-destructive',
                   )}
                 >
                   <span
                     aria-hidden
                     className={cn(
-                      'rounded px-1 text-xs font-semibold',
-                      isActive ? 'bg-primary-foreground/20' : 'bg-background/70',
+                      'rounded px-1 text-[10px] font-semibold',
+                      isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/10',
                     )}
                   >
                     {section.step}
                   </span>
-                  <Icon className="size-4 shrink-0" aria-hidden />
+                  <Icon className="size-3.5 shrink-0" aria-hidden />
                   <span className="whitespace-nowrap">
                     {section.id === 'properties'
                       ? `${section.title} (${values.properties.length})`
                       : section.title}
                   </span>
                   {invalid ? (
-                    <>
-                      <TriangleAlert
-                        className={cn(
-                          'size-3.5 shrink-0',
-                          isActive ? 'text-primary-foreground' : 'text-destructive',
-                        )}
-                        aria-hidden
-                      />
-                      {/* The icon is decorative; this is what a screen reader
-                          announces, since colour and a glyph say nothing to it. */}
-                      <span className="sr-only">يحتوي على حقول غير مكتملة</span>
-                    </>
+                    <TriangleAlert
+                      className={cn(
+                        'size-3 shrink-0',
+                        isActive ? 'text-primary-foreground' : 'text-destructive',
+                      )}
+                      aria-hidden
+                    />
                   ) : null}
                 </button>
               </li>
@@ -374,43 +635,61 @@ export function CitizenForm({
 
       <FormSection
         id="personal"
-        step="١"
+        step={locale === 'en' ? '1' : '١'}
         icon={IdCard}
-        title="البيانات الشخصية"
-        description="الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة"
+        title={locale === 'en' ? 'Personal Information' : 'البيانات الشخصية'}
+        description={
+          locale === 'en'
+            ? 'Name as written on ID document, nationality, and residency status'
+            : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة'
+        }
         invalid={sectionInvalid('personal')}
       >
         <PersonalStep
           value={values.personal}
           errors={shown}
           onChange={(personal) => update({ personal })}
+          locale={locale}
         />
       </FormSection>
 
       <FormSection
         id="contact"
-        step="٢"
+        step={locale === 'en' ? '2' : '٢'}
         icon={UsersRound}
-        title="التواصل والأسرة"
-        description="رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه"
+        title={locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة'}
+        description={
+          locale === 'en'
+            ? 'Phone number used by citizen for login and tracking submissions'
+            : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه'
+        }
         invalid={sectionInvalid('contact')}
       >
         <ContactStep
           value={values.contact}
           errors={shown}
           onChange={(contact) => update({ contact })}
+          locale={locale}
         />
       </FormSection>
 
       <FormSection
         id="properties"
-        step="٣"
+        step={locale === 'en' ? '3' : '٣'}
         icon={Building2}
-        title={`العقارات (${values.properties.length})`}
-        description="رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة"
+        title={
+          locale === 'en'
+            ? `Properties (${values.properties.length})`
+            : `العقارات (${values.properties.length})`
+        }
+        description={
+          locale === 'en'
+            ? 'Property parcel number verified against municipality records'
+            : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة'
+        }
         invalid={sectionInvalid('properties')}
       >
-        <div className="space-y-6">
+        <div className="space-y-4">
           {values.properties.map((property, index) => (
             <PropertyCard
               key={property.id ?? index}
@@ -424,65 +703,53 @@ export function CitizenForm({
               onRemove={() => removeProperty(index)}
               canRemove={values.properties.length > 1}
               errors={scopeErrors(shown, `properties.${index}`)}
+              locale={locale}
             />
           ))}
 
-          {/*
-            Said before the delete rather than after it: removing a stored
-            property takes its سند الملكية / عقد الإيجار with it, because the
-            document row hangs off the property row and cascades. A clerk
-            tidying up a duplicate entry has no way to know that otherwise.
-          */}
           {mode === 'edit' && values.properties.some((property) => property.id) ? (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).
+            <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+              {locale === 'en'
+                ? 'Deleting a registered property will also delete associated attachments (title deed or lease).'
+                : 'حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).'}
             </p>
           ) : null}
 
           <Button
             variant="outline"
-            size="lg"
+            size="sm"
             onClick={addProperty}
-            className="w-full border-dashed border-primary text-primary hover:bg-primary/5"
+            className="w-full border-dashed border-primary/60 text-primary hover:bg-primary/5 h-9 text-xs sm:text-sm font-medium"
           >
-            <Plus className="size-5" aria-hidden />
-            إضافة عقار آخر
+            <Plus className="size-4" aria-hidden />
+            {locale === 'en' ? 'Add Another Property' : 'إضافة عقار آخر'}
           </Button>
         </div>
       </FormSection>
 
-      {/*
-        Sticky, because this page is long enough that the save button would
-        otherwise be several screens below whatever is being typed — and a
-        clerk with someone waiting should never have to hunt for it.
-      */}
-      <div className="sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6">
+      {/* Fixed Bottom Actions Bar */}
+      <div className="sticky bottom-0 z-30 -mx-4 -mb-6 mt-8 border-t border-border/80 bg-background/95 px-4 py-3 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         {error ? (
           <p
             role="alert"
-            className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            className="mb-2.5 rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
           >
             {error}
           </p>
         ) : null}
 
-        {/*
-          The failures spelled out, not just counted. Every message here also
-          appears under its own input — but a branch-specific field can be
-          hidden for the answers currently given (الجنسية is not rendered at
-          all for a Lebanese citizen), and a folded property card hides its
-          own errors entirely.
-        */}
         {messages.length > 0 ? (
           <div
             role="alert"
-            className="mb-3 space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            className="mb-2.5 space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-xs text-destructive"
           >
-            <p className="flex items-center gap-2 font-medium">
-              <TriangleAlert className="size-4 shrink-0" aria-hidden />
-              يرجى تصحيح الحقول التالية قبل الحفظ:
+            <p className="flex items-center gap-1.5 font-semibold">
+              <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+              {locale === 'en'
+                ? 'Please correct the following fields before saving:'
+                : 'يرجى إكمال وتصحيح الحقول التالية قبل الحفظ:'}
             </p>
-            <ul className="list-inside list-disc ps-1">
+            <ul className="list-inside list-disc ps-1 grid gap-0.5 sm:grid-cols-2">
               {messages.map((message) => (
                 <li key={message}>{message}</li>
               ))}
@@ -490,32 +757,85 @@ export function CitizenForm({
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" onClick={onCancel} disabled={submitting}>
-            إلغاء
-          </Button>
-          <Button size="lg" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="size-5 animate-spin" aria-hidden />
-            ) : (
-              <Save className="size-5" aria-hidden />
-            )}
-            {mode === 'edit' ? 'حفظ التعديلات' : 'حفظ وإنشاء الملف'}
-          </Button>
+        {flagSummary.length > 0 ? (
+          <div className="mb-2.5 space-y-1 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+            <p className="flex items-center gap-1.5 font-semibold text-warning">
+              <FileQuestion className="size-3.5 shrink-0" aria-hidden />
+              {locale === 'en'
+                ? `Saving with ${flagSummary.length} unverified field(s) — the record will be marked "Requires Review".`
+                : `سيُحفظ السجل مع ${flagSummary.length} حقلاً غير مؤكَّد بحالة «يتطلب مراجعة».`}
+            </p>
+            <ul className="grid gap-0.5 ps-1 sm:grid-cols-2">
+              {flagSummary.map((flag) => (
+                <li key={flag.path} className="truncate text-muted-foreground">
+                  <span className="font-medium text-foreground">{flag.label}</span>
+                  {flag.reason ? ` — ${flag.reason}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                'inline-block size-2 rounded-full',
+                offline ? 'bg-warning' : 'bg-primary/60',
+              )}
+            />
+            <span>
+              {offline
+                ? locale === 'en'
+                  ? 'Offline — this record will be stored on this device and synced automatically'
+                  : 'بدون اتصال — سيُحفظ السجل على هذا الجهاز ويُرسل تلقائياً عند عودة الشبكة'
+                : mode === 'edit'
+                  ? (locale === 'en' ? 'Editing citizen record' : 'تعديل بيانات المواطن')
+                  : (locale === 'en' ? 'New citizen registration' : 'تسجيل مواطن جديد')}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5 ms-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onCancel}
+              disabled={submitting}
+              className="h-8 px-4 text-xs font-medium rounded-lg hover:bg-muted"
+            >
+              {locale === 'en' ? 'Cancel' : 'إلغاء'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="h-8 px-4 text-xs font-medium rounded-lg shadow-2xs gap-1.5"
+            >
+              {submitting ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : offline ? (
+                <CloudOff className="size-3.5" aria-hidden />
+              ) : (
+                <Save className="size-3.5" aria-hidden />
+              )}
+              {offline
+                ? (locale === 'en' ? 'Save on This Device' : 'حفظ على الجهاز')
+                : mode === 'edit'
+                  ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+                  : (locale === 'en' ? 'Save & Create' : 'حفظ وإنشاء')}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
+    </FieldFlagProvider>
   );
 }
 
 /**
  * One titled section of the form.
- *
- * The numbered chip is what replaces the progress bar: it keeps the wizard's
- * sense of "there are three things to fill in, and this is the second" without
- * the navigation that made them sequential. A section holding an error gets a
- * ring rather than only red text inside it, so a folded property card three
- * screens down is still findable from the top of the page.
  */
 function FormSection({
   id,
@@ -526,7 +846,6 @@ function FormSection({
   invalid,
   children,
 }: {
-  /** Anchor target for the jump bar; must match an entry in `SECTIONS`. */
   id: string;
   step: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -538,36 +857,33 @@ function FormSection({
   return (
     <Card
       id={id}
-      // `scroll-mt-24` clears the sticky jump bar: without it `scrollIntoView`
-      // aligns the card's top edge with the viewport's, putting the heading
-      // underneath the bar that was just used to reach it.
       data-section-invalid={invalid || undefined}
       className={cn(
-        'scroll-mt-24',
+        'scroll-mt-24 rounded-xl border border-border/80 bg-card shadow-2xs overflow-hidden',
         invalid && 'border-destructive/50 ring-1 ring-destructive/20',
       )}
     >
-      <CardHeader className="flex-row items-start gap-4 space-y-0 border-b">
+      <CardHeader className="flex-row items-center gap-3 space-y-0 border-b border-border/60 bg-muted/10 px-4 py-3 sm:px-5">
         <span
           aria-hidden
-          className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
         >
-          <Icon className="size-5" />
+          <Icon className="size-4" />
         </span>
-        <div className="min-w-0 flex-1 space-y-1">
-          <h2 className="flex items-center gap-2 text-xl font-bold tracking-tight">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground">
             <span
               aria-hidden
-              className="rounded-md bg-secondary px-1.5 py-0.5 text-sm font-semibold text-secondary-foreground"
+              className="rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground font-mono"
             >
               {step}
             </span>
             {title}
           </h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         </div>
       </CardHeader>
-      <CardContent className="pt-6">{children}</CardContent>
+      <CardContent className="p-4 sm:p-5">{children}</CardContent>
     </Card>
   );
 }

@@ -1,17 +1,26 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Loader2, MapPin, Plus, Trash2, Users } from 'lucide-react';
-import { ar, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
+import {
+  CheckCircle2,
+  ChevronDown,
+  FileQuestion,
+  Loader2,
+  MapPin,
+  Plus,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react';
+import { getLabels, isFlaggablePath, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
 import type { LandType, OccupancyType, PropertyType, UnitType } from '@mechanization/shared-schemas';
 import { checkPropertyNumber, type PropertyNumberCheck } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChoiceCard, Field } from '@/components/ui/field';
+import { Field, useFieldFlags } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -21,7 +30,6 @@ import {
 } from '@/components/ui/select';
 import { cn, scopeErrors } from '@/lib/utils';
 
-/** One unit inside a building — شقة, عيادة or محل. */
 export interface UnitDraft {
   unitType?: UnitType;
   floor?: string;
@@ -31,14 +39,6 @@ export interface UnitDraft {
 }
 
 export interface PropertyDraft {
-  /**
-   * The stored row this card is editing, when there is one.
-   *
-   * Never set by the citizen wizard — a submission has nothing to identify
-   * yet. The staff editor sets it so an edited card updates its own row
-   * instead of being deleted and recreated, which would take the deed attached
-   * to it (`Document.propertyEntryId` cascades) down with it.
-   */
   id?: string;
   occupancyType?: OccupancyType;
   landlordName?: string;
@@ -52,25 +52,23 @@ export interface PropertyDraft {
   tentLocation?: string;
   unitArea?: string;
   sharedRights?: string[];
-  /** BUILDING only. Every other type is a single unit described inline. */
   units?: UnitDraft[];
 }
 
-/** Long enough that a slow typist is not queried mid-number. */
 const CHECK_DEBOUNCE_MS = 500;
 
-const SHARED_RIGHTS = ['موقف سيارات', 'مدخل مشترك', 'سطح مشترك', 'حديقة مشتركة'];
-
 /**
- * One property card. Which fields render is read from PROPERTY_FIELD_MAP in the
- * shared package rather than re-derived here, so the form and the server-side
- * validator can never disagree about what a "land" entry requires.
+ * This card's dot-path for one of its fields — `properties.2.propertyNumber`.
  *
- * Field order is deliberate and not the schema's: رقم العقار comes first because
- * it is the one answer that identifies the property, it is the only field
- * checked against the cadastre while typing, and a citizen who gets it wrong
- * should find that out before filling in anything else.
+ * The index is the card's position in the form, which is the same index the
+ * server's flag paths and the validator's error keys use. Written here rather
+ * than interpolated at each of a dozen call sites so there is one place the
+ * three vocabularies are made to agree.
  */
+function flagPath(index: number, field: string): string {
+  return `properties.${index}.${field}`;
+}
+
 export function PropertyCard({
   tenant,
   index,
@@ -82,6 +80,7 @@ export function PropertyCard({
   onRemove,
   canRemove,
   errors = {},
+  locale = 'ar',
 }: {
   tenant: string;
   index: number;
@@ -92,21 +91,16 @@ export function PropertyCard({
   onChange: (next: PropertyDraft) => void;
   onRemove: () => void;
   canRemove: boolean;
-  /** Keyed by bare field name — the caller has already stripped `properties.N.`. */
   errors?: Record<string, string>;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
   const visible: readonly string[] = draft.propertyType
     ? PROPERTY_FIELD_MAP[draft.propertyType]
     : [];
 
   const set = (patch: Partial<PropertyDraft>) => onChange({ ...draft, ...patch });
 
-  /*
-   * Removal is confirmed in a dialog rather than `confirm()`. A property card
-   * can hold twenty filled fields and a set of units, and the browser's prompt
-   * says only "OK / Cancel" over an RTL form — it neither names which of
-   * several cards is about to go nor how much is in it.
-   */
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   const isBuilding = draft.propertyType === 'BUILDING';
@@ -115,10 +109,6 @@ export function PropertyCard({
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0 gap-2 border-b">
-        {/**
-         * The whole header is the collapse toggle, not a small chevron — on a
-         * phone this is the control a citizen with several properties uses most.
-         */}
         <button
           type="button"
           onClick={onToggleCollapse}
@@ -133,10 +123,12 @@ export function PropertyCard({
             aria-hidden
           />
           <span className="min-w-0">
-            <CardTitle className="text-xl">العقار {index + 1}</CardTitle>
+            <CardTitle className="text-xl">
+              {locale === 'en' ? `Property ${index + 1}` : `العقار ${index + 1}`}
+            </CardTitle>
             {collapsed ? (
               <span className="mt-1 block truncate text-sm font-normal text-muted-foreground">
-                {summarise(draft)}
+                {summarise(draft, locale)}
               </span>
             ) : null}
           </span>
@@ -148,65 +140,94 @@ export function PropertyCard({
             className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={() => setConfirmingRemove(true)}
           >
-            حذف
+            {locale === 'en' ? 'Delete' : 'حذف'}
           </Button>
         ) : null}
       </CardHeader>
 
       {collapsed ? null : (
-        <CardContent className="space-y-6 pt-6">
-          {/* الحي comes first: it is the plain-language answer ("which part of
-              town"), before رقم العقار asks for the one checked against the
-              cadastre. */}
-          <Field
-            label="الحي"
-            htmlFor={`nb-${index}`}
-            required
-            error={errors.neighborhood}
-          >
-            <Input
-              id={`nb-${index}`}
-              invalid={Boolean(errors.neighborhood)}
-              value={draft.neighborhood ?? ''}
-              onChange={(e) => set({ neighborhood: e.target.value })}
+        <CardContent className="space-y-4 pt-4">
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <Field
+              label={locale === 'en' ? 'Neighborhood' : 'الحي'}
+              htmlFor={`nb-${index}`}
+
+              path={flagPath(index, 'neighborhood')}
+              required
+              error={errors.neighborhood}
+            >
+              <Input
+                id={`nb-${index}`}
+                invalid={Boolean(errors.neighborhood)}
+                value={draft.neighborhood ?? ''}
+                onChange={(e) => set({ neighborhood: e.target.value })}
+              />
+            </Field>
+
+            <PropertyNumberField
+              tenant={tenant}
+              index={index}
+              value={draft.propertyNumber ?? ''}
+              onChange={(propertyNumber) => set({ propertyNumber })}
+              locale={locale}
             />
-          </Field>
+          </div>
 
-          {/* رقم العقار leads the rest: it locates the property and it is the
-              only answer verified against the cadastre as it is typed. */}
-          <PropertyNumberField
-            tenant={tenant}
-            index={index}
-            value={draft.propertyNumber ?? ''}
-            onChange={(propertyNumber) => set({ propertyNumber })}
-          />
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <Field
+              label={locale === 'en' ? 'Occupancy Type' : 'نوع الإشغال'}
+              htmlFor={`occ-${index}`}
+              required
+              error={errors.occupancyType}
+            >
+              <Select
+                value={draft.occupancyType ?? ''}
+                onValueChange={(v) => set({ occupancyType: v as OccupancyType })}
+              >
+                <SelectTrigger id={`occ-${index}`} className={errors.occupancyType ? 'border-destructive' : ''}>
+                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['OWNER', 'TENANT'] as const).map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {labels.occupancyType[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
 
-          <Field
-            label="نوع الإشغال"
-            htmlFor={`occ-${index}`}
-            required
-            error={errors.occupancyType}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(['OWNER', 'TENANT'] as const).map((option) => (
-                <ChoiceCard
-                  key={option}
-                  name={`occupancy-${index}`}
-                  value={option}
-                  checked={draft.occupancyType === option}
-                  onChange={(v) => set({ occupancyType: v as OccupancyType })}
-                  title={ar.occupancyType[option]}
-                  description={option === 'OWNER' ? 'العقار مسجّل باسمك' : 'تستأجر من مالك آخر'}
-                />
-              ))}
-            </div>
-          </Field>
+            <Field
+              label={locale === 'en' ? 'Property Type' : 'نوع العقار'}
+              htmlFor={`pt-${index}`}
+              required
+              error={errors.propertyType}
+            >
+              <Select
+                value={draft.propertyType ?? ''}
+                onValueChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}
+              >
+                <SelectTrigger id={`pt-${index}`} className={errors.propertyType ? 'border-destructive' : ''}>
+                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {allowedTypes.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {labels.propertyType[option]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
 
           {draft.occupancyType === 'TENANT' ? (
-            <div className="grid gap-5 border-s-2 border-primary/20 ps-4 sm:grid-cols-2">
+            <div className="grid gap-3.5 sm:grid-cols-2">
               <Field
-                label="اسم المالك"
+                label={locale === 'en' ? 'Landlord Name' : 'اسم المالك'}
                 htmlFor={`ln-${index}`}
+
+                path={flagPath(index, 'landlordName')}
                 required
                 error={errors.landlordName}
               >
@@ -218,8 +239,10 @@ export function PropertyCard({
                 />
               </Field>
               <Field
-                label="رقم هاتف المالك"
+                label={locale === 'en' ? 'Landlord Phone' : 'رقم هاتف المالك'}
                 htmlFor={`lp-${index}`}
+
+                path={flagPath(index, 'landlordPhone')}
                 required
                 error={errors.landlordPhone}
               >
@@ -228,6 +251,8 @@ export function PropertyCard({
                   type="tel"
                   inputMode="tel"
                   dir="ltr"
+                  placeholder="03 123456"
+                  className="text-start"
                   invalid={Boolean(errors.landlordPhone)}
                   value={draft.landlordPhone ?? ''}
                   onChange={(e) => set({ landlordPhone: e.target.value })}
@@ -236,117 +261,118 @@ export function PropertyCard({
             </div>
           ) : null}
 
-          <Field
-            label="نوع العقار"
-            htmlFor={`pt-${index}`}
-            required
-            error={errors.propertyType}
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {allowedTypes.map((option) => (
-                <ChoiceCard
-                  key={option}
-                  name={`propertyType-${index}`}
-                  value={option}
-                  checked={draft.propertyType === option}
-                  // Replaces the draft rather than merging into it — `set`
-                  // would spread the new shape over the old one and leave the
-                  // discarded fields behind, which is the whole thing
-                  // changePropertyType exists to prevent.
-                  onChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}
-                  title={ar.propertyType[option]}
-                />
-              ))}
-            </div>
-          </Field>
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            {visible.includes('buildingName') ? (
+              <Field
+                label={
+                  isBuilding
+                    ? (locale === 'en' ? 'Building Name' : 'اسم المبنى')
+                    : (locale === 'en' ? 'Building / House Name' : 'اسم المبنى/المنزل')
+                }
+                htmlFor={`bn-${index}`}
 
-          {/* اسم المبنى sits directly under the type: it is what a citizen
-              names the place, and it frames every field that follows. */}
-          {visible.includes('buildingName') ? (
-            <Field
-              label={isBuilding ? 'اسم المبنى' : 'اسم المبنى/المنزل'}
-              htmlFor={`bn-${index}`}
-              required
-              error={errors.buildingName}
-            >
-              <Input
-                id={`bn-${index}`}
-                invalid={Boolean(errors.buildingName)}
-                value={draft.buildingName ?? ''}
-                onChange={(e) => set({ buildingName: e.target.value })}
-              />
-            </Field>
-          ) : null}
-
-          {visible.includes('landType') ? (
-            <Field label="نوع الأرض" htmlFor={`lt-${index}`} required error={errors.landType}>
-              <Select
-                value={draft.landType ?? ''}
-                onValueChange={(next) => set({ landType: next as LandType })}
+                path={flagPath(index, 'buildingName')}
+                required
+                error={errors.buildingName}
               >
-                <SelectTrigger id={`lt-${index}`}>
-                  <SelectValue placeholder="اختر…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(['AGRICULTURAL', 'INDUSTRIAL'] as const).map((o) => (
-                    <SelectItem key={o} value={o}>
-                      {ar.landType[o]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          ) : null}
+                <Input
+                  id={`bn-${index}`}
+                  invalid={Boolean(errors.buildingName)}
+                  value={draft.buildingName ?? ''}
+                  onChange={(e) => set({ buildingName: e.target.value })}
+                />
+              </Field>
+            ) : null}
 
-          {visible.includes('side') ? (
-            <Field label="الجهة" htmlFor={`sd-${index}`} hint="مثال: شمالي، جنوبي">
-              <Input
-                id={`sd-${index}`}
-                value={draft.side ?? ''}
-                onChange={(e) => set({ side: e.target.value })}
-              />
-            </Field>
-          ) : null}
+            {visible.includes('landType') ? (
+              <Field
+                label={locale === 'en' ? 'Land Type' : 'نوع الأرض'}
+                htmlFor={`lt-${index}`}
 
-          {visible.includes('tentLocation') ? (
-            <Field
-              label="وصف موقع الخيمة"
-              htmlFor={`tl-${index}`}
-              required
-              hint="مثال: المخيم الشمالي — قطعة ٤"
-              error={errors.tentLocation}
-            >
-              <Input
-                id={`tl-${index}`}
-                invalid={Boolean(errors.tentLocation)}
-                value={draft.tentLocation ?? ''}
-                onChange={(e) => set({ tentLocation: e.target.value })}
-              />
-            </Field>
-          ) : null}
+                path={flagPath(index, 'landType')}
+                required
+                error={errors.landType}
+              >
+                <Select
+                  value={draft.landType ?? ''}
+                  onValueChange={(next) => set({ landType: next as LandType })}
+                >
+                  <SelectTrigger id={`lt-${index}`}>
+                    <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['AGRICULTURAL', 'INDUSTRIAL'] as const).map((o) => (
+                      <SelectItem key={o} value={o}>
+                        {labels.landType[o]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : null}
 
-          {visible.includes('unitArea') ? (
-            <Field
-              label="مساحة الوحدة (متر مربع)"
-              htmlFor={`ua-${index}`}
-              required
-              error={errors.unitArea}
-            >
-              <Input
-                id={`ua-${index}`}
-                inputMode="decimal"
-                invalid={Boolean(errors.unitArea)}
-                value={draft.unitArea ?? ''}
-                onChange={(e) => set({ unitArea: e.target.value })}
-              />
-            </Field>
-          ) : null}
+            {visible.includes('side') ? (
+              <Field
+                label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
+                htmlFor={`sd-${index}`}
+
+                path={flagPath(index, 'side')}
+              >
+                <Input
+                  id={`sd-${index}`}
+                  placeholder={locale === 'en' ? 'e.g. North, South, East, West' : 'مثال: شمالي، جنوبي'}
+                  value={draft.side ?? ''}
+                  onChange={(e) => set({ side: e.target.value })}
+                />
+              </Field>
+            ) : null}
+
+            {visible.includes('tentLocation') ? (
+              <Field
+                label={locale === 'en' ? 'Tent Location Description' : 'وصف موقع الخيمة'}
+                htmlFor={`tl-${index}`}
+
+                path={flagPath(index, 'tentLocation')}
+                required
+                error={errors.tentLocation}
+              >
+                <Input
+                  id={`tl-${index}`}
+                  placeholder={locale === 'en' ? 'e.g. North Camp — Plot 4' : 'مثال: المخيم الشمالي — قطعة ٤'}
+                  invalid={Boolean(errors.tentLocation)}
+                  value={draft.tentLocation ?? ''}
+                  onChange={(e) => set({ tentLocation: e.target.value })}
+                />
+              </Field>
+            ) : null}
+
+            {visible.includes('unitArea') ? (
+              <Field
+                label={locale === 'en' ? 'Unit Area (sq. meters)' : 'مساحة الوحدة (متر مربع)'}
+                htmlFor={`ua-${index}`}
+
+                path={flagPath(index, 'unitArea')}
+                required
+                error={errors.unitArea}
+              >
+                <Input
+                  id={`ua-${index}`}
+                  inputMode="decimal"
+                  invalid={Boolean(errors.unitArea)}
+                  value={draft.unitArea ?? ''}
+                  onChange={(e) => set({ unitArea: e.target.value })}
+                />
+              </Field>
+            ) : null}
+          </div>
 
           {visible.includes('sharedRights') ? (
             <SharedRightsField
               idPrefix={`sr-${index}`}
+              path={flagPath(index, 'sharedRights')}
               selected={draft.sharedRights ?? []}
               onChange={(sharedRights) => set({ sharedRights })}
+              locale={locale}
             />
           ) : null}
 
@@ -356,6 +382,7 @@ export function PropertyCard({
               units={units}
               errors={scopeErrors(errors, 'units')}
               onChange={(next) => set({ units: next })}
+              locale={locale}
             />
           ) : null}
         </CardContent>
@@ -364,15 +391,23 @@ export function PropertyCard({
       <ConfirmDialog
         open={confirmingRemove}
         onOpenChange={setConfirmingRemove}
-        title={`حذف العقار ${index + 1}؟`}
+        title={locale === 'en' ? `Delete Property ${index + 1}?` : `حذف العقار ${index + 1}؟`}
         description={
-          <>
-            سيُحذف هذا العقار من النموذج بكل ما أُدخل فيه
-            {units.length > 0 ? ` و${units.length} وحدة داخله` : ''}. لن يُحفظ شيء حتى تُرسل
-            النموذج، فيمكنك إضافته من جديد.
-          </>
+          locale === 'en' ? (
+            <>
+              This property and all entered information
+              {units.length > 0 ? ` and ${units.length} unit(s) inside it` : ''} will be removed from the form.
+              Nothing is saved until you submit the form.
+            </>
+          ) : (
+            <>
+              سيُحذف هذا العقار من النموذج بكل ما أُدخل فيه
+              {units.length > 0 ? ` و${units.length} وحدة داخله` : ''}. لن يُحفظ شيء حتى تُرسل
+              النموذج، فيمكنك إضافته من جديد.
+            </>
+          )
         }
-        confirmLabel="حذف العقار"
+        confirmLabel={locale === 'en' ? 'Delete Property' : 'حذف العقار'}
         onConfirm={() => {
           setConfirmingRemove(false);
           onRemove();
@@ -382,19 +417,8 @@ export function PropertyCard({
   );
 }
 
-/**
- * Switching type has to clear the fields that belonged to the old one.
- *
- * Left behind, they reach the server inside a payload the schema no longer
- * expects — a land entry still carrying a floor is rejected outright by
- * `assertTaxonomyConsistent`, and the citizen sees an error about a field the
- * form has already stopped showing them.
- */
 function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): PropertyDraft {
   const keep: PropertyDraft = {
-    // Identity survives a type change: this is still the same عقار, filed
-    // under the wrong branch until now. Dropping it here would silently turn
-    // the staff editor's update into a delete-and-recreate.
     id: draft.id,
     occupancyType: draft.occupancyType,
     landlordName: draft.landlordName,
@@ -404,8 +428,6 @@ function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): P
     propertyType,
   };
 
-  // A building always opens with one empty unit — an empty units list would
-  // otherwise show the citizen a heading and nothing to fill in.
   if (propertyType === 'BUILDING') {
     keep.buildingName = draft.buildingName;
     keep.units = draft.units?.length ? draft.units : [{}];
@@ -427,15 +449,17 @@ function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): P
   return keep;
 }
 
-/** Collapsed-card summary: enough to tell two properties apart at a glance. */
-function summarise(draft: PropertyDraft): string {
+function summarise(draft: PropertyDraft, locale: string = 'ar'): string {
+  const labels = getLabels(locale);
   const parts = [
-    draft.propertyType ? ar.propertyType[draft.propertyType] : 'لم يُحدَّد النوع',
+    draft.propertyType
+      ? (labels.propertyType[draft.propertyType] ?? draft.propertyType)
+      : (locale === 'en' ? 'Unspecified type' : 'لم يُحدَّد النوع'),
     draft.neighborhood || null,
-    draft.propertyNumber ? `رقم ${draft.propertyNumber}` : null,
+    draft.propertyNumber ? (locale === 'en' ? `#${draft.propertyNumber}` : `رقم ${draft.propertyNumber}`) : null,
     draft.buildingName || null,
     draft.propertyType === 'BUILDING' && draft.units?.length
-      ? `${draft.units.length} وحدة`
+      ? (locale === 'en' ? `${draft.units.length} units` : `${draft.units.length} وحدة`)
       : null,
   ];
   return parts.filter(Boolean).join(' — ');
@@ -443,21 +467,42 @@ function summarise(draft: PropertyDraft): string {
 
 function SharedRightsField({
   idPrefix,
+  path,
   selected,
   onChange,
+  locale = 'ar',
 }: {
   idPrefix: string;
+  /**
+   * Absent for a unit's own shared rights — those live inside a building's
+   * units, and this form flags the unit collection as a whole rather than
+   * field by field inside it. See `UnitsEditor`.
+   */
+  path?: string;
   selected: string[];
   onChange: (next: string[]) => void;
+  locale?: string;
 }) {
+  const sharedRightsOptions = locale === 'en'
+    ? ['Parking space', 'Shared entrance', 'Shared rooftop', 'Shared garden']
+    : ['موقف سيارات', 'مدخل مشترك', 'سطح مشترك', 'حديقة مشتركة'];
+
   return (
-    <Field label="حقوق مشتركة" htmlFor={idPrefix} hint="حدد ما ينطبق">
-      <div className="space-y-1">
-        {SHARED_RIGHTS.map((right, rightIndex) => {
+    <Field
+      label={locale === 'en' ? 'Shared Rights' : 'حقوق مشتركة'}
+      htmlFor={idPrefix}
+      path={path}
+    >
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 pt-1">
+        {sharedRightsOptions.map((right, rightIndex) => {
           const checked = selected.includes(right);
           const id = `${idPrefix}-${rightIndex}`;
           return (
-            <div key={right} className="flex min-h-touch items-center gap-3">
+            <label
+              key={right}
+              htmlFor={id}
+              className="flex items-center gap-2 rounded-lg border border-border/70 bg-card px-2.5 py-1.5 text-xs text-foreground cursor-pointer select-none hover:bg-muted/40 transition-colors"
+            >
               <Checkbox
                 id={id}
                 checked={checked}
@@ -467,8 +512,8 @@ function SharedRightsField({
                   )
                 }
               />
-              <Label htmlFor={id}>{right}</Label>
-            </div>
+              <span className="truncate">{right}</span>
+            </label>
           );
         })}
       </div>
@@ -496,14 +541,31 @@ function UnitsEditor({
   units,
   errors,
   onChange,
+  locale = 'ar',
 }: {
   index: number;
   units: UnitDraft[];
-  /** Keyed `"0.floor"` etc — the caller has stripped the `units.` prefix. */
   errors: Record<string, string>;
   onChange: (next: UnitDraft[]) => void;
+  locale?: string;
 }) {
+  const labels = getLabels(locale);
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
+
+  /*
+    The whole unit list is flaggable; the fields inside one are not.
+
+    "We could not go through the building" is a real afternoon — the caretaker
+    was out, the stairwell was locked, the owner is abroad — and it is the
+    answer this control records. "We wrote down apartment 3 but not its floor"
+    is not that; it is an unfinished form, and letting it through one field at
+    a time would turn a building into a list of half-units nobody can bill.
+  */
+  const flagging = useFieldFlags();
+  const path = flagPath(index, 'units');
+  const flaggable = Boolean(flagging && isFlaggablePath(path));
+  const reason = flaggable ? flagging?.flags.get(path) : undefined;
+  const flagged = reason !== undefined;
 
   const setUnit = (unitIndex: number, patch: Partial<UnitDraft>) =>
     onChange(units.map((u, i) => (i === unitIndex ? { ...u, ...patch } : u)));
@@ -517,16 +579,12 @@ function UnitsEditor({
     });
 
   const addUnit = () => {
-    // A new unit inherits the last one's type: a building is usually floor
-    // after floor of the same thing.
     onChange([...units, { unitType: units.at(-1)?.unitType }]);
     setCollapsed(new Set(units.map((_, i) => i)));
   };
 
   const removeUnit = (unitIndex: number) => {
     onChange(units.filter((_, i) => i !== unitIndex));
-    // Indices above the removed unit all shift down by one; rebuilding the
-    // set rather than deleting from it keeps the wrong unit folding shut.
     setCollapsed((current) => {
       const next = new Set<number>();
       for (const i of current) {
@@ -539,15 +597,71 @@ function UnitsEditor({
 
   return (
     <section className="space-y-4">
-      <header className="space-y-1">
-        <h3 className="text-lg font-semibold">وحدات المبنى</h3>
-        <p className="text-sm text-muted-foreground">
-          إذا كنت تملك المبنى بالكامل، أضف كل وحدة فيه على حدة. رقم العقار واسم المبنى
-          يبقيان كما هما لجميع الوحدات.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-lg font-semibold">
+            {locale === 'en' ? 'Building Units' : 'وحدات المبنى'}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {locale === 'en'
+              ? 'If you own the entire building, add each unit separately. Property number and building name remain the same for all units.'
+              : 'إذا كنت تملك المبنى بالكامل، أضف كل وحدة فيه على حدة. رقم العقار واسم المبنى يبقيان كما هما لجميع الوحدات.'}
+          </p>
+        </div>
+
+        {flaggable ? (
+          <button
+            type="button"
+            onClick={() => (flagged ? flagging?.clear(path) : flagging?.set(path, ''))}
+            aria-pressed={flagged}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+              flagged
+                ? 'bg-warning/15 text-warning ring-1 ring-warning/40'
+                : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
+            )}
+          >
+            {flagged ? (
+              <X className="size-3 shrink-0" aria-hidden />
+            ) : (
+              <FileQuestion className="size-3 shrink-0" aria-hidden />
+            )}
+            {flagged
+              ? locale === 'en'
+                ? 'Undo'
+                : 'تراجع'
+              : locale === 'en'
+                ? 'Units not surveyed'
+                : 'الوحدات غير مجرودة'}
+          </button>
+        ) : null}
       </header>
 
-      {units.map((unit, unitIndex) => {
+      {flagged ? (
+        <div className="space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2">
+          <label
+            htmlFor={`units-reason-${index}`}
+            className="text-[11px] font-medium text-warning"
+          >
+            {locale === 'en'
+              ? 'Why were the units not recorded? (required)'
+              : 'سبب عدم جرد الوحدات (إلزامي)'}
+          </label>
+          <input
+            id={`units-reason-${index}`}
+            value={reason ?? ''}
+            onChange={(event) => flagging?.set(path, event.target.value)}
+            placeholder={
+              locale === 'en'
+                ? 'e.g. Caretaker absent — return visit scheduled'
+                : 'مثال: الناطور غير موجود — زيارة لاحقة'
+            }
+            className="h-9 w-full rounded-md border border-warning/40 bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
+          />
+        </div>
+      ) : null}
+
+      {flagged ? null : units.map((unit, unitIndex) => {
         const unitCollapsed = collapsed.has(unitIndex);
         const unitErrors = scopeErrors(errors, String(unitIndex));
 
@@ -557,7 +671,6 @@ function UnitsEditor({
             className="space-y-5 rounded-lg border border-s-2 border-s-primary/40 bg-muted/20 p-4"
           >
             <div className="flex items-center justify-between gap-2">
-              {/* The whole header toggles, matching the property card above it. */}
               <button
                 type="button"
                 onClick={() => toggleCollapsed(unitIndex)}
@@ -572,10 +685,12 @@ function UnitsEditor({
                   aria-hidden
                 />
                 <span className="min-w-0">
-                  <h4 className="font-semibold">الوحدة {unitIndex + 1}</h4>
+                  <h4 className="font-semibold">
+                    {locale === 'en' ? `Unit ${unitIndex + 1}` : `الوحدة ${unitIndex + 1}`}
+                  </h4>
                   {unitCollapsed ? (
                     <span className="mt-0.5 block truncate text-sm font-normal text-muted-foreground">
-                      {summariseUnit(unit)}
+                      {summariseUnit(unit, locale)}
                     </span>
                   ) : null}
                 </span>
@@ -589,39 +704,39 @@ function UnitsEditor({
                   onClick={() => removeUnit(unitIndex)}
                 >
                   <Trash2 className="size-4" aria-hidden />
-                  حذف
+                  {locale === 'en' ? 'Delete' : 'حذف'}
                 </Button>
               ) : null}
             </div>
 
             {unitCollapsed ? null : (
               <>
-                <Field
-                  label="نوع الوحدة"
-                  htmlFor={`ut-${index}-${unitIndex}`}
-                  required
-                  error={unitErrors.unitType}
-                >
-                  <Select
-                    value={unit.unitType ?? ''}
-                    onValueChange={(next) => setUnit(unitIndex, { unitType: next as UnitType })}
-                  >
-                    <SelectTrigger id={`ut-${index}-${unitIndex}`}>
-                      <SelectValue placeholder="اختر…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
-                        <SelectItem key={o} value={o}>
-                          {ar.unitType[o]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-
-                <div className="grid gap-5 sm:grid-cols-2">
+                <div className="grid gap-3.5 sm:grid-cols-2">
                   <Field
-                    label="الطابق"
+                    label={locale === 'en' ? 'Unit Type' : 'نوع الوحدة'}
+                    htmlFor={`ut-${index}-${unitIndex}`}
+                    required
+                    error={unitErrors.unitType}
+                  >
+                    <Select
+                      value={unit.unitType ?? ''}
+                      onValueChange={(next) => setUnit(unitIndex, { unitType: next as UnitType })}
+                    >
+                      <SelectTrigger id={`ut-${index}-${unitIndex}`}>
+                        <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
+                          <SelectItem key={o} value={o}>
+                            {labels.unitType[o]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+
+                  <Field
+                    label={locale === 'en' ? 'Floor' : 'الطابق'}
                     htmlFor={`fl-${index}-${unitIndex}`}
                     required
                     error={unitErrors.floor}
@@ -633,9 +748,11 @@ function UnitsEditor({
                       onChange={(e) => setUnit(unitIndex, { floor: e.target.value })}
                     />
                   </Field>
+                </div>
 
+                <div className="grid gap-3.5 sm:grid-cols-2">
                   <Field
-                    label="مساحة الوحدة (متر مربع)"
+                    label={locale === 'en' ? 'Unit Area (sq. meters)' : 'مساحة الوحدة (متر مربع)'}
                     htmlFor={`ua-${index}-${unitIndex}`}
                     required
                     error={unitErrors.unitArea}
@@ -648,24 +765,25 @@ function UnitsEditor({
                       onChange={(e) => setUnit(unitIndex, { unitArea: e.target.value })}
                     />
                   </Field>
-                </div>
 
-                <Field
-                  label="الجهة"
-                  htmlFor={`sd-${index}-${unitIndex}`}
-                  hint="مثال: شمالي، جنوبي"
-                >
-                  <Input
-                    id={`sd-${index}-${unitIndex}`}
-                    value={unit.side ?? ''}
-                    onChange={(e) => setUnit(unitIndex, { side: e.target.value })}
-                  />
-                </Field>
+                  <Field
+                    label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
+                    htmlFor={`sd-${index}-${unitIndex}`}
+                  >
+                    <Input
+                      id={`sd-${index}-${unitIndex}`}
+                      placeholder={locale === 'en' ? 'e.g. North, South' : 'مثال: شمالي، جنوبي'}
+                      value={unit.side ?? ''}
+                      onChange={(e) => setUnit(unitIndex, { side: e.target.value })}
+                    />
+                  </Field>
+                </div>
 
                 <SharedRightsField
                   idPrefix={`sr-${index}-${unitIndex}`}
                   selected={unit.sharedRights ?? []}
                   onChange={(sharedRights) => setUnit(unitIndex, { sharedRights })}
+                  locale={locale}
                 />
               </>
             )}
@@ -673,50 +791,42 @@ function UnitsEditor({
         );
       })}
 
-      <Button variant="outline" className="w-full border-dashed" onClick={addUnit}>
-        <Plus className="size-4" aria-hidden />
-        إضافة وحدة أخرى
-      </Button>
+      {flagged ? null : (
+        <Button variant="outline" className="w-full border-dashed" onClick={addUnit}>
+          <Plus className="size-4" aria-hidden />
+          {locale === 'en' ? 'Add Another Unit' : 'إضافة وحدة أخرى'}
+        </Button>
+      )}
     </section>
   );
 }
 
-/** Collapsed-unit summary: enough to tell two units apart at a glance. */
-function summariseUnit(unit: UnitDraft): string {
+function summariseUnit(unit: UnitDraft, locale: string = 'ar'): string {
+  const labels = getLabels(locale);
   const parts = [
-    unit.unitType ? ar.unitType[unit.unitType] : 'لم يُحدَّد النوع',
-    unit.floor ? `طابق ${unit.floor}` : null,
-    unit.unitArea ? `${unit.unitArea} م²` : null,
+    unit.unitType ? labels.unitType[unit.unitType] : (locale === 'en' ? 'Unspecified type' : 'لم يُحدَّد النوع'),
+    unit.floor ? (locale === 'en' ? `Floor ${unit.floor}` : `طابق ${unit.floor}`) : null,
+    unit.unitArea ? `${unit.unitArea} ${locale === 'en' ? 'm²' : 'م²'}` : null,
   ];
   return parts.filter(Boolean).join(' — ');
 }
 
-/**
- * رقم العقار, checked against the municipality's cadastre as the citizen types.
- *
- * This field carries more weight than it used to. It is now the *only* thing
- * that locates the property — the wizard no longer asks anyone to drop a pin —
- * so a wrong number is no longer a cosmetic error that a clerk fixes later, and
- * it has to be caught here, while the person who knows the answer is still on
- * the page. When it fails, the nearest real parcel numbers are offered as
- * one-tap corrections rather than leaving them to guess again.
- */
 function PropertyNumberField({
   tenant,
   index,
   value,
   onChange,
+  locale = 'ar',
 }: {
   tenant: string;
   index: number;
   value: string;
   onChange: (value: string) => void;
+  locale?: string;
 }) {
   const [result, setResult] = useState<PropertyNumberCheck | null>(null);
   const [checking, setChecking] = useState(false);
 
-  // Guards against an earlier, slower response overwriting a later one — the
-  // classic way a debounced lookup ends up showing the wrong answer.
   const requestId = useRef(0);
 
   const verify = useCallback(
@@ -727,9 +837,6 @@ function PropertyNumberField({
         const next = await checkPropertyNumber(tenant, candidate);
         if (id === requestId.current) setResult(next);
       } catch {
-        // Never block a submission on a failed check: the server validates the
-        // same rule again, and a citizen on a dropping connection must still be
-        // able to finish.
         if (id === requestId.current) setResult(null);
       } finally {
         if (id === requestId.current) setChecking(false);
@@ -757,30 +864,27 @@ function PropertyNumberField({
   const unknown = settled && result.inCadastre === false;
   const confirmed = settled && result.inCadastre !== false;
 
-  /**
-   * Neighbours already registered on this parcel. Not an error and not a
-   * warning — an apartment building is a single cadastral number, so everyone
-   * inside it enters the same one. This used to be a hard block, which told
-   * the second resident of a building that their own address was taken.
-   */
   const neighbours = settled ? result.registeredCount : 0;
 
   const error = unknown
-    ? 'هذا الرقم غير موجود في السجل العقاري للبلدية. تأكّد من الرقم المدوّن على سند الملكية.'
+    ? (locale === 'en'
+        ? 'This parcel number was not found in the municipality cadastre. Check the title deed.'
+        : 'هذا الرقم غير موجود في السجل العقاري للبلدية. تأكّد من الرقم المدوّن على سند الملكية.')
     : undefined;
 
   return (
     <Field
-      label="رقم العقار"
+      label={locale === 'en' ? 'Property Number' : 'رقم العقار'}
       htmlFor={`pn-${index}`}
+      path={flagPath(index, 'propertyNumber')}
       required
-      hint="كما هو مدوّن على سند الملكية. يتم التحقق منه تلقائياً في سجل البلدية."
       error={error}
     >
       <Input
         id={`pn-${index}`}
         inputMode="numeric"
         dir="ltr"
+        placeholder={locale === 'en' ? 'e.g. 1024' : 'مثال: ١٠٢٤'}
         className="text-start"
         invalid={unknown}
         value={value}
@@ -790,7 +894,7 @@ function PropertyNumberField({
       {checking ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden />
-          جارٍ التحقق…
+          {locale === 'en' ? 'Checking…' : 'جارٍ التحقق…'}
         </p>
       ) : null}
 
@@ -798,40 +902,34 @@ function PropertyNumberField({
         <p className="flex items-center gap-2 text-sm font-medium text-success">
           <CheckCircle2 className="size-4" aria-hidden />
           {result.location
-            ? 'رقم صحيح — تم تحديد موقع العقار على خريطة البلدية'
-            : 'رقم صحيح'}
+            ? (locale === 'en' ? 'Valid parcel number — located on municipality map' : 'رقم صحيح — تم تحديد موقع العقار على خريطة البلدية')
+            : (locale === 'en' ? 'Valid parcel number' : 'رقم صحيح')}
         </p>
       ) : null}
 
-      {/**
-       * Stated as reassurance, in muted text rather than as a warning: someone
-       * registering an apartment expects their neighbours to already be here,
-       * and anything red would read as "you have done something wrong".
-       */}
       {confirmed && neighbours > 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Users className="size-4 shrink-0" aria-hidden />
           {neighbours === 1
-            ? 'مسجّل شخص آخر على هذا العقار — هذا طبيعي في المباني المشتركة.'
-            : `مسجّل ${neighbours} أشخاص آخرين على هذا العقار — هذا طبيعي في المباني المشتركة.`}
+            ? (locale === 'en' ? '1 other citizen registered on this parcel — normal in shared buildings.' : 'مسجّل شخص آخر على هذا العقار — هذا طبيعي في المباني المشتركة.')
+            : (locale === 'en' ? `${neighbours} other citizens registered on this parcel — normal in shared buildings.` : `مسجّل ${neighbours} أشخاص آخرين على هذا العقار — هذا طبيعي في المباني المشتركة.`)}
         </p>
       ) : null}
 
-      {/**
-       * The survey drew this parcel as more than one piece, so the point the
-       * municipality will see is a centroid rather than the parcel itself.
-       * Said plainly here rather than hidden, because staff will notice.
-       */}
       {confirmed && result.location?.approximate ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <MapPin className="size-4" aria-hidden />
-          هذا العقار مقسّم إلى أكثر من قطعة — الموقع تقريبي.
+          {locale === 'en'
+            ? 'This parcel is subdivided into multiple plots — location is approximate.'
+            : 'هذا العقار مقسّم إلى أكثر من قطعة — الموقع تقريبي.'}
         </p>
       ) : null}
 
       {unknown && result.suggestions.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">أرقام قريبة موجودة في السجل:</p>
+          <p className="text-sm text-muted-foreground">
+            {locale === 'en' ? 'Nearby numbers in registry:' : 'أرقام قريبة موجودة في السجل:'}
+          </p>
           <div className="flex flex-wrap gap-2">
             {result.suggestions.map((suggestion) => (
               <Button

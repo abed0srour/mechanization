@@ -9,13 +9,13 @@ import {
   Query,
 } from '@nestjs/common';
 import {
-  adminCreateCitizenSchema,
-  adminUpdateCitizenSchema,
+  adminCreateCitizenSubmissionSchema,
+  adminUpdateCitizenSubmissionSchema,
   citizenImportSchema,
 } from '@mechanization/shared-schemas';
 import type {
-  AdminCreateCitizen,
-  AdminUpdateCitizen,
+  AdminCitizenSubmission,
+  AdminCitizenUpdateSubmission,
   CitizenImportRequest,
 } from '@mechanization/shared-schemas';
 import { CitizensService } from '../../application/features/citizens/citizens.service';
@@ -79,9 +79,18 @@ export class CitizenController {
     @Query('search') search?: string,
     @Query('limit') limit = '200',
     @Query('offset') offset = '0',
+    /**
+     * `REQUIRES_REVIEW` narrows the registry to records filed with fields left
+     * «غير مؤكَّد». Any other value simply matches nothing rather than being
+     * rejected — this is a view the table offers, not an assertion about the
+     * request, and a stale bookmark should show an empty registry rather than
+     * a 400.
+     */
+    @Query('status') status?: string,
   ) {
     return this.citizens.list({
       search,
+      status,
       limit: Number(limit) || 200,
       offset: Number(offset) || 0,
     });
@@ -120,6 +129,7 @@ export class CitizenController {
       isLebanese: citizen.isLebanese,
       residentStatus: citizen.residentStatus,
       maritalStatus: citizen.maritalStatus,
+      bloodType: citizen.bloodType,
       familySize: citizen.familySize,
       identityDocType: citizen.identityDocType,
 
@@ -163,18 +173,28 @@ export class CitizenController {
    * three sections `PATCH` expects, so the edit page loads and posts the same
    * object rather than mapping between two shapes.
    */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Get(':id/form')
   async getEditable(@Param('id') id: string) {
     return this.citizens.getEditable(id);
   }
 
-  /** A clerk filing a citizen and their first registration, from paper. */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
+  /**
+   * A clerk filing a citizen and their first registration, from paper — or a
+   * field officer's phone delivering one it recorded with no signal.
+   *
+   * One route for both, because they are the same act: the schema validates a
+   * submission with no flags exactly as strictly as it ever did, and a
+   * submission that carries them is held to every rule except the ones the
+   * officer named a reason for. A second, laxer endpoint would be a second
+   * place for "what counts as a registration" to be decided.
+   */
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Post()
   async create(
     @Param('tenantSlug') tenantSlug: string,
-    @Body(new ZodValidationPipe(adminCreateCitizenSchema)) payload: AdminCreateCitizen,
+    @Body(new ZodValidationPipe(adminCreateCitizenSubmissionSchema))
+    payload: AdminCitizenSubmission,
     @CurrentUser() user: SessionClaims,
   ) {
     return this.citizens.create({
@@ -195,7 +215,7 @@ export class CitizenController {
    * it is matched as a literal: registered after a `:id` route, Nest would read
    * `import` as an id and this would never be reached.
    */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Post('import')
   async import(
     @Param('tenantSlug') tenantSlug: string,
@@ -212,12 +232,13 @@ export class CitizenController {
   }
 
   /** A clerk correcting a citizen already on file. */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Patch(':id')
   async update(
     @Param('tenantSlug') tenantSlug: string,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(adminUpdateCitizenSchema)) payload: AdminUpdateCitizen,
+    @Body(new ZodValidationPipe(adminUpdateCitizenSubmissionSchema))
+    payload: AdminCitizenUpdateSubmission,
     @CurrentUser() user: SessionClaims,
   ) {
     return this.citizens.update({
@@ -233,7 +254,7 @@ export class CitizenController {
    * and is simply skipped by the fee biller — which is what an inspector
    * wants for someone who has moved away, as against erasing them.
    */
-  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'ADMINISTRATIVE_OFFICER')
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Patch(':id/active')
   async setActive(
     @Param('tenantSlug') tenantSlug: string,

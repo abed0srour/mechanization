@@ -10,13 +10,15 @@ import {
   Monitor,
   Moon,
   Search,
+  ShieldCheck,
   Sun,
   User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { activeNavItem } from '@/components/admin/nav';
+import { activeNavItem, localizedLabel } from '@/components/admin/nav';
 import { NotificationsBell } from '@/components/admin/notifications-bell';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -28,15 +30,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import type { Session } from '@/lib/api-client';
 import { clearSession } from '@/lib/session';
-
-const THEME_OPTIONS = [
-  { value: 'light', label: 'فاتح', icon: Sun },
-  { value: 'dark', label: 'داكن', icon: Moon },
-  { value: 'system', label: 'النظام', icon: Monitor },
-] as const;
 
 /**
  * The bar across the top of every staff screen.
@@ -98,9 +94,9 @@ export function AdminHeader({
    */
   const leafLabel = ((): string => {
     const last = (pathname ?? '').split('/').filter(Boolean).pop();
-    if (last === 'new') return 'جديد';
-    if (last === 'edit') return 'تعديل';
-    return 'التفاصيل';
+    if (last === 'new') return locale === 'en' ? 'New' : 'جديد';
+    if (last === 'edit') return locale === 'en' ? 'Edit' : 'تعديل';
+    return locale === 'en' ? 'Details' : 'التفاصيل';
   })();
 
   function switchLanguage(): void {
@@ -116,7 +112,13 @@ export function AdminHeader({
     router.replace(`${base}/login`);
   }
 
-  const displayName = session?.user.name ?? '';
+  const rawDisplayName = session?.user.name ?? '';
+  const labels = getLabels(locale);
+  // If the stored username is the default 'مدير النظام' or blank, translate it
+  const displayName =
+    locale === 'en' && (rawDisplayName === 'مدير النظام' || !rawDisplayName)
+      ? (role ? labels.staffRole?.[role as never] ?? 'System Administrator' : 'Administrator')
+      : (rawDisplayName || (locale === 'en' ? 'User' : 'مستخدم'));
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-1 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-4">
@@ -125,7 +127,7 @@ export function AdminHeader({
         size="icon"
         className="shrink-0 lg:hidden"
         onClick={onOpenDrawer}
-        aria-label="فتح القائمة"
+        aria-label={locale === 'en' ? 'Open Menu' : 'فتح القائمة'}
       >
         <Menu className="size-5" />
       </Button>
@@ -134,75 +136,76 @@ export function AdminHeader({
           generic "الرئيسية": with one portal per tenant, the thing a clerk
           needs confirmed at a glance is *which* municipality's records are on
           screen — the answer to "am I about to edit the wrong town". */}
-      <nav aria-label="مسار التنقل" className="flex min-w-0 items-center gap-1.5 text-sm">
+      <nav aria-label={locale === 'en' ? 'Breadcrumb' : 'مسار التنقل'} className="flex min-w-0 items-center gap-1.5 text-sm">
         <Link
           href={`${base}/dashboard`}
           className="hidden shrink-0 truncate text-muted-foreground transition-colors hover:text-foreground sm:inline"
         >
-          {tenantName ?? 'البلدية'}
+          {tenantName ?? (locale === 'en' ? 'Municipality' : 'البلدية')}
         </Link>
         {active ? (
           <>
-            <ChevronLeft
-              aria-hidden
-              className="hidden size-3.5 shrink-0 text-muted-foreground/60 ltr:rotate-180 sm:inline"
-            />
-            {onDetailRoute ? (
-              <>
-                <Link
-                  href={`${base}${active.path}`}
-                  className="truncate text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {active.label}
-                </Link>
-                <ChevronLeft
-                  aria-hidden
-                  className="size-3.5 shrink-0 text-muted-foreground/60 ltr:rotate-180"
-                />
-                <span className="truncate font-semibold text-foreground">{leafLabel}</span>
-              </>
-            ) : (
-              <span className="truncate font-semibold text-foreground">{active.label}</span>
-            )}
+            <ChevronLeft className="size-4 shrink-0 text-muted-foreground/60 rtl:rotate-180" aria-hidden />
+            <Link
+              href={`${base}${active.path}`}
+              className={
+                onDetailRoute
+                  ? 'hidden shrink-0 text-muted-foreground transition-colors hover:text-foreground sm:inline'
+                  : 'truncate font-medium text-foreground'
+              }
+            >
+              {localizedLabel(active, locale)}
+            </Link>
+          </>
+        ) : null}
+        {onDetailRoute ? (
+          <>
+            <ChevronLeft className="size-4 shrink-0 text-muted-foreground/60 rtl:rotate-180" aria-hidden />
+            <span className="truncate font-medium text-foreground">{leafLabel}</span>
           </>
         ) : null}
       </nav>
 
       <div className="flex-1" />
 
-      {/* Search collapses to its icon below `sm`. The full affordance — a box
-          with a placeholder and the ⌘K hint — costs 200px that a 360px screen
-          has to take from the breadcrumb. */}
-      <button
-        type="button"
-        onClick={onOpenSearch}
-        aria-label="بحث شامل"
-        className="hidden h-9 w-56 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground sm:flex xl:w-72"
-      >
-        <Search className="size-4 shrink-0" />
-        <span className="truncate">بحث…</span>
-        <kbd className="ms-auto hidden shrink-0 rounded border bg-muted px-1.5 font-sans text-[10px] font-medium text-muted-foreground lg:inline">
-          Ctrl K
-        </kbd>
-      </button>
+      {/* Global search launcher: Cmd/Ctrl+K or click.
+          Search covers citizens by name/phone/file-number, properties by
+          cadastral number, and navigation items. */}
       <Button
-        variant="ghost"
-        size="icon"
-        className="shrink-0 sm:hidden"
+        variant="outline"
+        size="sm"
         onClick={onOpenSearch}
-        aria-label="بحث شامل"
+        className="hidden h-9 w-64 items-center justify-between text-muted-foreground hover:text-foreground md:flex"
+        aria-label={locale === 'en' ? 'Global search' : 'بحث عام في السجل'}
       >
-        <Search className="size-5" />
+        <span className="flex items-center gap-2 text-xs">
+          <Search className="size-3.5" />
+          <span>{locale === 'en' ? 'Search…' : 'بحث في السجل…'}</span>
+        </span>
+        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+          <span className="text-xs">Ctrl</span>K
+        </kbd>
       </Button>
+
+      {/* Language Switcher */}
+      <div className="px-1">
+        <LanguageSwitcher variant="toggle" currentLocale={locale} />
+      </div>
 
       {/* Sits before the account menu rather than after it: this is work
           arriving, and the account menu is the one control on this bar
           that is never about the municipality's records. */}
-      <NotificationsBell tenant={tenant} token={session?.accessToken} role={role} base={base} />
+      <NotificationsBell
+        tenant={tenant}
+        token={session?.accessToken}
+        role={role}
+        base={base}
+        locale={locale}
+      />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="shrink-0 gap-2 px-2" aria-label="حسابي">
+          <Button variant="ghost" className="shrink-0 gap-2 px-2" aria-label={locale === 'en' ? 'My Account' : 'حسابي'}>
             <span
               aria-hidden
               className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"
@@ -215,27 +218,33 @@ export function AdminHeader({
         <DropdownMenuContent align="end" className="w-60">
           <DropdownMenuLabel className="space-y-0.5">
             <span className="block truncate text-sm font-semibold text-foreground">
-              {displayName || 'مستخدم'}
+              {displayName}
             </span>
             {role ? (
               <span className="block text-xs font-normal">
-                {ar.staffRole?.[role as never] ?? role}
+                {labels.staffRole?.[role as never] ?? role}
               </span>
             ) : null}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
 
-          <DropdownMenuLabel>المظهر</DropdownMenuLabel>
-          {/* A radio group rather than a toggle: there are three settings, and
-              "follow the device" is not the opposite of anything. The segmented
-              control this replaces showed its state without being opened, which
-              was its whole argument — but it cost a permanent slot in a sidebar
-              footer that no longer exists on a phone. */}
+          <DropdownMenuItem onSelect={() => router.push(`${base}/account`)}>
+            <ShieldCheck className="size-4" aria-hidden />
+            <span>{locale === 'en' ? 'Account Security' : 'أمان الحساب'}</span>
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuLabel>{locale === 'en' ? 'Theme' : 'المظهر'}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={mounted ? (theme ?? 'system') : undefined}
             onValueChange={setTheme}
           >
-            {THEME_OPTIONS.map((option) => {
+            {[
+              { value: 'light', label: locale === 'en' ? 'Light' : 'فاتح', icon: Sun },
+              { value: 'dark', label: locale === 'en' ? 'Dark' : 'داكن', icon: Moon },
+              { value: 'system', label: locale === 'en' ? 'System' : 'النظام', icon: Monitor },
+            ].map((option) => {
               const Icon = option.icon;
               return (
                 <DropdownMenuRadioItem key={option.value} value={option.value}>
@@ -250,14 +259,11 @@ export function AdminHeader({
           <DropdownMenuItem onSelect={switchLanguage}>
             <Languages aria-hidden />
             <span>{locale === 'ar' ? 'English' : 'عربي'}</span>
-            {/* Said plainly rather than left to be discovered: the switch flips
-                direction and date formatting, and does not yet translate copy. */}
-            <span className="ms-auto text-[10px] text-muted-foreground">الاتجاه فقط</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem destructive onSelect={signOut}>
             <LogOut aria-hidden />
-            <span>تسجيل الخروج</span>
+            <span>{locale === 'en' ? 'Sign out' : 'تسجيل الخروج'}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -1,22 +1,38 @@
 import { StaffRole, User } from '../entities/user.entity';
 
+/**
+ * The citizen half of a filing.
+ *
+ * Only the name is required. Everything else is optional not because it is
+ * unimportant but because a field officer may have recorded, in writing, that
+ * they could not establish it — see «غير مؤكَّد» in `field-flag.schema`. What
+ * decides whether an absence is acceptable is `personalDetailsSchema` at the
+ * edge, which still demands every one of these of a record filed without a
+ * flag against it; this interface only has to be able to *carry* the absence
+ * that check has already allowed.
+ *
+ * `firstName` and `lastName` stay required because they are `NOT NULL` on
+ * `users` and because a record nobody can search for by name is not a register
+ * entry — which is also why they cannot be flagged in the first place.
+ */
 export interface CitizenIdentityInput {
-  phone: string;
+  phone?: string;
   whatsapp?: string;
   firstName: string;
   middleName?: string;
   lastName: string;
-  gender: string;
-  nationality: string;
-  isLebanese: boolean;
+  gender?: string;
+  nationality?: string;
+  isLebanese?: boolean;
   residencyNumber?: string;
-  residentStatus: string;
-  identityDocType: string;
-  identityDocNumber: string;
+  residentStatus?: string;
+  identityDocType?: string;
+  identityDocNumber?: string;
   /** رقم السجل — meaningless outside the Lebanese civil registry. */
   civilRecordNumber?: string;
-  familySize: number;
-  maritalStatus: string;
+  familySize?: number;
+  maritalStatus?: string;
+  bloodType?: string;
 }
 
 /**
@@ -57,6 +73,8 @@ export interface UserRepository {
   saveTotpSecret(userId: string, secret: string): Promise<void>;
   /** Marks enrolment complete once the admin has proved the app works. */
   confirmTotp(userId: string): Promise<void>;
+  /** Clears TOTP enrolment and secrets. */
+  disableTotp(userId: string): Promise<void>;
 
   /** Every staff account with the history count that gates a hard delete. */
   listStaff(): Promise<StaffSummary[]>;
@@ -103,6 +121,7 @@ export interface StaffSummary {
   lastName: string;
   role: StaffRole;
   isActive: boolean;
+  hasConfirmedTotp?: boolean;
   /** Drives whether the UI may offer a permanent delete. */
   historyCount: number;
   createdAt: string;

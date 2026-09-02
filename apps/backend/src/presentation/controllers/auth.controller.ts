@@ -2,6 +2,9 @@ import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import {
+  changeEmailSchema,
+  changePasswordSchema,
+  confirmPasswordResetSchema,
   referenceLoginSchema,
   referenceOnlyLoginSchema,
   requestOtpSchema,
@@ -76,6 +79,68 @@ export class AuthController {
     @Body(new ZodValidationPipe(totpEnrolmentSchema)) body: { token: string },
   ) {
     await this.identity.confirmTotpEnrolment(user.sub, body.token);
+    return { confirmed: true };
+  }
+
+  @Post('staff/totp/disable')
+  async disableTotp(
+    @Param('tenantSlug') tenantSlug: string,
+    @CurrentUser() user: SessionClaims,
+    @Body() body: { currentPassword?: string },
+  ) {
+    await this.identity.disableTotp(user.sub, tenantSlug, body?.currentPassword);
+    return { disabled: true };
+  }
+
+  @Post('staff/change-password')
+  async changePassword(
+    @Param('tenantSlug') tenantSlug: string,
+    @CurrentUser() user: SessionClaims,
+    @Body(new ZodValidationPipe(changePasswordSchema))
+    body: { currentPassword: string; newPassword: string },
+  ) {
+    await this.identity.changeStaffPassword(user.sub, tenantSlug, body.currentPassword, body.newPassword);
+    return { changed: true };
+  }
+
+  @Post('staff/change-email')
+  async changeEmail(
+    @Param('tenantSlug') tenantSlug: string,
+    @CurrentUser() user: SessionClaims,
+    @Body(new ZodValidationPipe(changeEmailSchema))
+    body: { newEmail: string; currentPassword: string },
+  ) {
+    const result = await this.identity.changeStaffEmail(user.sub, tenantSlug, body.newEmail, body.currentPassword);
+    return result;
+  }
+
+  @Post('staff/send-reset-password-email')
+  async sendResetPasswordEmail(
+    @CurrentUser() user: SessionClaims,
+    @Body() body?: { redirectTo?: string },
+  ) {
+    return this.identity.sendStaffPasswordResetEmail(user.sub, body?.redirectTo);
+  }
+
+  /**
+   * Public: reached from the reset-password landing page, before any session
+   * exists. `accessToken` — the Supabase recovery token the email link's own
+   * redirect appended to that page's URL — is what proves the caller owns the
+   * inbox; see `IdentityService.confirmStaffPasswordReset`.
+   */
+  @Public()
+  @Post('staff/confirm-password-reset')
+  @Throttle({
+    default: {
+      limit: APP_CONFIG.throttle.staffLogin.limit,
+      ttl: APP_CONFIG.throttle.staffLogin.ttlSeconds * 1000,
+    },
+  })
+  async confirmPasswordReset(
+    @Body(new ZodValidationPipe(confirmPasswordResetSchema))
+    body: { accessToken: string; newPassword: string },
+  ) {
+    await this.identity.confirmStaffPasswordReset(body.accessToken, body.newPassword);
     return { confirmed: true };
   }
 

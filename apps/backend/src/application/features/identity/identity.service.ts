@@ -18,7 +18,7 @@ import {
   UserRepository,
 } from '../../../domain/interfaces/user-repository.interface';
 import { StaffRole, User } from '../../../domain/entities/user.entity';
-import { NotFoundError, UnauthorizedError } from '../../common/exceptions';
+import { ConflictError, NotFoundError, UnauthorizedError } from '../../common/exceptions';
 import { OtpService } from './otp.service';
 
 /** The single token shape. Both citizens and staff carry exactly this. */
@@ -181,23 +181,6 @@ export class IdentityService {
     const secret = user.totpSecret;
 
     if (!user.hasConfirmedTotp || !secret) {
-      /**
-       * A SUPER_ADMIN reads every citizen's national ID number, residency
-       * status and scanned documents, and can export the register or restore
-       * over it. Enrolment for that role is a precondition of holding the
-       * account, not a setting inside it — so an incomplete one is refused
-       * here rather than waved through with a warning.
-       *
-       * The account is not stranded: `pnpm staff:create` enrols the first
-       * administrator of a municipality at creation time, and
-       * `StaffService.create` returns an enrolment URI for every SUPER_ADMIN
-       * invited afterwards.
-       */
-      if (user.requiresTotp) {
-        throw new UnauthorizedError(
-          'هذا الحساب يتطلّب التحقق بخطوتين، ولم يكتمل تسجيل تطبيق المصادقة. يرجى مراجعة مدير النظام.',
-        );
-      }
       return null;
     }
 
@@ -268,6 +251,185 @@ export class IdentityService {
 
     this.events.emit('staff.changed', {
       action: 'TOTP_CONFIRMED',
+      tenantSlug: user.tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+  }
+
+  /**
+   * Disable TOTP enrolment for a staff user.
+   */
+  async disableTotp(
+    userId: string,
+    tenantSlug: string,
+    currentPassword?: string,
+  ): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user || user.kind !== 'STAFF') {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    if (currentPassword && user.passwordHash) {
+      const match = await this.hasher.verify(currentPassword, user.passwordHash);
+      if (!match) {
+        throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+      }
+    }
+
+    await this.users.disableTotp(user.id);
+
+    this.events.emit('staff.changed', {
+      action: 'TOTP_DISABLED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+  }
+
+  /**
+   * Change own password. Verifies current password first, updates passwordHash and Supabase Auth.
+   */
+  async changeStaffPassword(
+    userId: string,
+    tenantSlug: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user || user.kind !== 'STAFF' || !user.passwordHash) {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    const match = await this.hasher.verify(currentPassword, user.passwordHash);
+    if (!match) {
+      throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const passwordHash = await this.hasher.hash(newPassword);
+    await this.users.updateStaff(user.id, { passwordHash });
+
+    // Sync to Supabase Auth
+    try {
+      if (user.email) {
+        await this.supabaseAuth.updateStaffUser({
+          email: user.email,
+          password: newPassword,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_PASSWORD_CHANGED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+  }
+
+  /**
+   * Change own email. Verifies current password first, checks uniqueness, and updates Supabase Auth.
+   */
+  async changeStaffEmail(
+    userId: string,
+    tenantSlug: string,
+    newEmail: string,
+    currentPassword: string,
+  ): Promise<{ email: string }> {
+    const user = await this.users.findById(userId);
+    if (!user || user.kind !== 'STAFF' || !user.passwordHash) {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    const match = await this.hasher.verify(currentPassword, user.passwordHash);
+    if (!match) {
+      throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const nextEmail = newEmail.trim().toLowerCase();
+    if (nextEmail === user.email?.toLowerCase()) {
+      return { email: nextEmail };
+    }
+
+    const existing = await this.users.findStaffByEmail(nextEmail);
+    if (existing) {
+      throw new ConflictError('البريد الإلكتروني مستخدم بالفعل من قبل موظف آخر');
+    }
+
+    await this.users.updateStaff(user.id, { email: nextEmail });
+
+    // Sync to Supabase Auth
+    try {
+      if (user.email) {
+        await this.supabaseAuth.updateStaffUser({
+          email: user.email,
+          newEmail: nextEmail,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_EMAIL_CHANGED',
+      tenantSlug,
+      staffId: user.id,
+      actorId: user.id,
+      actorRole: user.role ?? '',
+    });
+
+    return { email: nextEmail };
+  }
+
+  /**
+   * Sends password reset email via Supabase Auth with custom template.
+   */
+  async sendStaffPasswordResetEmail(userId: string, redirectTo?: string): Promise<{ message: string }> {
+    const user = await this.users.findById(userId);
+    if (!user || !user.email) {
+      throw new NotFoundError('Staff user', userId);
+    }
+
+    await this.supabaseAuth.sendPasswordResetEmail(user.email, redirectTo);
+    return { message: 'تم إرسال بريد إعادة تعيين كلمة المرور بنجاح' };
+  }
+
+  /**
+   * Sets a new password from the reset-password landing page.
+   *
+   * `accessToken` is not this account's session — it is the short-lived
+   * Supabase token minted by the recovery link's own `/auth/v1/verify` step,
+   * proof the caller owns the inbox the email went to. `verifyToken` is the
+   * same call `JwtAuthGuard` never uses for staff (staff sessions are this
+   * app's own JWT); here it is the *only* thing standing in for a password,
+   * so an invalid or expired token is refused exactly like a wrong one.
+   */
+  async confirmStaffPasswordReset(accessToken: string, newPassword: string): Promise<void> {
+    const supabaseUser = await this.supabaseAuth.verifyToken(accessToken);
+    if (!supabaseUser?.email) {
+      throw new UnauthorizedError('رابط إعادة التعيين غير صالح أو منتهي الصلاحية');
+    }
+
+    const user = await this.users.findStaffByEmail(supabaseUser.email);
+    if (!user) {
+      throw new NotFoundError('Staff user', supabaseUser.email);
+    }
+
+    const passwordHash = await this.hasher.hash(newPassword);
+    await this.users.updateStaff(user.id, { passwordHash });
+
+    await this.supabaseAuth.updateStaffUser({
+      email: supabaseUser.email,
+      password: newPassword,
+    });
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_PASSWORD_CHANGED',
       tenantSlug: user.tenantSlug,
       staffId: user.id,
       actorId: user.id,

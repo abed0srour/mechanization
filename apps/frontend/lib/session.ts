@@ -1,6 +1,7 @@
 'use client';
 
 import type { Session } from './api-client';
+export type { Session };
 
 /**
  * Session storage, namespaced per municipality.

@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -15,13 +16,14 @@ import {
   UserPlus,
   Wallet,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   chargeCitizen,
   getAllPayments,
   getCitizenProfile,
   getFeeSummary,
+  getFeeTitles,
   getMunicipalitySettings,
   getTenantConfig,
   issueFeeNotice,
@@ -31,13 +33,11 @@ import {
 } from '@/lib/api-client';
 import type {
   AdminPaymentItem,
-  CitizenListItem,
   CitizenProfile,
   CitizenProfilePayment,
-  FeeSummary,
-  MunicipalitySettings,
 } from '@/lib/api-client';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatLbp } from '@/lib/currency';
 import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
@@ -49,39 +49,81 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { ChargeCitizenDialog, type ChargeValues } from '@/components/admin/charge-citizen-dialog';
 import { IssueFeeDialog, type IssueFeeValues } from '@/components/admin/issue-fee-dialog';
+import { BillTypeFilter } from '@/components/admin/bill-type-select';
 import { PaymentReceipt } from '@/components/admin/payment-receipt';
 import { cn } from '@/lib/utils';
 
-const TABLE_LABELS: DataTableLabels = {
-  searchAriaLabel: 'بحث في الرسوم والمطالبات',
-  searchPlaceholder: 'ابحث باسم المواطن أو الرسم أو الرقم المرجعي…',
-  clearSearch: 'مسح البحث',
-  empty: 'لا توجد رسوم أو مطالبات مسجّلة بعد.',
-  emptyHint: 'أصدر أول رسم من زر «إصدار رسم جديد» أعلاه.',
-  emptySearch: 'لا توجد نتائج مطابقة لبحثك.',
-  emptySearchHint: 'جرّب البحث باسم المواطن، أو نوع الرسم، أو الرقم المرجعي.',
-  loadError: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
-  retry: 'إعادة المحاولة',
-  previous: 'السابق',
-  next: 'التالي',
-  pageOf: 'صفحة {current} من {total}',
-  rowsPerPage: 'عدد الصفوف',
-  totalRows: '{count} مطالبة',
-  sortAscending: 'ترتيب تصاعدي',
-  sortDescending: 'ترتيب تنازلي',
-  sortNone: 'إلغاء الترتيب',
-  columns: 'الأعمدة',
-  columnsHint: 'الأعمدة الظاهرة',
-  resetColumns: 'استعادة الافتراضي',
-};
+function getTableLabels(locale: string): DataTableLabels {
+  if (locale === 'en') {
+    return {
+      searchAriaLabel: 'Search fees and demands',
+      searchPlaceholder: 'Search by citizen name, fee title, or reference code…',
+      clearSearch: 'Clear search',
+      searchHint: 'Enter',
+      searchApplied: 'Search: "{term}"',
+      empty: 'No fees or demands registered yet.',
+      emptyHint: 'Issue your first fee using the "Issue Fee Notice" button above.',
+      emptySearch: 'No results match your search.',
+      emptySearchHint: 'Try searching by citizen name, fee title, or reference code.',
+      loadError: 'Failed to load fees and payments register.',
+      retry: 'Retry',
+      previous: 'Previous',
+      next: 'Next',
+      pageOf: 'Page {current} of {total}',
+      rowsPerPage: 'Rows per page',
+      totalRows: '{count} demands',
+      sortAscending: 'Sort ascending',
+      sortDescending: 'Sort descending',
+      sortNone: 'Clear sorting',
+      columns: 'Columns',
+      columnsHint: 'Visible columns',
+      resetColumns: 'Reset to default',
+    };
+  }
+  return {
+    searchAriaLabel: 'بحث في الرسوم والمطالبات',
+    searchPlaceholder: 'ابحث باسم المواطن أو الرسم أو الرقم المرجعي…',
+    clearSearch: 'مسح البحث',
+    searchHint: 'Enter',
+    searchApplied: 'بحث: «{term}»',
+    empty: 'لا توجد رسوم أو مطالبات مسجّلة بعد.',
+    emptyHint: 'أصدر أول رسم من زر «إصدار رسم جديد» أعلاه.',
+    emptySearch: 'لا توجد نتائج مطابقة لبحثك.',
+    emptySearchHint: 'جرّب البحث باسم المواطن، أو نوع الرسم، أو الرقم المرجعي.',
+    loadError: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
+    retry: 'إعادة المحاولة',
+    previous: 'السابق',
+    next: 'التالي',
+    pageOf: 'صفحة {current} من {total}',
+    rowsPerPage: 'عدد الصفوف',
+    totalRows: '{count} مطالبة',
+    sortAscending: 'ترتيب تصاعدي',
+    sortDescending: 'ترتيب تنازلي',
+    sortNone: 'إلغاء الترتيب',
+    columns: 'الأعمدة',
+    columnsHint: 'الأعمدة الظاهرة',
+    resetColumns: 'استعادة الافتراضي',
+  };
+}
 
-const STATUS_FILTERS = [
-  { id: '', label: 'الكل' },
-  { id: 'UNPAID', label: 'غير مسددة' },
-  { id: 'OVERDUE', label: 'متأخرة' },
-  { id: 'PENDING_REVIEW', label: 'قيد المراجعة' },
-  { id: 'PAID', label: 'مدفوعة' },
-] as const;
+function getStatusFilters(locale: string) {
+  if (locale === 'en') {
+    return [
+      { id: '', label: 'All' },
+      { id: 'UNPAID', label: 'Unpaid' },
+      { id: 'OVERDUE', label: 'Overdue' },
+      { id: 'PENDING_REVIEW', label: 'Under Review' },
+      { id: 'PAID', label: 'Paid' },
+    ] as const;
+  }
+  return [
+    { id: '', label: 'الكل' },
+    { id: 'UNPAID', label: 'غير مسددة' },
+    { id: 'OVERDUE', label: 'متأخرة' },
+    { id: 'PENDING_REVIEW', label: 'قيد المراجعة' },
+    { id: 'PAID', label: 'مدفوعة' },
+  ] as const;
+}
 
 function initials(fullName: string): string {
   const words = fullName.trim().split(/\s+/).filter(Boolean);
@@ -100,16 +142,10 @@ export default function FeesPage({
 
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Table Data State
-  const [items, setItems] = useState<AdminPaymentItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [summary, setSummary] = useState<FeeSummary | null>(null);
-  const [citizens, setCitizens] = useState<CitizenListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [feeTitleFilter, setFeeTitleFilter] = useState<string>('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
 
@@ -126,8 +162,6 @@ export default function FeesPage({
     payment: CitizenProfilePayment;
     received: number;
   } | null>(null);
-  const [settings, setSettings] = useState<MunicipalitySettings | null>(null);
-  const [municipalityName, setMunicipalityName] = useState('');
 
   const toast = useToast();
   const canManage = role === 'SUPER_ADMIN';
@@ -142,75 +176,109 @@ export default function FeesPage({
     setRole(session.user.role);
   }, [tenant, base, router]);
 
-  const load = useCallback(
-    async (isManualRefresh = false) => {
-      if (!token) return;
-      if (isManualRefresh) setRefreshing(true);
-      else setLoading(true);
-      setError(null);
+  const feeTitlesQuery = useStaffQuery({
+    queryKey: ['fees-titles', tenant],
+    queryFn: (accessToken, signal) => getFeeTitles(tenant, accessToken, signal),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل أنواع الرسوم.',
+  });
 
-      try {
-        const [paymentsRes, summaryRes, settingsRes, configRes, citizensRes] =
-          await Promise.allSettled([
-            getAllPayments(tenant, token, {
-              status: statusFilter || undefined,
-              search: appliedSearch || undefined,
-              limit: pagination.pageSize,
-              offset: pagination.pageIndex * pagination.pageSize,
-            }),
-            getFeeSummary(tenant, token),
-            getMunicipalitySettings(tenant, token),
-            getTenantConfig(tenant),
-            listCitizens(tenant, token, { limit: 200 }),
-          ]);
+  const paymentsQuery = useStaffQuery({
+    queryKey: [
+      'fees-payments',
+      tenant,
+      statusFilter,
+      feeTitleFilter,
+      appliedSearch,
+      pagination.pageIndex,
+      pagination.pageSize,
+    ],
+    queryFn: (accessToken, signal) =>
+      getAllPayments(
+        tenant,
+        accessToken,
+        {
+          status: statusFilter || undefined,
+          feeTitle: feeTitleFilter || undefined,
+          search: appliedSearch || undefined,
+          limit: pagination.pageSize,
+          offset: pagination.pageIndex * pagination.pageSize,
+        },
+        signal,
+      ),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل سجل الرسوم والمدفوعات.',
+    keepPrevious: true,
+  });
 
-        if (paymentsRes.status === 'fulfilled') {
-          setItems(paymentsRes.value.items);
-          setTotal(paymentsRes.value.total);
-        } else {
-          logApiError(paymentsRes.reason);
-          setError('تعذّر تحميل سجل الرسوم والمدفوعات.');
-        }
-
-        if (summaryRes.status === 'fulfilled') {
-          setSummary(summaryRes.value);
-        }
-
-        if (settingsRes.status === 'fulfilled') {
-          setSettings(settingsRes.value);
-        }
-
-        if (configRes.status === 'fulfilled') {
-          setMunicipalityName(configRes.value.nameAr || configRes.value.name);
-        }
-
-        if (citizensRes.status === 'fulfilled') {
-          setCitizens(citizensRes.value.items);
-        }
-      } catch (caught) {
-        logApiError(caught);
-        if (caught instanceof ApiRequestError && caught.status === 401) {
-          clearSession(tenant);
-          router.replace(`${base}/login`);
-          return;
-        }
-        setError('تعذّر تحميل بيانات الرسوم.');
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
+  /*
+    Everything on this screen that is not the ledger: the headline figures, the
+    citizen picker the two dialogs read, and the office details a reprinted وصل
+    carries. `allSettled` rather than `all`, kept from the original, because a
+    receipt's phone number failing to load must not blank the table beside it.
+  */
+  const contextQuery = useStaffQuery({
+    queryKey: ['fees-context', tenant],
+    queryFn: async (accessToken) => {
+      const [summaryRes, settingsRes, configRes, citizensRes] = await Promise.allSettled([
+        getFeeSummary(tenant, accessToken),
+        getMunicipalitySettings(tenant, accessToken),
+        getTenantConfig(tenant),
+        listCitizens(tenant, accessToken, { limit: 200 }),
+      ]);
+      for (const result of [summaryRes, settingsRes, configRes, citizensRes]) {
+        if (result.status === 'rejected') logApiError(result.reason);
       }
+      return {
+        summary: summaryRes.status === 'fulfilled' ? summaryRes.value : null,
+        settings: settingsRes.status === 'fulfilled' ? settingsRes.value : null,
+        municipalityName:
+          configRes.status === 'fulfilled'
+            ? configRes.value.nameAr || configRes.value.name
+            : '',
+        citizens: citizensRes.status === 'fulfilled' ? citizensRes.value.items : [],
+      };
     },
-    [tenant, token, base, router, statusFilter, appliedSearch, pagination],
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل بيانات الرسوم.',
+  });
+
+  const items = paymentsQuery.data?.items ?? [];
+  const total = paymentsQuery.data?.total ?? 0;
+  const summary = contextQuery.data?.summary ?? null;
+  const citizens = contextQuery.data?.citizens ?? [];
+  const settings = contextQuery.data?.settings ?? null;
+  const municipalityName = contextQuery.data?.municipalityName ?? '';
+  const loading = paymentsQuery.loading;
+  const refreshing = paymentsQuery.fetching || contextQuery.fetching;
+  /*
+    The banner above the page and the state inside the table say different
+    things, and used to say the same one twice.
+
+    A failed *read* belongs to the table: it is the table that has no rows to
+    show, it is the table that needs the retry button, and a table rendering
+    «لا توجد نتائج» after a request failed is telling the reader the register is
+    empty when it is only unreachable. A failed *write* has no such home — the
+    rows are fine, an action was refused — so that is what the banner is for.
+  */
+  const error = contextQuery.error;
+
+  /** Re-reads both halves of the screen after a write. */
+  const queryClient = useQueryClient();
+  const load = useCallback(
+    () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['fees-payments', tenant] }),
+        queryClient.invalidateQueries({ queryKey: ['fees-context', tenant] }),
+      ]),
+    [queryClient, tenant],
   );
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Reset page index on search or filter change
-  useEffect(() => {
-    setPagination((prev) => (prev.pageIndex === 0 ? prev : { ...prev, pageIndex: 0 }));
-  }, [statusFilter, appliedSearch]);
 
   const openReceipt = useCallback(
     async (citizenId: string, paymentId: string, receivedAmount: number) => {
@@ -234,20 +302,23 @@ export default function FeesPage({
     [tenant, token, toast],
   );
 
-  const handleReview = async (paymentId: string, confirmed: boolean) => {
-    if (!token || busyPaymentId) return;
-    setBusyPaymentId(paymentId);
-    try {
-      await reviewPayment(tenant, token, paymentId, { confirmed });
-      toast.success(confirmed ? 'تم تأكيد الدفعة بنجاح.' : 'تم رفض الدفعة.');
-      void load();
-    } catch (caught) {
-      logApiError(caught);
-      toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر مراجعة الدفعة.');
-    } finally {
-      setBusyPaymentId(null);
-    }
-  };
+  const handleReview = useCallback(
+    async (paymentId: string, confirmed: boolean) => {
+      if (!token || busyPaymentId) return;
+      setBusyPaymentId(paymentId);
+      try {
+        await reviewPayment(tenant, token, paymentId, { confirmed });
+        toast.success(confirmed ? 'تم تأكيد الدفعة بنجاح.' : 'تم رفض الدفعة.');
+        void load();
+      } catch (caught) {
+        logApiError(caught);
+        toast.error(caught instanceof ApiRequestError ? caught.message : 'تعذّر مراجعة الدفعة.');
+      } finally {
+        setBusyPaymentId(null);
+      }
+    },
+    [tenant, token, busyPaymentId, toast, load],
+  );
 
   const handleIssueNotice = async (values: IssueFeeValues) => {
     if (!token) return;
@@ -295,11 +366,13 @@ export default function FeesPage({
     }
   };
 
+  const labels = getLabels(locale);
+
   const columns = useMemo<ColumnDef<AdminPaymentItem>[]>(
     () => [
       {
         accessorKey: 'citizenName',
-        header: 'المواطن',
+        header: locale === 'en' ? 'Citizen' : 'المواطن',
         cell: ({ row }) => {
           const payment = row.original;
           return (
@@ -339,7 +412,7 @@ export default function FeesPage({
       },
       {
         accessorKey: 'title',
-        header: 'الرسم / المطالبة',
+        header: locale === 'en' ? 'Fee / Demand' : 'الرسم / المطالبة',
         cell: ({ row }) => {
           const payment = row.original;
           return (
@@ -347,7 +420,7 @@ export default function FeesPage({
               <p className="font-medium text-foreground">{payment.title}</p>
               {payment.frequency ? (
                 <Badge variant="soft-muted" className="text-[10px] px-1.5 py-0">
-                  {ar.feeFrequency[payment.frequency as never] ?? payment.frequency}
+                  {labels.feeFrequency[payment.frequency as never] ?? payment.frequency}
                 </Badge>
               ) : null}
             </div>
@@ -356,7 +429,7 @@ export default function FeesPage({
       },
       {
         accessorKey: 'dueDate',
-        header: 'تاريخ الاستحقاق',
+        header: locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق',
         cell: ({ row }) => {
           return (
             <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
@@ -367,17 +440,17 @@ export default function FeesPage({
       },
       {
         accessorKey: 'amount',
-        header: 'قيمة الرسم',
+        header: locale === 'en' ? 'Fee Amount' : 'قيمة الرسم',
         meta: { align: 'end' },
         cell: ({ row }) => (
           <span className="font-mono text-sm tabular-nums text-foreground whitespace-nowrap">
-            {formatLbp(row.original.amount)}
+            {formatLbp(row.original.amount, locale)}
           </span>
         ),
       },
       {
         accessorKey: 'paidAmount',
-        header: 'المسدد',
+        header: locale === 'en' ? 'Paid' : 'المسدد',
         meta: { align: 'end' },
         cell: ({ row }) => {
           const paid = row.original.paidAmount;
@@ -388,14 +461,14 @@ export default function FeesPage({
                 paid > 0 ? 'font-semibold text-success' : 'text-muted-foreground',
               )}
             >
-              {paid > 0 ? formatLbp(paid) : '—'}
+              {paid > 0 ? formatLbp(paid, locale) : '—'}
             </span>
           );
         },
       },
       {
         accessorKey: 'remaining',
-        header: 'الرصيد المستحق',
+        header: locale === 'en' ? 'Balance Due' : 'الرصيد المستحق',
         meta: { align: 'end' },
         cell: ({ row }) => {
           const remaining = row.original.remaining;
@@ -411,14 +484,14 @@ export default function FeesPage({
                     : 'text-success',
               )}
             >
-              {formatLbp(remaining)}
+              {formatLbp(remaining, locale)}
             </span>
           );
         },
       },
       {
         accessorKey: 'paymentStatus',
-        header: 'الحالة',
+        header: locale === 'en' ? 'Status' : 'الحالة',
         cell: ({ row }) => {
           const status = row.original.paymentStatus;
           return (
@@ -435,14 +508,14 @@ export default function FeesPage({
                       : 'border-border bg-muted/50 text-muted-foreground',
               )}
             >
-              {ar.paymentStatus[status as never] ?? status}
+              {labels.paymentStatus[status as never] ?? status}
             </Badge>
           );
         },
       },
       {
         id: 'actions',
-        header: 'الإجراءات',
+        header: locale === 'en' ? 'Actions' : 'الإجراءات',
         meta: { align: 'end' },
         cell: ({ row }) => {
           const payment = row.original;
@@ -452,7 +525,6 @@ export default function FeesPage({
 
           return (
             <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-              {/* Review actions for claims pending review */}
               {isPendingReview && canManage ? (
                 <>
                   <Button
@@ -467,7 +539,7 @@ export default function FeesPage({
                     ) : (
                       <CheckCircle2 className="size-3.5 rtl:ml-1 ltr:mr-1" />
                     )}
-                    تأكيد
+                    {locale === 'en' ? 'Confirm' : 'تأكيد'}
                   </Button>
                   <Button
                     size="sm"
@@ -476,23 +548,21 @@ export default function FeesPage({
                     disabled={isBusy}
                     onClick={() => void handleReview(payment.id, false)}
                   >
-                    رفض
+                    {locale === 'en' ? 'Reject' : 'رفض'}
                   </Button>
                 </>
               ) : null}
 
-              {/* Settle button for unpaid / overdue / partial */}
               {canManage && !isPaid && !isPendingReview ? (
                 <Link
                   href={`${base}/fees/payments/${payment.id}/settle`}
                   className={buttonVariants({ variant: 'default', size: 'sm' })}
                 >
                   <Banknote className="size-3.5 rtl:ml-1.5 ltr:mr-1.5" />
-                  تسجيل دفعة
+                  {locale === 'en' ? 'Record Payment' : 'تسجيل دفعة'}
                 </Link>
               ) : null}
 
-              {/* Receipt button for any invoice with payments */}
               {payment.paidAmount > 0 ? (
                 <Button
                   size="sm"
@@ -508,7 +578,7 @@ export default function FeesPage({
                   ) : (
                     <Receipt className="size-3.5 rtl:ml-1.5 ltr:mr-1.5" />
                   )}
-                  وصل القبض
+                  {locale === 'en' ? 'Receipt' : 'وصل القبض'}
                 </Button>
               ) : null}
             </div>
@@ -516,41 +586,48 @@ export default function FeesPage({
         },
       },
     ],
-    [base, canManage, busyPaymentId, openReceipt],
+    [base, canManage, busyPaymentId, openReceipt, handleReview, locale, labels],
   );
 
   if (!token) return null;
 
+  const tableLabels = getTableLabels(locale);
+  const statusFilters = getStatusFilters(locale);
+
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <PageHeader
         icon={Receipt}
-        title="إدارة الرسوم والمدفوعات"
-        subtitle="سجل الرسوم والمطالبات المالية للمواطنين — الإصدار والتحصيل والوصولات"
+        title={locale === 'en' ? 'Fees & Billing' : 'إدارة الرسوم والمدفوعات'}
+        subtitle={
+          locale === 'en'
+            ? 'Financial demands and fees register — issuance, collection, and receipts'
+            : 'سجل الرسوم والمطالبات المالية للمواطنين — الإصدار والتحصيل والوصولات'
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void load(true)}
+              onClick={() => void load()}
               disabled={refreshing}
             >
               <RefreshCw
                 className={cn('size-4 rtl:ml-1.5 ltr:mr-1.5', refreshing && 'animate-spin')}
                 aria-hidden
               />
-              تحديث
+              {locale === 'en' ? 'Refresh' : 'تحديث'}
             </Button>
 
             {canManage ? (
               <>
                 <Button variant="outline" size="sm" onClick={() => setChargeOpen(true)}>
                   <UserPlus className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
-                  تكليف مباشر
+                  {locale === 'en' ? 'Direct Charge' : 'تكليف مباشر'}
                 </Button>
                 <Button size="sm" onClick={() => setIssueOpen(true)}>
                   <Plus className="size-4 rtl:ml-1.5 ltr:mr-1.5" />
-                  إصدار رسم جديد
+                  {locale === 'en' ? 'Issue New Fee' : 'إصدار رسم جديد'}
                 </Button>
               </>
             ) : null}
@@ -570,32 +647,40 @@ export default function FeesPage({
       {/* KPI Cards Summary Row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          label="إجمالي المحصّل"
-          value={formatLbp(summary?.paidTotal ?? 0)}
-          subtext={summary ? `${summary.paidCount} دفعة مسددة` : undefined}
+          label={locale === 'en' ? 'Total Collected' : 'إجمالي المحصّل'}
+          value={formatLbp(summary?.paidTotal ?? 0, locale)}
+          subtext={
+            summary
+              ? (locale === 'en' ? `${summary.paidCount} payments settled` : `${summary.paidCount} دفعة مسددة`)
+              : undefined
+          }
           loading={loading}
           icon={<Wallet className="size-6 text-success" />}
           accent="bg-success/10"
         />
         <MetricCard
-          label="المستحقات غير المسددة"
-          value={formatLbp(summary?.unpaidTotal ?? 0)}
-          subtext={summary ? `${summary.unpaidCount} مطالبة مطلوبة` : undefined}
+          label={locale === 'en' ? 'Unpaid Balance' : 'المستحقات غير المسددة'}
+          value={formatLbp(summary?.unpaidTotal ?? 0, locale)}
+          subtext={
+            summary
+              ? (locale === 'en' ? `${summary.unpaidCount} demands due` : `${summary.unpaidCount} مطالبة مطلوبة`)
+              : undefined
+          }
           loading={loading}
           icon={<Banknote className="size-6 text-primary" />}
         />
         <MetricCard
-          label="دفعات بانتظار التحقق"
+          label={locale === 'en' ? 'Pending Review' : 'دفعات بانتظار التحقق'}
           value={(summary?.pendingReviewCount ?? 0).toLocaleString('en-US')}
-          subtext="تحويلات تحتاج موافقة الموظف"
+          subtext={locale === 'en' ? 'Transfers awaiting verification' : 'تحويلات تحتاج موافقة الموظف'}
           loading={loading}
           icon={<Clock3 className="size-6 text-warning" />}
           accent="bg-warning/10"
         />
         <MetricCard
-          label="إجمالي الرسوم الصادرة"
-          value={formatLbp((summary?.paidTotal ?? 0) + (summary?.unpaidTotal ?? 0))}
-          subtext="المجموع الكلي للمطالبات"
+          label={locale === 'en' ? 'Total Billed' : 'إجمالي الرسوم الصادرة'}
+          value={formatLbp((summary?.paidTotal ?? 0) + (summary?.unpaidTotal ?? 0), locale)}
+          subtext={locale === 'en' ? 'Gross billed charges' : 'المجموع الكلي للمطالبات'}
           loading={loading}
           icon={<Receipt className="size-6 text-primary" />}
         />
@@ -604,29 +689,49 @@ export default function FeesPage({
       {/* Main Table Card */}
       <Card className="overflow-hidden">
         <CardHeader className="border-b pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base font-bold">
               <Receipt className="size-5 text-primary" />
-              سجل الرسوم والمطالبات
+              {locale === 'en' ? 'Fees & Billing Register' : 'سجل الرسوم والمطالبات'}
             </CardTitle>
 
-            {/* Status Tabs Filter */}
-            <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
-              {STATUS_FILTERS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.id)}
-                  className={cn(
-                    'rounded-lg px-3 py-1 text-xs font-semibold transition-all',
-                    statusFilter === tab.id
-                      ? 'bg-card text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Searchable Bill Type Filter */}
+              <BillTypeFilter
+                value={feeTitleFilter}
+                onChange={(nextTitle) => {
+                  setFeeTitleFilter(nextTitle);
+                  setPagination((previous) =>
+                    previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+                  );
+                }}
+                locale={locale}
+                existingTitles={(feeTitlesQuery.data as string[] | undefined) ?? []}
+              />
+
+              {/* Status Tabs Filter */}
+              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted p-1">
+                {statusFilters.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(tab.id);
+                      setPagination((previous) =>
+                        previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 },
+                      );
+                    }}
+                    className={cn(
+                      'rounded-lg px-3 py-1 text-xs font-semibold transition-all cursor-pointer',
+                      statusFilter === tab.id
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -635,10 +740,12 @@ export default function FeesPage({
           <DataTable
             columns={columns}
             data={items}
-            labels={TABLE_LABELS}
+            labels={tableLabels}
+            columnStorageKey="fees"
             getRowId={(row) => row.id}
             loading={loading}
-            onRetry={() => void load()}
+            error={paymentsQuery.error}
+            onRetry={paymentsQuery.refetch}
             emptyIcon={<Receipt className="size-10 text-muted-foreground/60" />}
             manualPagination
             manualFiltering
@@ -661,6 +768,8 @@ export default function FeesPage({
         submitting={issuing}
         error={null}
         onSubmit={handleIssueNotice}
+        locale={locale}
+        existingTitles={(feeTitlesQuery.data as string[] | undefined) ?? []}
       />
 
       {/* Charge Citizen Dialog */}
@@ -671,6 +780,8 @@ export default function FeesPage({
         submitting={charging}
         error={null}
         onSubmit={handleChargeCitizen}
+        locale={locale}
+        existingTitles={(feeTitlesQuery.data as string[] | undefined) ?? []}
       />
 
       {/* Receipt Modal Dialog */}
@@ -682,12 +793,16 @@ export default function FeesPage({
             void load();
           }
         }}
+        tenant={tenant}
         citizen={receipt?.citizen ?? ({} as CitizenProfile)}
         payment={receipt?.payment ?? null}
         municipalityName={municipalityName}
+        governorate={settings?.governorate}
+        district={settings?.district}
         contactPhone={settings?.contactPhone}
         officeWhatsapp={settings?.whatsappNumber}
         receivedAmount={receipt?.received}
+        locale={locale}
       />
     </div>
   );

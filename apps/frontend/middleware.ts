@@ -122,12 +122,41 @@ export function middleware(request: NextRequest) {
   const [tenant, maybeLocale] = segments;
 
   if (maybeLocale === 'dashboard' || maybeLocale === 'admin') {
-    return withCsp(new NextResponse('Not found', { status: 404 }));
+    /**
+     * Reserved segments that would otherwise shadow a municipality slug.
+     *
+     * Rewritten to the app's own 404 rather than answered with a bare
+     * `new NextResponse('Not found')`: that produced a plain white page of
+     * left-to-right English text, which in an Arabic portal reads as a
+     * misconfigured server rather than as a wrong address.
+     */
+    return withCsp(
+      NextResponse.rewrite(new URL('/not-found', request.url), { request: { headers } }),
+    );
   }
 
   if (!maybeLocale || !LOCALES.includes(maybeLocale as (typeof LOCALES)[number])) {
+    // 1. Cookie detection
+    let targetLocale = DEFAULT_LOCALE;
+    const cookieLocale = request.cookies.get('NEXT_LOCALE')?.value;
+    if (cookieLocale && LOCALES.includes(cookieLocale as (typeof LOCALES)[number])) {
+      targetLocale = cookieLocale as (typeof LOCALES)[number];
+    } else {
+      // 2. Accept-Language header detection
+      const acceptLang = request.headers.get('accept-language');
+      if (acceptLang) {
+        const preferred = acceptLang
+          .split(',')
+          .map((lang) => lang.split(';')[0].trim().substring(0, 2).toLowerCase());
+        const match = preferred.find((p) => LOCALES.includes(p as (typeof LOCALES)[number]));
+        if (match) {
+          targetLocale = match as (typeof LOCALES)[number];
+        }
+      }
+    }
+
     const url = request.nextUrl.clone();
-    url.pathname = `/${tenant}/${DEFAULT_LOCALE}${maybeLocale ? `/${segments.slice(1).join('/')}` : ''}`;
+    url.pathname = `/${tenant}/${targetLocale}${maybeLocale ? `/${segments.slice(1).join('/')}` : ''}`;
     return withCsp(NextResponse.redirect(url));
   }
 

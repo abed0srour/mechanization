@@ -4,27 +4,14 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { CornerDownLeft, Loader2, Search, User, X } from 'lucide-react';
 import { listCitizens, type CitizenListItem } from '@/lib/api-client';
-import { visibleGroups, type NavItem } from '@/components/admin/nav';
+import { localizedLabel, visibleGroups, type NavItem } from '@/components/admin/nav';
 import { cn } from '@/lib/utils';
 
-/**
- * One box that reaches any section, or any citizen, from anywhere.
- *
- * The registry search lived only on `/citizens`, so answering "does حسن عبدالله
- * owe anything" from the map meant navigating to the register, waiting for the
- * table, searching, then opening the row. This collapses that into a keystroke
- * — which matters most for the counter clerk with a resident standing in front
- * of them, the case the whole portal is built around.
- *
- * Sections are matched in the browser (there are ten). Citizens go to the
- * server, which already matches name, phone, رقم مرجعي and document number in
- * one query — the same endpoint the register's own search uses, so the two
- * agree on what "found" means.
- */
 export function CommandPalette({
   open,
   onOpenChange,
   base,
+  locale = 'ar',
   tenant,
   token,
   role,
@@ -32,6 +19,7 @@ export function CommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   base: string;
+  locale?: string;
   tenant: string;
   token: string | undefined;
   role: string | undefined;
@@ -153,12 +141,12 @@ export function CommandPalette({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="بحث شامل"
+      aria-label={locale === 'en' ? 'Global Search' : 'بحث شامل'}
       className="fixed inset-0 z-[60] flex items-start justify-center p-3 sm:p-6"
     >
       <button
         type="button"
-        aria-label="إغلاق"
+        aria-label={locale === 'en' ? 'Close' : 'إغلاق'}
         className="absolute inset-0 cursor-default bg-black/60 animate-in fade-in"
         onClick={() => onOpenChange(false)}
       />
@@ -196,9 +184,12 @@ export function CommandPalette({
                 if (chosen) go(chosen);
               }
             }}
-            placeholder="ابحث عن قسم أو مواطن — بالاسم أو الهاتف أو الرقم المرجعي"
-            aria-label="ابحث عن قسم أو مواطن"
-            className="h-12 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder={locale === 'en'
+              ? 'Search section or citizen — by name, phone, or reference'
+              : 'ابحث عن قسم أو مواطن — بالاسم أو الهاتف أو الرقم المرجعي'}
+            aria-label={locale === 'en' ? 'Search section or citizen' : 'ابحث عن قسم أو مواطن'}
+            style={{ outline: 'none', boxShadow: 'none', border: 'none' }}
+            className="h-12 min-w-0 flex-1 border-0 bg-transparent text-sm shadow-none outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
           {searching ? (
             <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
@@ -206,7 +197,7 @@ export function CommandPalette({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            aria-label="إغلاق"
+            aria-label={locale === 'en' ? 'Close' : 'إغلاق'}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="size-4" />
@@ -217,14 +208,14 @@ export function CommandPalette({
           {results.length === 0 ? (
             <p className="px-3 py-10 text-center text-sm text-muted-foreground">
               {query.trim().length < 2
-                ? 'اكتب حرفين على الأقل للبحث عن مواطن'
-                : 'لا نتائج مطابقة'}
+                ? (locale === 'en' ? 'Type at least 2 characters to search citizens' : 'اكتب حرفين على الأقل للبحث عن مواطن')
+                : (locale === 'en' ? 'No matching results' : 'لا نتائج مطابقة')}
             </p>
           ) : (
             <>
               {sections.length > 0 ? (
                 <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold tracking-wider text-muted-foreground">
-                  الأقسام
+                  {locale === 'en' ? 'Sections' : 'الأقسام'}
                 </p>
               ) : null}
               {results.map((result, index) => {
@@ -245,7 +236,7 @@ export function CommandPalette({
                       )}
                     >
                       <Icon className="size-4 shrink-0" aria-hidden />
-                      <span className="truncate">{result.item.label}</span>
+                      <span className="truncate">{localizedLabel(result.item, locale)}</span>
                       {isHighlighted ? (
                         <CornerDownLeft
                           className="ms-auto size-3.5 shrink-0 text-muted-foreground"
@@ -264,7 +255,7 @@ export function CommandPalette({
                   <React.Fragment key={`citizen-${citizen.id}`}>
                     {isFirstCitizen ? (
                       <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold tracking-wider text-muted-foreground">
-                        المواطنون
+                        {locale === 'en' ? 'Citizens' : 'المواطنون'}
                       </p>
                     ) : null}
                     <button
@@ -298,7 +289,7 @@ export function CommandPalette({
                       </span>
                       {citizen.overdueTotal > 0 ? (
                         <span className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
-                          متأخرات
+                          {locale === 'en' ? 'Overdue' : 'متأخرات'}
                         </span>
                       ) : null}
                     </button>
@@ -310,9 +301,9 @@ export function CommandPalette({
         </div>
 
         <div className="hidden shrink-0 items-center gap-3 border-t px-3.5 py-2 text-[11px] text-muted-foreground sm:flex">
-          <span>↑↓ للتنقل</span>
-          <span>Enter للفتح</span>
-          <span>Esc للإغلاق</span>
+          <span>{locale === 'en' ? '↑↓ to navigate' : '↑↓ للتنقل'}</span>
+          <span>{locale === 'en' ? 'Enter to select' : 'Enter للفتح'}</span>
+          <span>{locale === 'en' ? 'Esc to close' : 'Esc للإغلاق'}</span>
         </div>
       </div>
     </div>

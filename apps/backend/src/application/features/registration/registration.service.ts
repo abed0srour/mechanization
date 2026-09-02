@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { AdminCreateCitizen } from '@mechanization/shared-schemas';
+import {
+  statusForFlags,
+  type AdminCitizenSubmission,
+  type CitizenRecordStatus,
+  type FieldFlag,
+} from '@mechanization/shared-schemas';
 import { PropertyEntry, PropertyType } from '../../../domain/entities/property-entry.entity';
 import { Registration } from '../../../domain/entities/registration.entity';
 import { ReferenceNumber } from '../../../domain/value-objects/reference-number.vo';
@@ -43,6 +48,29 @@ export interface SubmitResult {
   referenceNumber: string;
   propertyCount: number;
   propertyIds: string[];
+  status: CitizenRecordStatus;
+  /** True when this submission had already been delivered — see `clientSubmissionId`. */
+  deduplicated: boolean;
+}
+
+/**
+ * The flagged fields belonging to one property card, as bare field names.
+ *
+ * `properties.2.landlordPhone` → `landlordPhone` for card 2, and nothing for
+ * any other card. The domain entity validates one card at a time and has no
+ * idea which index it is, so the index is resolved here, once, rather than
+ * teaching `PropertyEntry` about the shape of the form above it.
+ */
+export function unestablishedOnCard(
+  flags: readonly FieldFlag[],
+  index: number,
+): ReadonlySet<string> {
+  const prefix = `properties.${index}.`;
+  return new Set(
+    flags
+      .filter((flag) => flag.path.startsWith(prefix))
+      .map((flag) => flag.path.slice(prefix.length)),
+  );
 }
 
 /**
@@ -66,9 +94,10 @@ export class RegistrationService {
 
   async submit(input: {
     tenantSlug: string;
-    payload: AdminCreateCitizen;
+    payload: AdminCitizenSubmission;
   }): Promise<SubmitResult> {
     const tenant = await this.tenants.resolve(input.tenantSlug);
+    const flags = input.payload.flags;
 
     /**
      * Coordinates come from the municipality's cadastre, not from the citizen.
@@ -76,21 +105,35 @@ export class RegistrationService {
      * The survey office already knows where parcel 1553 is, to better precision
      * than anyone can achieve by dragging a pin on a phone — so the wizard no
      * longer asks. رقم العقار is the location.
+     *
+     * A card whose number was never established is simply not looked up. It
+     * gets no coordinates and appears nowhere on the map until someone fills
+     * the number in — which is the honest outcome, and better than the
+     * alternative of asking the cadastre about an empty string.
      */
     const cadastre = await this.resolveParcels(
-      input.payload.properties.map((entry) => entry.propertyNumber),
+      input.payload.properties
+        .map((entry) => entry.propertyNumber)
+        .filter((number): number is string => Boolean(number)),
     );
 
     // Zod validated the wire format at the controller. These construct domain
     // objects, which is where the taxonomy rules actually live — so a seed
     // script or a future CSV import gets the same guarantees as an HTTP request.
-    const properties = input.payload.properties.map((entry) => {
-      const parcel = cadastre.get(entry.propertyNumber.trim());
-      return PropertyEntry.create({
-        ...(entry as unknown as Record<string, unknown>),
-        latitude: parcel?.latitude ?? null,
-        longitude: parcel?.longitude ?? null,
-      } as never);
+    // The waiver set is per card and never wider than the fields the officer
+    // actually named.
+    const properties = input.payload.properties.map((entry, index) => {
+      const parcel = entry.propertyNumber
+        ? cadastre.get(entry.propertyNumber.trim())
+        : undefined;
+      return PropertyEntry.create(
+        {
+          ...(entry as unknown as Record<string, unknown>),
+          latitude: parcel?.latitude ?? null,
+          longitude: parcel?.longitude ?? null,
+        } as never,
+        unestablishedOnCard(flags, index),
+      );
     });
 
     for (const property of properties) {
@@ -133,28 +176,42 @@ export class RegistrationService {
          * back to whichever the person actually gave — the identity lookup
          * key needs one real value either way, and the fallback never
          * triggers for a payload that passed validation.
+         *
+         * `undefined` is now a third outcome, and only reachable when the
+         * officer flagged the document itself: the person is registered
+         * without an identity key, which the repository handles by inserting
+         * rather than upserting. See the note there.
          */
         identityDocNumber:
-          input.payload.personal.identityDocNumber || input.payload.personal.residencyNumber || '',
+          input.payload.personal.identityDocNumber ||
+          input.payload.personal.residencyNumber ||
+          undefined,
         civilRecordNumber: input.payload.personal.civilRecordNumber || undefined,
         familySize: input.payload.contact.familySize,
         maritalStatus: input.payload.contact.maritalStatus,
+        bloodType: input.payload.personal.bloodType,
       },
       citizenReference,
       registrationReference,
       properties,
+      status: statusForFlags(flags),
+      flaggedFields: flags,
+      clientSubmissionId: input.payload.clientSubmissionId,
     });
 
     // Published only after the transaction committed — nothing is announced
-    // that did not persist.
+    // that did not persist, and nothing is announced twice: a re-delivered
+    // offline submission wrote nothing, so there is no new fact to publish.
     registration.pullEvents();
-    this.events.emit('registration.submitted', {
-      tenantSlug: input.tenantSlug,
-      registrationId: result.registrationId,
-      citizenId: result.citizenId,
-      referenceNumber: result.referenceNumber,
-      propertyCount: properties.length,
-    });
+    if (!result.deduplicated) {
+      this.events.emit('registration.submitted', {
+        tenantSlug: input.tenantSlug,
+        registrationId: result.registrationId,
+        citizenId: result.citizenId,
+        referenceNumber: result.referenceNumber,
+        propertyCount: properties.length,
+      });
+    }
 
     return {
       registrationId: result.registrationId,
@@ -162,6 +219,8 @@ export class RegistrationService {
       referenceNumber: result.referenceNumber,
       propertyCount: properties.length,
       propertyIds: result.propertyIds,
+      status: statusForFlags(flags),
+      deduplicated: result.deduplicated,
     };
   }
 

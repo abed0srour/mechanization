@@ -46,7 +46,9 @@ export default function PaymentsLogin({
     } catch (caught) {
       logApiError(caught);
       setError(
-        caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدخول.',
+        caught instanceof ApiRequestError
+          ? caught.message
+          : (locale === 'en' ? 'Failed to sign in.' : 'تعذّر تسجيل الدخول.'),
       );
     } finally {
       setBusy(false);
@@ -62,9 +64,13 @@ export default function PaymentsLogin({
           <Receipt className="size-7" aria-hidden />
         </div>
         <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">الرسوم والمدفوعات</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {locale === 'en' ? 'Fees & Payments' : 'الرسوم والمدفوعات'}
+          </h1>
           <p className="text-muted-foreground">
-            ادخل برقمك المرجعي ورقم هاتفك لعرض مستحقاتك.
+            {locale === 'en'
+              ? 'Enter your reference number and phone number to view your dues.'
+              : 'ادخل برقمك المرجعي ورقم هاتفك لعرض مستحقاتك.'}
           </p>
         </div>
       </div>
@@ -81,14 +87,17 @@ export default function PaymentsLogin({
           ) : null}
 
           <Field
-            label="الرقم المرجعي"
+            label={locale === 'en' ? 'Reference Number' : 'الرقم المرجعي'}
             htmlFor="reference"
             required
-            hint="الرقم الذي استلمته عند تسجيل طلبك."
+            hint={
+              locale === 'en'
+                ? 'The reference number received when submitting your application.'
+                : 'الرقم الذي استلمته عند تسجيل طلبك.'
+            }
           >
             <Input
               id="reference"
-              dir="ltr"
               className="text-start font-mono"
               placeholder="ABC-123456"
               value={referenceNumber}
@@ -96,13 +105,12 @@ export default function PaymentsLogin({
             />
           </Field>
 
-          <Field label="رقم الهاتف" htmlFor="phone" required>
+          <Field label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'} htmlFor="phone" required>
             <Input
               id="phone"
               type="tel"
               inputMode="tel"
-              dir="ltr"
-              className="text-start"
+              className="text-start font-mono"
               placeholder="03 123456"
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
@@ -116,12 +124,13 @@ export default function PaymentsLogin({
             onClick={() => void submit()}
           >
             {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            دخول
+            {locale === 'en' ? 'Sign In' : 'دخول'}
           </Button>
 
           <p className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-            إذا نسيت رقمك المرجعي، يمكنك مراجعة البلدية مع هويتك وسيتمكن الموظف من
-            استخراجه لك.
+            {locale === 'en'
+              ? 'If you forgot your reference number, you can visit the municipality with your ID card to look it up.'
+              : 'إذا نسيت رقمك المرجعي، يمكنك مراجعة البلدية مع هويتك وسيتمكن الموظف من استخراجه لك.'}
           </p>
         </CardContent>
       </Card>

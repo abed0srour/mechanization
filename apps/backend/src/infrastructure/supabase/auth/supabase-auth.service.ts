@@ -96,6 +96,7 @@ export class SupabaseAuthServiceImpl implements SupabaseAuthService {
 
   async updateStaffUser(input: {
     email: string;
+    newEmail?: string;
     password?: string;
     firstName?: string;
     lastName?: string;
@@ -109,6 +110,10 @@ export class SupabaseAuthServiceImpl implements SupabaseAuthService {
     }
 
     const updates: Parameters<typeof this.client.auth.admin.updateUserById>[1] = {};
+    if (input.newEmail) {
+      updates.email = input.newEmail.trim().toLowerCase();
+      updates.email_confirm = true;
+    }
     if (input.password) {
       updates.password = input.password;
     }
@@ -159,6 +164,16 @@ export class SupabaseAuthServiceImpl implements SupabaseAuthService {
       };
     } catch {
       return null;
+    }
+  }
+
+  async sendPasswordResetEmail(email: string, redirectTo?: string): Promise<void> {
+    const { error } = await this.client.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo,
+    });
+    if (error) {
+      this.logger.error(`Failed to send password reset email to ${email}: ${error.message}`);
+      throw new Error(`تعذّر إرسال بريد إعادة تعيين كلمة المرور: ${error.message}`);
     }
   }
 

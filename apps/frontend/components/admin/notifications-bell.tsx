@@ -1,111 +1,125 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, CheckCircle2, Inbox } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import {
+  ArrowRight,
+  Bell,
+  Check,
+  CheckCheck,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Inbox,
+  Sparkles,
+} from 'lucide-react';
+import { getLabels } from '@mechanization/shared-schemas';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { getPendingPayments, logApiError, type PendingPayment } from '@/lib/api-client';
+import {
+  getPendingPayments,
+  logApiError,
+  markAllPendingPaymentsAsSeen,
+  markPaymentAsSeen,
+  type PendingPayment,
+} from '@/lib/api-client';
 import { formatLbp, formatLbpCompact } from '@/lib/currency';
 import { formatDate } from '@/lib/dates';
+import { cn } from '@/lib/utils';
 
-/**
- * A minute is short enough that a clerk confirming a transfer at the counter
- * sees the queue drain while the citizen is still standing there, and long
- * enough that a portal left open all day costs the API about 500 requests.
- */
 const POLL_INTERVAL_MS = 60_000;
-
-/**
- * Mirrors `@Roles('SUPER_ADMIN', 'AUDITOR')` on `GET /fees/payments/pending`.
- *
- * Checked here as well as server-side so a cashier is never shown a bell that
- * can only ever answer 403 — the guard is the server's, but a control that is
- * guaranteed to fail should not be rendered at all.
- */
-const REVIEW_ROLES = ['SUPER_ADMIN', 'AUDITOR'];
-
-/** Past this the panel is a page, not a glance. The rest are one tap away. */
+const REVIEW_ROLES = ['SUPER_ADMIN', 'AUDITOR', 'ACCOUNTANT'];
 const MAX_LISTED = 6;
 
-/**
- * Pending-payment notifications.
- *
- * The one queue in this portal where someone outside the building is waiting:
- * a citizen has declared a Whish transfer and cannot be credited until a clerk
- * confirms the money arrived. Until now it was visible only to whoever thought
- * to open «الرسوم والمدفوعات» and scroll to the third section, so a declaration
- * made at 09:00 could sit unseen all day.
- *
- * Deliberately not a general notification system. There is no notifications
- * table behind this and no read/unread state to keep — it reads the same
- * `fees/payments/pending` endpoint the fees page already uses, so the badge is
- * the live length of the work queue rather than a count of events someone has
- * to dismiss. Nothing to mark read, nothing to go stale.
- */
 export function NotificationsBell({
   tenant,
   token,
   role,
   base,
+  locale: propLocale,
 }: {
   tenant: string;
   token: string | undefined;
   role: string | undefined;
   base: string;
+  locale?: string;
 }): React.JSX.Element | null {
   const router = useRouter();
   const pathname = usePathname();
   const [items, setItems] = useState<PendingPayment[]>([]);
   const canReview = Boolean(role && REVIEW_ROLES.includes(role));
 
+  const locale = propLocale ?? (pathname?.includes('/en/') || pathname?.endsWith('/en') ? 'en' : 'ar');
+  const labels = getLabels(locale);
+
   const reviewHref = `${base}/fees#verify`;
+
+  const load = useCallback(async (): Promise<void> => {
+    if (!token || !canReview) return;
+    if (document.visibilityState !== 'visible') return;
+    try {
+      const result = await getPendingPayments(tenant, token, true);
+      setItems(result.items);
+    } catch (caught) {
+      logApiError(caught);
+    }
+  }, [tenant, token, canReview]);
 
   useEffect(() => {
     if (!token || !canReview) return;
-    let cancelled = false;
-
-    const load = async (): Promise<void> => {
-      // A poll on a backgrounded tab is a request nobody is waiting for, and
-      // this one runs for as long as the portal is open.
-      if (document.visibilityState !== 'visible') return;
-      try {
-        const result = await getPendingPayments(tenant, token);
-        if (!cancelled) setItems(result.items);
-      } catch (caught) {
-        // Silent by design: this fires every minute, and a toast per failure
-        // would bury the page under a single flaky connection.
-        logApiError(caught);
-      }
-    };
 
     void load();
     const timer = setInterval(() => void load(), POLL_INTERVAL_MS);
-    // Returning to the tab should not have to wait out the rest of the
-    // interval — the count on screen is the first thing the reader looks at.
     const onVisibilityChange = (): void => {
       if (document.visibilityState === 'visible') void load();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
-      cancelled = true;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-    // `pathname` is in here so confirming a payment and navigating away
-    // refreshes the count on arrival rather than a minute later.
-  }, [tenant, token, canReview, pathname]);
+  }, [load, token, canReview, pathname]);
 
   const openQueue = useCallback(() => router.push(reviewHref), [router, reviewHref]);
+
+  const handleMarkAsSeen = useCallback(
+    async (e: React.MouseEvent, paymentId: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!token) return;
+      setItems((prev) => prev.filter((p) => p.id !== paymentId));
+      try {
+        await markPaymentAsSeen(tenant, token, paymentId);
+      } catch (err) {
+        logApiError(err);
+        void load();
+      }
+    },
+    [tenant, token, load],
+  );
+
+  const handleMarkAllAsSeen = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!token) return;
+      setItems([]);
+      try {
+        await markAllPendingPaymentsAsSeen(tenant, token);
+      } catch (err) {
+        logApiError(err);
+        void load();
+      }
+    },
+    [tenant, token, load],
+  );
 
   if (!canReview) return null;
 
@@ -117,16 +131,18 @@ export function NotificationsBell({
         <Button
           variant="ghost"
           size="icon"
-          className="relative shrink-0"
+          className="relative shrink-0 rounded-full hover:bg-muted/80 transition-colors"
           aria-label={
-            count > 0 ? `الإشعارات، ${count} دفعة بانتظار التأكيد` : 'الإشعارات، لا جديد'
+            count > 0
+              ? (locale === 'en' ? `Notifications, ${count} unread payments pending confirmation` : `��������ʡ ${count} ���� ��� ������ ������� �������`)
+              : (locale === 'en' ? 'Notifications, all clear' : '��������ʡ �� ����')
           }
         >
-          <Bell className="size-5" />
+          <Bell className={cn('size-5', count > 0 && 'text-foreground animate-none')} />
           {count > 0 ? (
             <span
               aria-hidden
-              className="absolute -end-0.5 -top-0.5 flex size-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold tabular-nums text-destructive-foreground"
+              className="absolute -end-0.5 -top-0.5 flex size-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold tabular-nums text-destructive-foreground shadow-xs ring-2 ring-background"
             >
               {count > 9 ? '9+' : count}
             </span>
@@ -134,89 +150,153 @@ export function NotificationsBell({
         </Button>
       </DropdownMenuTrigger>
 
-      {/* `max-w-[calc(100vw-1rem)]`: at 360px a fixed 22rem panel is wider than
-          the screen, and a dropdown cannot scroll sideways to reveal itself. */}
-      <DropdownMenuContent align="end" className="w-[22rem] max-w-[calc(100vw-1rem)] p-0">
-        <DropdownMenuLabel className="flex items-center justify-between gap-2 px-3 py-2.5">
-          <span className="text-sm font-semibold">بانتظار التأكيد</span>
-          {count > 0 ? (
-            <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-destructive">
-              {count}
-            </span>
-          ) : null}
-        </DropdownMenuLabel>
-        {/* `mx-0` undoes the primitive's `-mx-1`, which is sized for a panel
-            with `p-1`. This one is `p-0`, so the default bleeds the rule 4px
-            past the rounded edge on both sides. */}
-        <DropdownMenuSeparator className="mx-0 my-0" />
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-[24rem] max-w-[calc(100vw-1.5rem)] rounded-xl border border-border/80 bg-popover p-0 shadow-xl backdrop-blur-sm overflow-hidden"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/35 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Sparkles className="size-3.5" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-semibold text-foreground">
+                {locale === 'en' ? 'Pending Confirmations' : '������� �������'}
+              </span>
+              {count > 0 ? (
+                <Badge
+                  variant="secondary"
+                  className="h-5 px-1.5 text-[11px] font-bold rounded-full bg-destructive/10 text-destructive border-0 tabular-nums"
+                >
+                  {count}
+                </Badge>
+              ) : null}
+            </div>
+          </div>
 
-        {count === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-            <span
-              aria-hidden
-              className="flex size-10 items-center justify-center rounded-full bg-success/10 text-success"
+          {count > 0 ? (
+            <button
+              type="button"
+              onClick={(e) => void handleMarkAllAsSeen(e)}
+              title={locale === 'en' ? 'Mark all as seen' : '����� ���� ������'}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-2xs hover:bg-background hover:text-foreground hover:border-border transition-all cursor-pointer"
             >
-              <CheckCircle2 className="size-5" />
-            </span>
-            <p className="text-sm font-medium">لا شيء بانتظار المراجعة</p>
-            <p className="text-xs text-muted-foreground">
-              كل ما أعلنه المواطنون تمّت معالجته.
-            </p>
+              <CheckCheck className="size-3.5 text-primary" />
+              <span>{locale === 'en' ? 'Mark all seen' : '����� ���� ������'}</span>
+            </button>
+          ) : null}
+        </div>
+
+        {/* Body */}
+        {count === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2.5 px-6 py-10 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="size-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">
+                {locale === 'en' ? 'All caught up!' : '�� ���� ������� �����'}
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed max-w-[17rem]">
+                {locale === 'en'
+                  ? 'All citizen declarations have been processed or marked as seen.'
+                  : '��� ������ �� ���� ���� ������� ������ ������� �����.'}
+              </p>
+            </div>
           </div>
         ) : (
-          <>
-            {/* A plain scroll container rather than `<ul>`/`<li>`: Radix puts
-                `role="menu"` on the panel and `role="menuitem"` on each row,
-                and that pairing requires no `role="list"` in between — a list
-                wrapper here makes a screen reader announce a list of items
-                inside a menu and lose the menu's own item count. */}
-            <div className="max-h-[min(60vh,22rem)] overflow-y-auto">
-              {items.slice(0, MAX_LISTED).map((payment) => (
+          <div className="max-h-[min(65vh,24rem)] overflow-y-auto divide-y divide-border/40">
+            {items.slice(0, MAX_LISTED).map((payment) => {
+              const citizenInitial = payment.citizenName?.trim()?.[0]?.toUpperCase() ?? '�';
+              return (
                 <DropdownMenuItem
                   key={payment.id}
                   onSelect={openQueue}
-                  className="flex-col items-stretch gap-1 px-3 py-2.5"
+                  className="group relative flex items-start gap-3 p-3.5 transition-colors hover:bg-muted/50 cursor-pointer focus:bg-muted/60"
                 >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-medium text-foreground">
-                      {payment.citizenName}
-                    </span>
-                    {/* The compact form with the exact figure in `title`,
-                        rather than `<Money>`: that renders a Radix tooltip,
-                        and a tooltip opened from inside an open dropdown
-                        fights it for the focus trap. */}
-                    <span
-                      title={formatLbp(payment.amount)}
-                      className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums"
-                    >
-                      {formatLbpCompact(payment.amount)}
-                    </span>
+                  {/* Avatar / Icon */}
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-bold shadow-2xs">
+                    {citizenInitial}
                   </div>
-                  <div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
-                    <span className="min-w-0 truncate">{payment.title}</span>
-                    <span className="shrink-0 whitespace-nowrap">
-                      استحقاق {formatDate(payment.dueDate)}
-                    </span>
+
+                  {/* Details */}
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                        {payment.citizenName}
+                      </span>
+                      <span
+                        title={formatLbp(payment.amount, locale)}
+                        className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-bold tabular-nums text-foreground border border-border/50"
+                      >
+                        {formatLbpCompact(payment.amount, locale)}
+                      </span>
+                    </div>
+
+                    <p className="truncate text-xs font-medium text-muted-foreground/90">
+                      {payment.title}
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                      {payment.paymentMethod ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-muted/60 px-1.5 py-0.5 font-medium text-foreground/80">
+                          <CreditCard className="size-3 shrink-0 text-muted-foreground" />
+                          <span>
+                            {labels.paymentMethod?.[payment.paymentMethod as never] ?? payment.paymentMethod}
+                          </span>
+                          {payment.whishTransactionRef ? (
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              � {payment.whishTransactionRef}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : null}
+
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Clock className="size-3 shrink-0" />
+                        <span>{formatDate(payment.dueDate)}</span>
+                      </span>
+                    </div>
                   </div>
-                  {payment.paymentMethod ? (
-                    <span className="text-xs text-muted-foreground">
-                      {ar.paymentMethod?.[payment.paymentMethod as never] ?? payment.paymentMethod}
-                      {payment.whishTransactionRef ? ` · ${payment.whishTransactionRef}` : ''}
-                    </span>
-                  ) : null}
+
+                  {/* Mark as seen action */}
+                  <button
+                    type="button"
+                    onClick={(e) => void handleMarkAsSeen(e, payment.id)}
+                    title={locale === 'en' ? 'Mark as seen' : '����� ������'}
+                    className="shrink-0 mt-0.5 flex size-7 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground shadow-2xs hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all cursor-pointer group-hover:border-border"
+                  >
+                    <Check className="size-3.5" />
+                    <span className="sr-only">{locale === 'en' ? 'Mark as seen' : '����� ������'}</span>
+                  </button>
                 </DropdownMenuItem>
-              ))}
-            </div>
-            <DropdownMenuSeparator className="mx-0 my-0" />
-            <DropdownMenuItem onSelect={openQueue} className="justify-center px-3 py-2.5">
-              <Inbox className="size-4" aria-hidden />
-              <span className="text-sm font-medium">
-                {count > MAX_LISTED ? `عرض الكل (${count})` : 'فتح قائمة التأكيد'}
-              </span>
-            </DropdownMenuItem>
-          </>
+              );
+            })}
+          </div>
         )}
+
+        {/* Footer */}
+        {count > 0 ? (
+          <div className="border-t border-border/60 bg-muted/20 p-2">
+            <button
+              type="button"
+              onClick={openQueue}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-background/60 hover:bg-background py-2 text-xs font-semibold text-primary transition-all border border-border/40 hover:border-border shadow-2xs cursor-pointer"
+            >
+              <Inbox className="size-3.5" />
+              <span>
+                {count > MAX_LISTED
+                  ? (locale === 'en' ? `View all pending (${count})` : `��� ���� ��������� (${count})`)
+                  : (locale === 'en' ? 'Open verification list' : '��� ����� �������')}
+              </span>
+              <ArrowRight className="size-3.5 rtl:rotate-180 text-muted-foreground" />
+            </button>
+          </div>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+

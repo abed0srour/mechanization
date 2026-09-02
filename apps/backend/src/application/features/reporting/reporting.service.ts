@@ -89,6 +89,13 @@ export interface SpatialFeature {
 }
 
 /** One citizen registered against a parcel, as the staff map drawer shows them. */
+export interface ParcelRegistrantFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  paymentStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
+}
+
 export interface ParcelRegistrant {
   citizenId: string;
   registrationId: string;
@@ -103,6 +110,14 @@ export interface ParcelRegistrant {
   registeredAt: string;
   /** Units inside this citizen's slice of the building, if any. */
   unitCount: number;
+  financials?: ParcelRegistrantFinancials;
+}
+
+export interface ParcelFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  status: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
 }
 
 /**
@@ -118,6 +133,7 @@ export interface RegisteredParcel {
   latitude: number;
   longitude: number;
   registrants: ParcelRegistrant[];
+  financials?: ParcelFinancials;
 }
 
 /** One unit inside a BUILDING — شقة, عيادة or محل. */
@@ -141,8 +157,15 @@ export interface CitizenProfileUnit {
  */
 export interface CitizenProfileProperty {
   id: string;
-  neighborhood: string;
-  propertyNumber: string;
+  /**
+   * Null when the officer recorded الحي or رقم العقار as «غير مؤكَّد».
+   *
+   * The profile is the record as it actually stands, so an absence shows as an
+   * absence rather than as an empty string that reads like a rendering bug —
+   * the registration's own flag list is what says why.
+   */
+  neighborhood: string | null;
+  propertyNumber: string | null;
   propertyType: string;
   occupancyType: string;
   /** TENANT only — the wizard requires both when occupancy is مستأجر. */
@@ -176,8 +199,31 @@ export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   submittedAt: string;
+  /** `REQUIRES_REVIEW` when `flags` is non-empty; `PENDING` otherwise. */
+  status: string;
+  flags: Array<{ path: string; reason: string }>;
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
+}
+
+/**
+ * The stored flags, read back without trusting the json column's shape.
+ *
+ * Same reasoning as `CitizensService.readFlags` — an entry missing either half
+ * is dropped, because a flag with no reason is the exact thing this feature
+ * exists to prevent and rendering one would report the gap as explained when
+ * nobody explained it. Duplicated rather than shared because these two
+ * services deliberately have no dependency between them.
+ */
+function readRegistrationFlags(value: unknown): Array<{ path: string; reason: string }> {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const { path, reason } = entry as Record<string, unknown>;
+    if (typeof path !== 'string' || typeof reason !== 'string') return [];
+    return [{ path, reason }];
+  });
 }
 
 /** One invoice on the citizen's profile — the same shape the portal shows them. */
@@ -233,6 +279,7 @@ export interface CitizenProfile {
   civilRecordNumber: string | null;
   familySize: number | null;
   maritalStatus: string | null;
+  bloodType: string | null;
   referenceNumber: string | null;
   registeredAt: string;
   /** False for a deactivated record — kept for its history, refused a session. */
@@ -468,7 +515,21 @@ export class ReportingService {
   private async computeSpatialData(): Promise<SpatialFeature[]> {
     const rows = await withConnectionRetry(() =>
       this.db.propertyEntry.findMany({
-        where: { latitude: { not: null }, longitude: { not: null } },
+        /*
+          `propertyNumber: not null` is redundant against the coordinate filter
+          and stated anyway.
+
+          Coordinates only ever come from looking رقم العقار up in the cadastre,
+          so a card whose number was left «غير مؤكَّد» has none and is already
+          excluded. Saying so here means a marker's label can never be blank —
+          and if that ever stops being true, this is the line that says the map
+          was written expecting it.
+        */
+        where: {
+          latitude: { not: null },
+          longitude: { not: null },
+          propertyNumber: { not: null },
+        },
         select: {
           id: true,
           propertyNumber: true,
@@ -484,7 +545,7 @@ export class ReportingService {
 
     return rows.map((row) => ({
       id: row.id,
-      propertyNumber: row.propertyNumber,
+      propertyNumber: row.propertyNumber!,
       propertyType: row.propertyType,
       latitude: row.latitude!,
       longitude: row.longitude!,
@@ -532,6 +593,7 @@ export class ReportingService {
         civilRecordNumber: true,
         familySize: true,
         maritalStatus: true,
+        bloodType: true,
         referenceNumber: true,
         isActive: true,
         createdAt: true,
@@ -564,6 +626,8 @@ export class ReportingService {
             id: true,
             referenceNumber: true,
             submittedAt: true,
+            status: true,
+            flaggedFields: true,
             properties: {
               select: {
                 id: true,
@@ -672,6 +736,7 @@ export class ReportingService {
       civilRecordNumber: citizen.civilRecordNumber,
       familySize: citizen.familySize,
       maritalStatus: citizen.maritalStatus,
+      bloodType: citizen.bloodType,
       referenceNumber: citizen.referenceNumber,
       registeredAt: citizen.createdAt.toISOString(),
       isActive: citizen.isActive,
@@ -697,6 +762,17 @@ export class ReportingService {
         id: registration.id,
         referenceNumber: registration.referenceNumber,
         submittedAt: registration.submittedAt.toISOString(),
+        status: registration.status,
+        /**
+         * The «غير مؤكَّد» fields and the reason given for each.
+         *
+         * On the profile rather than only on the edit form because this is the
+         * page a collector opens before knocking on a door: "we have no phone
+         * number for this household, and here is why" is exactly what they
+         * need before setting out, and it is not something to discover by
+         * opening the record for editing.
+         */
+        flags: readRegistrationFlags(registration.flaggedFields),
         properties: registration.properties.map((property) => ({
           id: property.id,
           neighborhood: property.neighborhood,
@@ -765,7 +841,13 @@ export class ReportingService {
   private async computeRegisteredParcels(): Promise<RegisteredParcel[]> {
     const rows = await withConnectionRetry(() =>
       this.db.propertyEntry.findMany({
-        where: { latitude: { not: null }, longitude: { not: null } },
+        // Same reasoning as `computeSpatialData`: a parcel is keyed by its
+        // رقم العقار here, and a card that has none was never located.
+        where: {
+          latitude: { not: null },
+          longitude: { not: null },
+          propertyNumber: { not: null },
+        },
         select: {
           propertyNumber: true,
           propertyType: true,
@@ -796,18 +878,71 @@ export class ReportingService {
       }),
     );
 
+    // Collect all citizen IDs to fetch their payment ledger summary in one go
+    const citizenIds = Array.from(new Set(rows.map((r) => r.registration.citizen.id)));
+    const payments =
+      citizenIds.length > 0
+        ? await withConnectionRetry(() =>
+            this.db.citizenPayment.findMany({
+              where: { citizenId: { in: citizenIds } },
+              select: {
+                citizenId: true,
+                amount: true,
+                paidAmount: true,
+                paymentStatus: true,
+              },
+            }),
+          )
+        : [];
+
+    const paymentsByCitizen = new Map<
+      string,
+      Array<{ amount: number; paidAmount: number; status: string }>
+    >();
+    for (const p of payments) {
+      const list = paymentsByCitizen.get(p.citizenId) ?? [];
+      list.push({
+        amount: Number(p.amount),
+        paidAmount: Number(p.paidAmount),
+        status: p.paymentStatus,
+      });
+      paymentsByCitizen.set(p.citizenId, list);
+    }
+
     const byParcel = new Map<string, RegisteredParcel>();
 
     for (const row of rows) {
-      const parcel = byParcel.get(row.propertyNumber) ?? {
-        propertyNumber: row.propertyNumber,
+      const citizenId = row.registration.citizen.id;
+      const citizenPayments = paymentsByCitizen.get(citizenId) ?? [];
+
+      let totalBilled = 0;
+      let totalPaid = 0;
+      for (const cp of citizenPayments) {
+        totalBilled += cp.amount;
+        totalPaid += cp.paidAmount;
+      }
+      const totalDue = Math.max(totalBilled - totalPaid, 0);
+
+      let citizenStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS' = 'NO_BILLS';
+      if (totalBilled === 0) {
+        citizenStatus = 'NO_BILLS';
+      } else if (totalDue === 0) {
+        citizenStatus = 'PAID';
+      } else if (totalPaid > 0) {
+        citizenStatus = 'PARTIALLY_PAID';
+      } else {
+        citizenStatus = 'UNPAID';
+      }
+
+      const parcel = byParcel.get(row.propertyNumber!) ?? {
+        propertyNumber: row.propertyNumber!,
         latitude: row.latitude!,
         longitude: row.longitude!,
         registrants: [],
       };
 
       parcel.registrants.push({
-        citizenId: row.registration.citizen.id,
+        citizenId,
         registrationId: row.registration.id,
         fullName: [
           row.registration.citizen.firstName,
@@ -822,9 +957,47 @@ export class ReportingService {
         buildingName: row.buildingName,
         registeredAt: row.registration.submittedAt.toISOString(),
         unitCount: row._count.units,
+        financials: {
+          totalBilled,
+          totalPaid,
+          totalDue,
+          paymentStatus: citizenStatus,
+        },
       });
 
-      byParcel.set(row.propertyNumber, parcel);
+      byParcel.set(row.propertyNumber!, parcel);
+    }
+
+    // Compute parcel-level aggregated financials
+    for (const parcel of byParcel.values()) {
+      let parcelBilled = 0;
+      let parcelPaid = 0;
+
+      for (const reg of parcel.registrants) {
+        if (reg.financials) {
+          parcelBilled += reg.financials.totalBilled;
+          parcelPaid += reg.financials.totalPaid;
+        }
+      }
+
+      const parcelDue = Math.max(parcelBilled - parcelPaid, 0);
+      let parcelStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS' = 'NO_BILLS';
+      if (parcelBilled === 0) {
+        parcelStatus = 'NO_BILLS';
+      } else if (parcelDue === 0) {
+        parcelStatus = 'PAID';
+      } else if (parcelPaid > 0) {
+        parcelStatus = 'PARTIALLY_PAID';
+      } else {
+        parcelStatus = 'UNPAID';
+      }
+
+      parcel.financials = {
+        totalBilled: parcelBilled,
+        totalPaid: parcelPaid,
+        totalDue: parcelDue,
+        status: parcelStatus,
+      };
     }
 
     return [...byParcel.values()];

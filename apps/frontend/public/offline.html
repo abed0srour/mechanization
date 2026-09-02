@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>لا يوجد اتصال — السجل البلدي</title>
+    <!--
+      Deliberately self-contained: no font, no stylesheet, no script. This page
+      is only ever served when the network is gone, so anything it referenced
+      would be one more thing to fail — and a broken error page is worse than a
+      plain one. The system font stack renders Arabic correctly on every device
+      this portal runs on.
+    -->
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: #f8fafc;
+        color: #0f172a;
+        font-family: "Readex Pro", "IBM Plex Sans Arabic", "Segoe UI", system-ui, sans-serif;
+        line-height: 1.7;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #090e17; color: #e2e8f0; }
+        .card { background: #0f172a; border-color: #1e293b; }
+        .note { background: #1e293b; }
+      }
+      .card {
+        max-width: 30rem;
+        width: 100%;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        text-align: center;
+      }
+      h1 { font-size: 1.125rem; margin: 0 0 0.5rem; }
+      p { margin: 0 0 0.75rem; font-size: 0.875rem; }
+      .note {
+        background: #f1f5f9;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        font-size: 0.8125rem;
+        text-align: start;
+      }
+      button {
+        margin-top: 1rem;
+        width: 100%;
+        padding: 0.625rem 1rem;
+        font: inherit;
+        font-weight: 600;
+        color: #ffffff;
+        background: #1d4ed8;
+        border: 0;
+        border-radius: 0.5rem;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>لا يوجد اتصال بالشبكة</h1>
+      <p>هذه الصفحة لم تُفتح على هذا الجهاز من قبل، فلا نسخة محفوظة منها.</p>
+
+      <!--
+        The reassurance is the point of this page. An officer who has just been
+        shown an error screen has every reason to assume the afternoon's work
+        went with it, and the expensive mistake that follows is re-entering
+        households that are already stored.
+      -->
+      <div class="note">
+        <strong>السجلات المحفوظة على هذا الجهاز لم تُفقد.</strong>
+        تبقى مخزّنة كما هي، وتُرسل تلقائياً إلى البلدية عند عودة الشبكة. لا حاجة
+        لإعادة إدخال أي منها.
+      </div>
+
+      <button type="button" onclick="location.reload()">إعادة المحاولة</button>
+    </main>
+  </body>
+</html>

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { BillTypeSelect } from '@/components/admin/bill-type-select';
 
 export interface ChargeValues {
   citizenId: string;
@@ -44,6 +45,8 @@ export function ChargeCitizenDialog({
   submitting,
   error,
   onSubmit,
+  locale = 'ar',
+  existingTitles = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -51,6 +54,8 @@ export function ChargeCitizenDialog({
   submitting: boolean;
   error: string | null;
   onSubmit: (values: ChargeValues) => void;
+  locale?: string;
+  existingTitles?: string[];
 }) {
   const [values, setValues] = useState<ChargeValues>(EMPTY);
   const [query, setQuery] = useState('');
@@ -92,14 +97,19 @@ export function ChargeCitizenDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel="إغلاق" className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
+      <DialogContent
+        closeLabel={locale === 'en' ? 'Close' : 'إغلاق'}
+        className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg"
+      >
         <DialogHeader className="shrink-0 space-y-1 border-b p-6 text-start">
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="size-5 text-primary" aria-hidden />
-            إضافة مطالبة لمواطن
+            {locale === 'en' ? 'Direct Charge Citizen' : 'إضافة مطالبة لمواطن'}
           </DialogTitle>
           <DialogDescription>
-            مطالبة فردية لمرة واحدة، دون إشعار أو تكرار.
+            {locale === 'en'
+              ? 'One-off individual charge without periodic billing recurrence.'
+              : 'مطالبة فردية لمرة واحدة، دون إشعار أو تكرار.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -113,11 +123,16 @@ export function ChargeCitizenDialog({
             </p>
           ) : null}
 
-          <Field label="المواطن" htmlFor="charge-citizen" required hint="ابحث بالاسم أو بالرقم المرجعي.">
+          <Field
+            label={locale === 'en' ? 'Citizen' : 'المواطن'}
+            htmlFor="charge-citizen"
+            required
+            hint={locale === 'en' ? 'Search by name or reference number.' : 'ابحث بالاسم أو بالرقم المرجعي.'}
+          >
             <div className="space-y-2">
               <Input
                 id="charge-citizen"
-                placeholder="اسم المواطن أو الرقم المرجعي"
+                placeholder={locale === 'en' ? 'Citizen name or reference number' : 'اسم المواطن أو الرقم المرجعي'}
                 value={chosen ? `${chosen.fullName} — ${chosen.referenceNumber}` : query}
                 onChange={(event) => {
                   setQuery(event.target.value);
@@ -148,17 +163,36 @@ export function ChargeCitizenDialog({
             </div>
           </Field>
 
-          <Field label="سبب المطالبة" htmlFor="charge-title" required>
-            <Input
+          <Field
+            label={locale === 'en' ? 'Fee / Bill Type' : 'نوع الرسم / سبب المطالبة'}
+            htmlFor="charge-title"
+            required
+            hint={
+              locale === 'en'
+                ? 'Select from predefined municipal bill types or search to type a custom name.'
+                : 'اختر من أنواع الرسوم البلدية المعتمدة أو ابحث لكتابة اسم مخصص.'
+            }
+          >
+            <BillTypeSelect
               id="charge-title"
-              placeholder="مثال: رسم إفادة عقارية"
+              locale={locale}
               value={values.title}
-              onChange={(event) => set({ title: event.target.value })}
+              onChange={(title) => set({ title })}
+              existingTitles={existingTitles}
+              placeholder={
+                locale === 'en'
+                  ? 'Select from previous bills or type a new title…'
+                  : 'اختر من الرسوم السابقة أو اكتب اسماً جديداً…'
+              }
             />
           </Field>
 
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="المبلغ بالليرة اللبنانية" htmlFor="charge-amount" required>
+            <Field
+              label={locale === 'en' ? 'Amount (LBP)' : 'المبلغ بالليرة اللبنانية'}
+              htmlFor="charge-amount"
+              required
+            >
               <Input
                 id="charge-amount"
                 inputMode="numeric"
@@ -169,7 +203,11 @@ export function ChargeCitizenDialog({
                 onChange={(event) => set({ amount: formatLbp(event.target.value) })}
               />
             </Field>
-            <Field label="تاريخ الاستحقاق" htmlFor="charge-due" required>
+            <Field
+              label={locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق'}
+              htmlFor="charge-due"
+              required
+            >
               <Input
                 id="charge-due"
                 type="date"
@@ -184,11 +222,11 @@ export function ChargeCitizenDialog({
 
         <DialogFooter className="shrink-0 gap-2 border-t p-6">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            إلغاء
+            {locale === 'en' ? 'Cancel' : 'إلغاء'}
           </Button>
           <Button disabled={!complete || submitting} onClick={() => onSubmit(values)}>
             {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            إضافة المطالبة
+            {locale === 'en' ? 'Add Charge' : 'إضافة المطالبة'}
           </Button>
         </DialogFooter>
       </DialogContent>

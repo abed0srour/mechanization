@@ -8,6 +8,7 @@ import { loadSession, saveSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useTranslations } from 'next-intl';
 
 import {
   formatReference,
@@ -38,6 +39,7 @@ export default function TenantHome({
   const { tenant, locale } = use(params);
   const router = useRouter();
   const base = `/${tenant}/${locale}`;
+  const tCitizen = useTranslations('citizen');
 
   const [reference, setReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -67,11 +69,13 @@ export default function TenantHome({
       setError(
         caught instanceof ApiRequestError
           ? caught.message
-          : 'تعذّر فتح الملف. يرجى المحاولة لاحقاً.',
+          : (locale === 'en'
+              ? 'Failed to open file. Please try again later.'
+              : 'تعذّر فتح الملف. يرجى المحاولة لاحقاً.'),
       );
       setSubmitting(false);
     }
-  }, [tenant, base, router, reference, submitting]);
+  }, [tenant, base, router, reference, submitting, locale]);
 
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center space-y-6">
@@ -82,11 +86,11 @@ export default function TenantHome({
         >
           <FileSearch className="size-8" />
         </span>
-        <h1 className="text-2xl font-bold leading-snug tracking-tight sm:text-3xl">
-          أدخل رقمك المرجعي
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          {tCitizen('enterReference')}
         </h1>
         <p className="text-muted-foreground">
-          لعرض عقاراتك والرسوم المستحقة عليك وما سدّدته.
+          {tCitizen('enterReferenceHint')}
         </p>
       </div>
 
@@ -103,7 +107,7 @@ export default function TenantHome({
 
           <div className="space-y-2">
             <label htmlFor="reference" className="sr-only">
-              الرقم المرجعي
+              {tCitizen('referenceNumber')}
             </label>
             <Input
               id="reference"
@@ -113,18 +117,8 @@ export default function TenantHome({
               autoCapitalize="characters"
               autoCorrect="off"
               spellCheck={false}
-              // `text`, not a numeric mode: the value is two thirds letters, and
-              // a numeric keypad on a phone would hide them.
               inputMode="text"
-              // 15 = 13 characters plus the two dashes. The mask enforces this
-              // as well; the attribute is what stops a phone keyboard from
-              // buffering a fourteenth character before React sees it.
               maxLength={REFERENCE_RAW_LENGTH + 2}
-              // Tall, centred and wide-tracked: this is the only thing on the
-              // page, and it is read off paper one character at a time by
-              // someone who may be doing it at arm's length. Tracking is
-              // dropped a step on the narrowest phones so the full code still
-              // fits on one line rather than clipping.
               className="h-14 text-center font-mono text-base tracking-[0.15em] sm:h-16 sm:text-xl sm:tracking-[0.2em]"
               placeholder="BZR-2608-5HLQBM"
               value={reference}
@@ -137,7 +131,7 @@ export default function TenantHome({
               }}
             />
             <p className="text-center text-xs text-muted-foreground">
-              مطبوع على وصل الدفع وعلى إفادة التسجيل. الشرطات تُضاف تلقائياً.
+              {tCitizen('autoDashHint')}
             </p>
           </div>
 
@@ -150,19 +144,19 @@ export default function TenantHome({
             {submitting ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
-              <ArrowLeft className="size-4" aria-hidden />
+              <ArrowLeft className="size-4 rtl:rotate-0 ltr:rotate-180" aria-hidden />
             )}
-            عرض ملفّي
+            {tCitizen('viewMyFile')}
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">
-            لا تعرف رقمك المرجعي؟{' '}
+            {tCitizen('dontKnowReference')}{' '}
             <button
               type="button"
               onClick={() => router.push(`${base}/login`)}
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
-              ادخل برمز يصلك برسالة نصية
+              {locale === 'en' ? 'Sign in with phone number' : 'سجّل الدخول برقم الهاتف'}
             </button>
           </p>
         </CardContent>

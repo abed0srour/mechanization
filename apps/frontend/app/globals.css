@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@500;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -206,45 +208,6 @@
  * `:root` / `.dark` values, so an unset attribute renders correctly before the
  * pre-paint script runs.
  */
-@layer base {
-  [data-accent='emerald'] {
-    --primary: 152 58% 32%;
-    --ring: 152 58% 38%;
-  }
-  .dark[data-accent='emerald'] {
-    --primary: 152 52% 45%;
-    --ring: 152 52% 45%;
-  }
-
-  [data-accent='rose'] {
-    --primary: 347 68% 45%;
-    --ring: 347 68% 50%;
-  }
-  .dark[data-accent='rose'] {
-    --primary: 347 74% 59%;
-    --ring: 347 74% 59%;
-  }
-
-  [data-accent='violet'] {
-    --primary: 262 58% 47%;
-    --ring: 262 58% 53%;
-  }
-  .dark[data-accent='violet'] {
-    --primary: 262 68% 66%;
-    --ring: 262 68% 66%;
-  }
-
-  /* 40%, not the 44% this palette is usually written at: orange is nearly as
-     luminous as amber, and 44% leaves `text-primary` at 3.9:1 on the cream. */
-  [data-accent='sunset'] {
-    --primary: 24 82% 40%;
-    --ring: 24 82% 46%;
-  }
-  .dark[data-accent='sunset'] {
-    --primary: 24 88% 55%;
-    --ring: 24 88% 55%;
-  }
-}
 
 @layer base {
   * {
@@ -266,6 +229,29 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /**
+   * The UA's own clear button, removed everywhere.
+   *
+   * `type="search"` is kept for its semantics — it is what tells a screen
+   * reader and the browser's own autofill that the field is a search box —
+   * but Chromium answers it by painting `::-webkit-search-cancel-button`
+   * inside the field. Every search box in this app already renders its own
+   * clear control, so the UA's is a second ✕ beside ours: two buttons, one
+   * of which is unlabelled, unstyled, invisible until the field has content,
+   * and (in RTL) sitting flush against the one we drew. It also bypasses our
+   * `onChange`-driven commit, so clicking it emptied the box without clearing
+   * the applied term.
+   *
+   * Declared once here rather than as a utility on each `<Input>`: the two
+   * that exist today drifted already, and the next search box added should
+   * inherit the fix by existing.
+   */
+  input[type='search']::-webkit-search-cancel-button,
+  input[type='search']::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 /**
@@ -284,7 +270,28 @@
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* Without this a decorative `infinite` animation still runs — it just runs
+       its whole cycle every 0.01ms, which is worse than leaving it alone. */
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /**
+   * Loading spinners are the exception, and they have to be.
+   *
+   * The rule above is right for decoration and wrong for a progress
+   * indicator: a spinner that does not spin does not read as "reduced
+   * motion", it reads as "this screen has frozen". Every `Loader2` in this
+   * app is rendered *because* the app is waiting on something, so the
+   * animation is the message rather than an embellishment of it.
+   *
+   * Kept honest by slowing it down rather than restoring the default 1s:
+   * a slower, steady rotation still says "working" without the fast spin
+   * that triggers discomfort for the people this setting exists to protect.
+   */
+  .animate-spin {
+    animation: spin 2s linear infinite !important;
   }
 }
 

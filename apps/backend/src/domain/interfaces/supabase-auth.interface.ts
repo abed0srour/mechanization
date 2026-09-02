@@ -23,6 +23,7 @@ export interface SupabaseAuthService {
   }): Promise<{ id: string }>;
   updateStaffUser(input: {
     email: string;
+    newEmail?: string;
     password?: string;
     firstName?: string;
     lastName?: string;
@@ -31,4 +32,5 @@ export interface SupabaseAuthService {
   }): Promise<void>;
   deleteStaffUser(email: string): Promise<void>;
   verifyToken(token: string): Promise<SupabaseAuthUser | null>;
+  sendPasswordResetEmail(email: string, redirectTo?: string): Promise<void>;
 }

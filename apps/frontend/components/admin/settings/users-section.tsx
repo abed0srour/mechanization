@@ -409,7 +409,6 @@ export function UsersSection({
               label={copy.users.password}
               htmlFor="new-password"
               required
-              hint={copy.users.passwordHint}
             >
               <Input
                 id="new-password"
@@ -424,7 +423,6 @@ export function UsersSection({
                 label={copy.users.role}
                 htmlFor="new-role"
                 required
-                hint={copy.users.roleDuties[draft.role]}
               >
                 <Select
                   value={draft.role}

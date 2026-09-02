@@ -21,8 +21,10 @@ import {
 
 const BASE: ImportRow = {
   firstName: 'علي',
+  middleName: 'حسين',
   lastName: 'خليل',
   gender: 'ذكر',
+  bloodType: 'A+',
   isLebanese: 'نعم',
   nationality: 'لبناني',
   residentStatus: 'من سكان الضيعة',
@@ -189,6 +191,8 @@ describe('buildCitizenPayload — rows the form would reject', () => {
     ['an invalid phone number', { ...BASE, ...house, phone: '12345' }],
     ['an unrecognised property type', { ...BASE, propertyType: 'قصر', unitArea: '180' }],
     ['a missing name', { ...BASE, ...house, firstName: '' }],
+    ['a missing father name', { ...BASE, ...house, middleName: '' }],
+    ['a missing blood type', { ...BASE, ...house, bloodType: '' }],
     ['a household size of zero', { ...BASE, ...house, familySize: '0' }],
   ])('rejects %s', (_label, row) => {
     expect(parse(row as ImportRow).success).toBe(false);

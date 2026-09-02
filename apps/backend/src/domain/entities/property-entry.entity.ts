@@ -24,8 +24,8 @@ export interface PropertyEntryProps {
   landlordPhone?: string | null;
   propertyType: PropertyType;
   /** الحي — common to every property type; free text, unlike رقم العقار there is nothing to check it against. */
-  neighborhood: string;
-  propertyNumber: string;
+  neighborhood?: string | null;
+  propertyNumber?: string | null;
   unitType?: UnitType | null;
   landType?: LandType | null;
   buildingName?: string | null;
@@ -41,6 +41,18 @@ export interface PropertyEntryProps {
 }
 
 /**
+ * The card's fields a field officer explicitly recorded as unestablished.
+ *
+ * Bare field names — `landlordPhone`, not `properties.2.landlordPhone` — because
+ * by the time a card reaches this class it is one card, and it has no idea
+ * which index it was. The caller strips the prefix; see
+ * `RegistrationService.submit`.
+ */
+export type UnestablishedFields = ReadonlySet<string>;
+
+const NOTHING_UNESTABLISHED: UnestablishedFields = new Set<string>();
+
+/**
  * One property card. The taxonomy rules live here rather than only in Zod so
  * they hold for every entry point — HTTP, seed scripts, and the spreadsheet
  * import a municipality will inevitably ask for.
@@ -48,9 +60,22 @@ export interface PropertyEntryProps {
 export class PropertyEntry {
   private constructor(readonly props: Readonly<PropertyEntryProps>) {}
 
-  static create(props: PropertyEntryProps): PropertyEntry {
-    PropertyEntry.assertOccupancyConsistent(props);
-    PropertyEntry.assertTaxonomyConsistent(props);
+  /**
+   * `unestablished` names the fields whose rule is waived for this card, and
+   * nothing else about it changes.
+   *
+   * It is deliberately a *waiver list* rather than a "lenient mode": a card
+   * filed with an empty set is validated exactly as it always was, and a card
+   * that names `landlordPhone` still has every other rule applied to it in
+   * full. That matters because these rules are the only ones that hold for the
+   * seed script and the spreadsheet import, which never pass a set at all.
+   */
+  static create(
+    props: PropertyEntryProps,
+    unestablished: UnestablishedFields = NOTHING_UNESTABLISHED,
+  ): PropertyEntry {
+    PropertyEntry.assertOccupancyConsistent(props, unestablished);
+    PropertyEntry.assertTaxonomyConsistent(props, unestablished);
     PropertyEntry.assertCoordinatesPlausible(props);
     return new PropertyEntry(PropertyEntry.normalise(props));
   }
@@ -60,39 +85,66 @@ export class PropertyEntry {
     return new PropertyEntry(props);
   }
 
-  private static assertOccupancyConsistent(props: PropertyEntryProps): void {
-    if (props.occupancyType === 'TENANT') {
-      if (!props.landlordName?.trim() || !props.landlordPhone?.trim()) {
-        throw new ValidationError('A tenant entry requires the landlord name and phone', {
-          propertyNumber: props.propertyNumber,
-        });
-      }
+  private static assertOccupancyConsistent(
+    props: PropertyEntryProps,
+    unestablished: UnestablishedFields,
+  ): void {
+    if (props.occupancyType !== 'TENANT') return;
+
+    const missing =
+      (!props.landlordName?.trim() && !unestablished.has('landlordName')) ||
+      (!props.landlordPhone?.trim() && !unestablished.has('landlordPhone'));
+
+    if (missing) {
+      throw new ValidationError('A tenant entry requires the landlord name and phone', {
+        propertyNumber: props.propertyNumber ?? null,
+      });
     }
   }
 
-  private static assertTaxonomyConsistent(props: PropertyEntryProps): void {
+  private static assertTaxonomyConsistent(
+    props: PropertyEntryProps,
+    unestablished: UnestablishedFields,
+  ): void {
     const fail = (message: string) =>
-      new ValidationError(message, { propertyNumber: props.propertyNumber });
+      new ValidationError(message, { propertyNumber: props.propertyNumber ?? null });
+
+    /** A rule is checked unless the officer recorded that field as unestablished. */
+    const required = (field: string, present: boolean) =>
+      present || unestablished.has(field);
 
     // Common to every type, checked once here rather than duplicated in each
     // branch below.
-    if (!props.neighborhood?.trim()) throw fail('Every property requires a neighbourhood');
+    if (!required('neighborhood', Boolean(props.neighborhood?.trim()))) {
+      throw fail('Every property requires a neighbourhood');
+    }
 
     // Only a building is divisible into units; anything else with a `units`
-    // array is a caller that has confused the two shapes.
+    // array is a caller that has confused the two shapes. Not waivable: this
+    // is a contradiction in the payload rather than a fact nobody could collect.
     if (props.propertyType !== 'BUILDING' && (props.units?.length ?? 0) > 0) {
       throw fail(`A ${props.propertyType.toLowerCase()} cannot be divided into units`);
     }
 
     switch (props.propertyType) {
       case 'BUILDING': {
-        if (!props.buildingName?.trim()) throw fail('A building requires a building name');
+        if (!required('buildingName', Boolean(props.buildingName?.trim()))) {
+          throw fail('A building requires a building name');
+        }
 
         // The units carry نوع الوحدة / الطابق / المساحة now, so a building with
-        // none of them describes nothing at all.
+        // none of them describes nothing at all — unless the officer has said
+        // as much, which is what a flag on `units` records.
         const units = props.units ?? [];
-        if (units.length === 0) throw fail('A building requires at least one unit');
+        if (units.length === 0) {
+          if (!unestablished.has('units')) throw fail('A building requires at least one unit');
+          break;
+        }
 
+        // A unit that *was* entered is entered whole. The flag is offered on the
+        // collection, not inside it: "we could not go through the building" is a
+        // thing that happens, "we recorded this apartment but not its floor" is
+        // an unfinished form.
         units.forEach((unit, index) => {
           const where = `unit ${index + 1}`;
           if (!unit.unitType) throw fail(`${where} requires a unit type`);
@@ -102,20 +154,28 @@ export class PropertyEntry {
         break;
       }
       case 'HOUSE':
-        if (!props.buildingName?.trim()) throw fail('A house requires a name or description');
-        if (!props.unitArea || props.unitArea <= 0) throw fail('A house requires an area');
+        if (!required('buildingName', Boolean(props.buildingName?.trim()))) {
+          throw fail('A house requires a name or description');
+        }
+        if (!required('unitArea', Boolean(props.unitArea && props.unitArea > 0))) {
+          throw fail('A house requires an area');
+        }
         if (props.floor) throw fail('A standalone house cannot have a floor');
         if (props.unitType) throw fail('A standalone house cannot have a unit type');
         break;
       case 'LAND':
-        if (!props.landType) throw fail('Land requires a land type');
-        if (!props.unitArea || props.unitArea <= 0) throw fail('Land requires an area');
+        if (!required('landType', Boolean(props.landType))) throw fail('Land requires a land type');
+        if (!required('unitArea', Boolean(props.unitArea && props.unitArea > 0))) {
+          throw fail('Land requires an area');
+        }
         if (props.floor || props.unitType || props.buildingName) {
           throw fail('Land cannot carry building details');
         }
         break;
       case 'TENT':
-        if (!props.tentLocation?.trim()) throw fail('A tent requires a location description');
+        if (!required('tentLocation', Boolean(props.tentLocation?.trim()))) {
+          throw fail('A tent requires a location description');
+        }
         if (props.floor || props.unitType || props.buildingName) {
           throw fail('A tent cannot carry building details');
         }
@@ -133,12 +193,12 @@ export class PropertyEntry {
 
     if (latitude == null || longitude == null) {
       throw new ValidationError('A location needs both a latitude and a longitude', {
-        propertyNumber: props.propertyNumber,
+        propertyNumber: props.propertyNumber ?? null,
       });
     }
     if (latitude < 33.0 || latitude > 34.7 || longitude < 35.0 || longitude > 36.7) {
       throw new ValidationError('الموقع خارج حدود لبنان', {
-        propertyNumber: props.propertyNumber,
+        propertyNumber: props.propertyNumber ?? null,
       });
     }
   }
@@ -151,7 +211,7 @@ export class PropertyEntry {
 
     return {
       ...props,
-      neighborhood: props.neighborhood.trim(),
+      neighborhood: props.neighborhood?.trim() || null,
       landlordName: isTenant ? props.landlordName?.trim() : null,
       landlordPhone: isTenant ? props.landlordPhone?.trim() : null,
       // A building's unit detail lives in `units`; the inline columns describe
@@ -173,12 +233,13 @@ export class PropertyEntry {
             sharedRights: unit.sharedRights ?? [],
           }))
         : [],
-      propertyNumber: props.propertyNumber.trim(),
+      propertyNumber: props.propertyNumber?.trim() || null,
     };
   }
 
-  get propertyNumber(): string {
-    return this.props.propertyNumber;
+  /** Null when the officer could not establish رقم العقار — see `UnestablishedFields`. */
+  get propertyNumber(): string | null {
+    return this.props.propertyNumber ?? null;
   }
 
   get propertyType(): PropertyType {

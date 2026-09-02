@@ -2,12 +2,13 @@
 
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { AdminHeader } from '@/components/admin/admin-header';
 import { AdminSidebar, SidebarNav } from '@/components/admin/admin-sidebar';
 import { CommandPalette } from '@/components/admin/command-palette';
 import { loadSession } from '@/lib/session';
 import type { Session } from '@/lib/api-client';
+import { useServiceWorker } from '@/lib/use-service-worker';
 import { cn } from '@/lib/utils';
 
 /**
@@ -40,6 +41,17 @@ export function AdminShell({
 }): React.JSX.Element {
   const pathname = usePathname();
   const base = `/${tenant}/${locale}/${adminPath}`;
+
+  /*
+   * Installs the app shell on this device.
+   *
+   * Mounted at the chrome rather than on the entry form, so simply having
+   * opened the portal once is enough to be covered later. An officer who only
+   * thinks about it when they are already out of signal is too late — that is
+   * the moment the shell is needed, not the moment it can be fetched.
+   */
+  useServiceWorker(base);
+
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);
@@ -123,14 +135,13 @@ export function AdminShell({
             )}
           >
             <div className="flex h-14 shrink-0 items-center gap-2.5 border-b px-4">
-              <span
-                aria-hidden
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-              >
-                <ShieldCheck className="size-[18px]" />
+              <span aria-hidden className="flex size-9 shrink-0 items-center justify-center">
+                <img src="/logo.png" alt="" className="size-9 object-contain" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">لوحة البلدية</p>
+                <p className="truncate text-sm font-semibold">
+                  {locale === 'en' ? 'Municipality Portal' : 'لوحة البلدية'}
+                </p>
                 {tenantName ? (
                   <p className="truncate text-xs text-muted-foreground">{tenantName}</p>
                 ) : null}
@@ -144,7 +155,7 @@ export function AdminShell({
                 <X className="size-5" />
               </button>
             </div>
-            <SidebarNav base={base} role={role} onNavigate={() => setDrawerOpen(false)} />
+            <SidebarNav base={base} role={role} locale={locale} onNavigate={() => setDrawerOpen(false)} />
           </aside>
         </div>
       ) : null}
@@ -163,13 +174,14 @@ export function AdminShell({
             wide table's intrinsic width wins the flex negotiation and pushes
             the whole column past the viewport, which is how a page ends up
             scrolling horizontally as a whole instead of inside its table. */}
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto bg-background">{children}</main>
       </div>
 
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         base={base}
+        locale={locale}
         tenant={tenant}
         token={session?.accessToken}
         role={role}

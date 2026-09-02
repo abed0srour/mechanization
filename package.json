@@ -16,7 +16,8 @@
     "staff:create": "pnpm --filter @mechanization/backend staff:create",
     "tenant:provision": "pnpm --filter @mechanization/backend tenant:provision",
     "lint": "eslint .",
-    "typecheck": "pnpm --filter @mechanization/backend exec tsc --noEmit"
+    "typecheck": "pnpm --filter @mechanization/backend exec tsc --noEmit",
+    "auth:sync-templates": "node scripts/sync-supabase-templates.mjs"
   },
   "pnpm": {
     "overrides": {

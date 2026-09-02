@@ -28,61 +28,106 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
   async submit(input: SubmitRegistrationInput): Promise<SubmitRegistrationResult> {
     const tenantSlug = this.tenantContext.tenantSlug;
 
+    /*
+      A submission the queue has already delivered is answered, not repeated.
+
+      This is checked before the transaction rather than relying on the unique
+      index to reject the second write, because the caller does not want an
+      error — it wants the registration this submission produced the first
+      time, so the phone that never heard the original response can mark its
+      queued copy done and stop asking. The index is still what makes the check
+      safe against two syncs racing: the loser lands on P2002 and is translated
+      into the same lookup below.
+    */
+    if (input.clientSubmissionId) {
+      const already = await this.findByClientSubmissionId(input.clientSubmissionId);
+      if (already) return already;
+    }
+
+    /*
+      Which identity key this citizen can be matched on — and whether there is
+      one at all.
+
+      `users` is keyed by (نوع الوثيقة, رقم الوثيقة), which is what stops the
+      same person being registered twice under two spellings of their name. A
+      record whose document number was never established has no such key: it
+      cannot be upserted onto, and it must not collide with every other record
+      in the same position. Postgres treats NULLs in a unique index as
+      distinct, so writing a genuine null — rather than the empty string this
+      used to fall back to — is what keeps two unidentified citizens two rows
+      instead of one conflict.
+    */
+    const identityDocNumber = input.citizen.identityDocNumber?.trim() || null;
+    const identityDocType = input.citizen.identityDocType ?? null;
+
+    const shared = {
+      phone: input.citizen.phone ?? null,
+      whatsapp: input.citizen.whatsapp ?? input.citizen.phone ?? null,
+      firstName: input.citizen.firstName,
+      middleName: input.citizen.middleName ?? null,
+      lastName: input.citizen.lastName,
+      gender: (input.citizen.gender ?? null) as never,
+      nationality: input.citizen.nationality ?? null,
+      isLebanese: input.citizen.isLebanese ?? null,
+      residencyNumber: input.citizen.residencyNumber ?? null,
+      residentStatus: (input.citizen.residentStatus ?? null) as never,
+      civilRecordNumber: input.citizen.civilRecordNumber ?? null,
+      familySize: input.citizen.familySize ?? null,
+      maritalStatus: (input.citizen.maritalStatus ?? null) as never,
+      bloodType: (input.citizen.bloodType ?? null) as never,
+    };
+
     try {
       return await this.db.$transaction(async (tx) => {
-        const citizen = await tx.user.upsert({
-          where: {
-            identityDocType_identityDocNumber: {
-              identityDocType: input.citizen.identityDocType as never,
-              identityDocNumber: input.citizen.identityDocNumber,
-            },
-          },
-          update: {
-            phone: input.citizen.phone,
-            whatsapp: input.citizen.whatsapp ?? input.citizen.phone,
-            firstName: input.citizen.firstName,
-            middleName: input.citizen.middleName ?? null,
-            lastName: input.citizen.lastName,
-            gender: input.citizen.gender as never,
-            nationality: input.citizen.nationality,
-            isLebanese: input.citizen.isLebanese,
-            residencyNumber: input.citizen.residencyNumber ?? null,
-            residentStatus: input.citizen.residentStatus as never,
-            civilRecordNumber: input.citizen.civilRecordNumber,
-            familySize: input.citizen.familySize,
-            maritalStatus: input.citizen.maritalStatus as never,
-          },
-          create: {
-            kind: 'CITIZEN',
-            tenantSlug,
-            phone: input.citizen.phone,
-            whatsapp: input.citizen.whatsapp ?? input.citizen.phone,
-            firstName: input.citizen.firstName,
-            middleName: input.citizen.middleName ?? null,
-            lastName: input.citizen.lastName,
-            gender: input.citizen.gender as never,
-            nationality: input.citizen.nationality,
-            isLebanese: input.citizen.isLebanese,
-            residencyNumber: input.citizen.residencyNumber ?? null,
-            residentStatus: input.citizen.residentStatus as never,
-            identityDocType: input.citizen.identityDocType as never,
-            identityDocNumber: input.citizen.identityDocNumber,
-            civilRecordNumber: input.citizen.civilRecordNumber,
-            familySize: input.citizen.familySize,
-            maritalStatus: input.citizen.maritalStatus as never,
-            referenceNumber: input.citizenReference,
-          },
-          select: { id: true },
-        });
+        const citizen =
+          identityDocType && identityDocNumber
+            ? await tx.user.upsert({
+                where: {
+                  identityDocType_identityDocNumber: {
+                    identityDocType: identityDocType as never,
+                    identityDocNumber,
+                  },
+                },
+                update: shared,
+                create: {
+                  kind: 'CITIZEN',
+                  tenantSlug,
+                  ...shared,
+                  identityDocType: identityDocType as never,
+                  identityDocNumber,
+                  referenceNumber: input.citizenReference,
+                },
+                select: { id: true },
+              })
+            : await tx.user.create({
+                data: {
+                  kind: 'CITIZEN',
+                  tenantSlug,
+                  ...shared,
+                  identityDocType: (identityDocType ?? null) as never,
+                  identityDocNumber: null,
+                  referenceNumber: input.citizenReference,
+                },
+                select: { id: true },
+              });
 
         const registration = await tx.registration.create({
           data: {
             citizenId: citizen.id,
             referenceNumber: input.registrationReference,
-            // `status` is no longer written. The column still exists with its
-            // PENDING default, unread by anything — see the note on
-            // `Registration`. Dropping it is a separate migration across every
-            // tenant schema.
+            /*
+              `status` is written again, for one distinction only.
+
+              The old PENDING → VERIFIED → APPROVED workflow is gone and none of
+              those labels is set by anything. What is set is REQUIRES_REVIEW,
+              which is not a stage of adjudication: it says named fields on this
+              record were never established. It is stored rather than derived
+              from `flaggedFields` so the registry can filter on an indexed
+              column instead of unpacking a json array per row.
+            */
+            status: input.status,
+            flaggedFields: input.flaggedFields as never,
+            clientSubmissionId: input.clientSubmissionId ?? null,
           },
           select: { id: true, referenceNumber: true },
         });
@@ -131,11 +176,65 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
           citizenId: citizen.id,
           referenceNumber: registration.referenceNumber,
           propertyIds,
+          deduplicated: false,
         };
       });
     } catch (error) {
+      /*
+        Two syncs of the same queued record, racing.
+
+        Both passed the pre-flight lookup because neither had committed when the
+        other read; the unique index then refuses the second. That is the index
+        doing its job, and the caller still wants an answer rather than an
+        error, so the committed row is fetched and returned as though the loser
+        had found it in the first place.
+      */
+      if (input.clientSubmissionId && this.isSubmissionIdConflict(error)) {
+        const already = await this.findByClientSubmissionId(input.clientSubmissionId);
+        if (already) return already;
+      }
       throw this.translate(error);
     }
+  }
+
+  /**
+   * The registration a given offline submission already produced, if any.
+   *
+   * Returns the same shape `submit` does so the caller cannot tell a
+   * deduplicated answer from a fresh one except by `deduplicated` — which is
+   * the point: a queued record that reaches the server twice should leave the
+   * phone in exactly the state one delivery would have.
+   */
+  private async findByClientSubmissionId(
+    clientSubmissionId: string,
+  ): Promise<SubmitRegistrationResult | null> {
+    const existing = await this.db.registration.findUnique({
+      where: { clientSubmissionId },
+      select: {
+        id: true,
+        citizenId: true,
+        referenceNumber: true,
+        properties: { select: { id: true } },
+      },
+    });
+    if (!existing) return null;
+
+    return {
+      registrationId: existing.id,
+      citizenId: existing.citizenId,
+      referenceNumber: existing.referenceNumber,
+      propertyIds: existing.properties.map((property) => property.id),
+      deduplicated: true,
+    };
+  }
+
+  /** A P2002 naming `clientSubmissionId` — the same submission, twice, at once. */
+  private isSubmissionIdConflict(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002' &&
+      ((error.meta?.target as string[] | undefined) ?? []).join(',').includes('clientSubmissionId')
+    );
   }
 
   /** Rehydrates the aggregate, properties and their units included. */
@@ -176,8 +275,8 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
           landlordName: p.landlordName as string | null,
           landlordPhone: p.landlordPhone as string | null,
           propertyType: p.propertyType as never,
-          neighborhood: p.neighborhood as string,
-          propertyNumber: p.propertyNumber as string,
+          neighborhood: p.neighborhood as string | null,
+          propertyNumber: p.propertyNumber as string | null,
           unitType: p.unitType as never,
           landType: p.landType as never,
           buildingName: p.buildingName as string | null,

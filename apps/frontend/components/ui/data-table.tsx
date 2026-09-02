@@ -172,6 +172,18 @@ export interface DataTableLabels {
   searchAriaLabel: string;
   searchPlaceholder: string;
   clearSearch: string;
+  /**
+   * The key that runs the search, shown inside the box while a typed term is
+   * still uncommitted. Defaults to «Enter».
+   *
+   * The box commits on Enter rather than as you type (see the note by
+   * `commitSearch`), which is defensible and completely invisible: a clerk
+   * types a name, nothing moves, and the reasonable conclusion is that search
+   * is broken. This is the label that says otherwise.
+   */
+  searchHint?: string;
+  /** Template with a `{term}` placeholder, for the applied-search pill. */
+  searchApplied?: string;
   empty: string;
   emptySearch: string;
   /** Optional second line: what would put a row here. */
@@ -561,6 +573,19 @@ export function DataTable<TData, TValue = unknown>({
    * nobody presses Enter to say "show everything again".
    */
 
+  const handlePaginationChange = React.useCallback<OnChangeFn<PaginationState>>(
+    (updater) => {
+      const next =
+        typeof updater === 'function' ? updater(pagination) : updater;
+      if (onPaginationChange) {
+        onPaginationChange(next);
+      } else {
+        setInternalPagination(next);
+      }
+    },
+    [pagination, onPaginationChange],
+  );
+
   const table = useReactTable({
     data,
     columns,
@@ -579,7 +604,7 @@ export function DataTable<TData, TValue = unknown>({
     // `-1` means "unknown page count"; TanStack then trusts `pageCount` only
     // when the caller supplies one, and leaves next/previous enabled otherwise.
     pageCount: manualPagination ? (pageCount ?? -1) : undefined,
-    onPaginationChange: onPaginationChange ?? setInternalPagination,
+    onPaginationChange: handlePaginationChange,
     onSortingChange: onSortingChange ?? setInternalSorting,
     onGlobalFilterChange: (updater) => {
       const next =
@@ -598,10 +623,31 @@ export function DataTable<TData, TValue = unknown>({
   });
 
   const rows = table.getRowModel().rows;
-  const resolvedTotal = totalRowCount ?? data.length;
+  /**
+   * How many rows the current view describes — «{count} موظف» in the footer,
+   * and beside the applied-search pill.
+   *
+   * Three cases, and it used to answer only the first two. A caller that knows
+   * the figure passes it (a server-paginated table, where the page in hand is
+   * a slice). Otherwise it is the *filtered* count, not `data.length`: on a
+   * table the browser filters, `data` is everything that was loaded, so a
+   * search narrowing twelve staff accounts to one still reported twelve. The
+   * footer said the search had not worked, under a table showing that it had.
+   */
+  const resolvedTotal =
+    totalRowCount ?? (manualFiltering ? data.length : table.getFilteredRowModel().rows.length);
   const resolvedPageCount = table.getPageCount();
   const currentPage = pagination.pageIndex + 1;
   const hasSearchTerm = committedSearch.trim().length > 0;
+  /**
+   * The box holds a term the table has not been filtered by yet.
+   *
+   * Compared trimmed, because that is what `commitSearch` sends: a draft of
+   * `"أحمد "` against an applied `"أحمد"` is the same search, and
+   * flagging it as pending would leave an Enter prompt on a box that has
+   * already run.
+   */
+  const isDraft = searchInput.trim() !== committedSearch.trim();
   // Visible, not declared: a `colSpan` counted off the full column list leaves
   // the empty state and every expanded sub-row spanning more cells than the
   // header has, which stretches the table past its own border.
@@ -675,7 +721,21 @@ export function DataTable<TData, TValue = unknown>({
                   }
                 }}
               />
-              {searchInput ? (
+              {/*
+                Two controls sharing the end edge, and only ever one at a
+                time: the key that would run the search while the draft is
+                uncommitted, the control that clears it once it has run. They
+                cannot both apply — a draft equal to the applied term has
+                nothing left to commit — so the field never has to fit both.
+              */}
+              {isDraft ? (
+                <kbd
+                  aria-hidden
+                  className="pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-[10px] font-medium leading-none text-muted-foreground"
+                >
+                  {labels.searchHint ?? 'Enter'}
+                </kbd>
+              ) : searchInput ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -745,6 +805,50 @@ export function DataTable<TData, TValue = unknown>({
         </div>
       ) : null}
 
+      {/*
+        What the table is actually filtered by, stated once the search has run.
+
+        The box alone cannot say it. A clerk who has typed a correction over a
+        committed term sees a field whose contents are *not* what produced the
+        rows below, and the difference between "my search found three people"
+        and "my search has not run yet" is invisible without this line. It also
+        gives the applied term a clear control that survives editing the draft.
+      */}
+      {searchable && hasSearchTerm ? (
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-3 py-2 text-xs">
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 font-medium text-foreground">
+            <Search className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate">
+              {fillTemplate(labels.searchApplied ?? '«{term}»', {
+                term: committedSearch.trim(),
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchInput('');
+                commitSearch('');
+              }}
+              aria-label={labels.clearSearch}
+              className="-me-1 flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+          {/*
+            The count beside the term, not under the table. `totalRowCount`
+            describes the filtered set on a server-driven table and the whole
+            set on a client one — in both cases it is the answer to "how many
+            did that find", which is the question the pill raises.
+          */}
+          {!loading && !error ? (
+            <span className="text-muted-foreground">
+              {fillTemplate(labels.totalRows, { count: resolvedTotal })}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       {error ? (
         // The shared state components rather than three bespoke ones: a table,
         // a chart panel and a drawer answering "where is my data" differently
@@ -775,10 +879,8 @@ export function DataTable<TData, TValue = unknown>({
           />
         </div>
 
-        {/* The single scroll container for both axes — `overflow-x` for a wide
-            row of action buttons, `overflow-y` under `max-h` for a long page.
-            `Table` deliberately adds no wrapper of its own; see table.tsx. */}
-        <div className="hidden max-h-[70vh] overflow-auto sm:block">
+        {/* The scroll container for horizontal overflow — lets all 10 records show full height without vertical scrolling. */}
+        <div className="hidden overflow-x-auto sm:block">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted/95 shadow-[inset_0_-1px_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-muted/80">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -934,7 +1036,12 @@ export function DataTable<TData, TValue = unknown>({
             aria-label={labels.previous}
             title={labels.previous}
             disabled={loading || currentPage <= 1}
-            onClick={() => table.previousPage()}
+            onClick={() => {
+              handlePaginationChange({
+                ...pagination,
+                pageIndex: Math.max(pagination.pageIndex - 1, 0),
+              });
+            }}
           >
             <ChevronRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
           </Button>
@@ -944,7 +1051,12 @@ export function DataTable<TData, TValue = unknown>({
             aria-label={labels.next}
             title={labels.next}
             disabled={loading || currentPage >= resolvedPageCount}
-            onClick={() => table.nextPage()}
+            onClick={() => {
+              handlePaginationChange({
+                ...pagination,
+                pageIndex: Math.min(pagination.pageIndex + 1, Math.max(resolvedPageCount - 1, 0)),
+              });
+            }}
           >
             <ChevronLeft className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
           </Button>

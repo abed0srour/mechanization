@@ -3,8 +3,10 @@ import { cachedRequest, invalidateRequests } from './request-cache';
 import type {
   BackupSchedule,
   CitizenImportResult,
+  CitizenRecordStatus,
   CurrencyCode,
   FeeFrequency,
+  FieldFlag,
   ImportRow,
   NumberingSequence,
   SequenceKey,
@@ -78,7 +80,20 @@ export async function apiFetch<T>(
         ...headers,
       },
     });
-  } catch {
+  } catch (caught) {
+    /*
+      A cancelled request is not a failed one.
+
+      `fetch` rejects with an `AbortError` when its signal fires, and every
+      query that supersedes another fires one — typing a new search term,
+      moving to the next page, switching a status tab. Folding that into
+      `NETWORK_ERROR` put «تعذّر الاتصال» on screen every time a clerk
+      changed their mind quickly, on a connection that was working perfectly.
+      Re-thrown as-is so the caller's own cancellation handling sees it; React
+      Query discards it silently, which is the correct treatment.
+    */
+    if (caught instanceof DOMException && caught.name === 'AbortError') throw caught;
+
     // A dropped connection mid-request is the normal case on the networks this
     // serves, not an exceptional one.
     throw new ApiRequestError(0, {
@@ -292,6 +307,13 @@ export function getDashboardAnalytics(tenant: string, token: string) {
   return apiFetch<DashboardAnalytics>(tenant, '/dashboard/analytics', { token });
 }
 
+export interface ParcelRegistrantFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  paymentStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
+}
+
 /** One citizen registered against a parcel, as the map drawer lists them. */
 export interface ParcelRegistrant {
   citizenId: string;
@@ -301,9 +323,17 @@ export interface ParcelRegistrant {
   occupancyType: string;
   propertyType: string;
   buildingName: string | null;
-  status: string;
+  status?: string;
   registeredAt: string;
   unitCount: number;
+  financials?: ParcelRegistrantFinancials;
+}
+
+export interface ParcelFinancials {
+  totalBilled: number;
+  totalPaid: number;
+  totalDue: number;
+  status: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
 }
 
 /**
@@ -317,6 +347,7 @@ export interface RegisteredParcel {
   latitude: number;
   longitude: number;
   registrants: ParcelRegistrant[];
+  financials?: ParcelFinancials;
 }
 
 /**
@@ -425,8 +456,9 @@ export interface CitizenProfileUnit {
 
 export interface CitizenProfileProperty {
   id: string;
-  neighborhood: string;
-  propertyNumber: string;
+  /** Null when the officer recorded it as «غير مؤكَّد» — see the registration's flags. */
+  neighborhood: string | null;
+  propertyNumber: string | null;
   propertyType: string;
   occupancyType: string;
   /** TENANT only. */
@@ -460,6 +492,17 @@ export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   submittedAt: string;
+  /** `REQUIRES_REVIEW` when `flags` is non-empty; `PENDING` otherwise. */
+  status: string;
+  /**
+   * Fields the officer could not establish, with the reason given for each.
+   *
+   * Shown on the profile, not only on the edit form: this is the page a
+   * collector opens before setting out, and "no phone number, and here is
+   * why" is something to know before knocking rather than to discover by
+   * opening the record for editing.
+   */
+  flags: FieldFlag[];
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
 }
@@ -516,6 +559,7 @@ export interface CitizenProfile {
   civilRecordNumber: string | null;
   familySize: number | null;
   maritalStatus: string | null;
+  bloodType: string | null;
   referenceNumber: string | null;
   registeredAt: string;
   /** False for a deactivated record — kept for its history, refused a session. */
@@ -554,6 +598,7 @@ export interface MyCitizenSummary {
   isLebanese: boolean | null;
   residentStatus: string | null;
   maritalStatus: string | null;
+  bloodType: string | null;
   familySize: number | null;
   identityDocType: string | null;
   /**
@@ -580,6 +625,7 @@ export interface CitizenListItem {
   fullName: string;
   phone: string | null;
   whatsapp: string | null;
+  gender: string | null;
   referenceNumber: string | null;
   identityDocType: string | null;
   identityDocNumber: string | null;
@@ -591,6 +637,15 @@ export interface CitizenListItem {
   propertyCount: number;
   /** When this citizen last filed, if ever. */
   latestSubmittedAt: string | null;
+  /** Where their latest registration stands — `REQUIRES_REVIEW` or `PENDING`. */
+  latestStatus: string | null;
+  /**
+   * How many fields on that registration were left «غير مؤكَّد».
+   *
+   * The registry shows the count; the record's own page shows which fields and
+   * the reason given for each.
+   */
+  unestablishedFieldCount: number;
 
   feesTotal: number;
   paidTotal: number;
@@ -609,19 +664,46 @@ export interface CitizenListItem {
 export function listCitizens(
   tenant: string,
   token: string,
-  filter: { search?: string; limit?: number; offset?: number } = {},
+  filter: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    /** `REQUIRES_REVIEW` narrows to records with fields left «غير مؤكَّد». */
+    status?: CitizenRecordStatus;
+  } = {},
+  /**
+   * Cancels the request when a newer one supersedes it.
+   *
+   * Supplied by React Query, which fires it as soon as the query key changes —
+   * a new search term, the next page, a different tab. Without it, two requests
+   * for the same table race and the slower response wins, so a clerk who
+   * corrects a search quickly is shown the results of the term they abandoned.
+   */
+  signal?: AbortSignal,
 ) {
   const query = new URLSearchParams();
   if (filter.search) query.set('search', filter.search);
+  if (filter.status) query.set('status', filter.status);
   query.set('limit', String(filter.limit ?? 200));
   query.set('offset', String(filter.offset ?? 0));
 
   return apiFetch<{
     items: CitizenListItem[];
     total: number;
-    /** Computed over every matching citizen, not the returned page. */
-    totals: { outstanding: number; overdue: number; inArrears: number };
-  }>(tenant, `/citizens?${query}`, { token });
+    /**
+     * Computed over every matching citizen, not the returned page.
+     *
+     * `requiringReview` is deliberately *not* narrowed by the status filter —
+     * it is the number the «يتطلب مراجعة» tab offers, so it has to keep saying
+     * the same thing once that tab is the one you are on.
+     */
+    totals: {
+      outstanding: number;
+      overdue: number;
+      inArrears: number;
+      requiringReview: number;
+    };
+  }>(tenant, `/citizens?${query}`, { token, signal });
 }
 
 /**
@@ -640,6 +722,14 @@ export interface CitizenFormData {
   personal: Record<string, unknown>;
   contact: Record<string, unknown>;
   properties: Array<Record<string, unknown>>;
+  /**
+   * The «غير مؤكَّد» fields already on this record, with the reasons given.
+   *
+   * The edit form opens with these restored so whoever completes the record
+   * sees which blanks were deliberate — and can clear a flag simply by filling
+   * the field in, which is what takes the record out of «يتطلب مراجعة».
+   */
+  flags: FieldFlag[];
 }
 
 export function getCitizenForm(tenant: string, token: string, citizenId: string) {
@@ -654,6 +744,20 @@ export interface CitizenWriteInput {
   personal: Record<string, unknown>;
   contact: Record<string, unknown>;
   properties: Array<Record<string, unknown>>;
+  /**
+   * Fields the officer recorded as «غير مؤكَّد», each with their reason.
+   *
+   * Absent means "this record is complete", which is what every online save
+   * from the counter sends and what the server validates strictly. The server
+   * decides what a flag excuses — this only carries them.
+   */
+  flags?: FieldFlag[];
+  /**
+   * The browser's own id for this submission, sent only when it was queued
+   * offline. It is what lets a retry after a lost response be recognised
+   * rather than registering the household a second time.
+   */
+  clientSubmissionId?: string;
 }
 
 /**
@@ -718,13 +822,25 @@ export async function importCitizens(
   return merged;
 }
 
-/** Files a citizen and their first registration. Lands as PENDING, like any claim. */
+/**
+ * Files a citizen and their first registration.
+ *
+ * Lands as PENDING like any claim — or as REQUIRES_REVIEW when the submission
+ * carries «غير مؤكَّد» flags, which is what `status` reports back.
+ *
+ * `deduplicated` says the server already held this `clientSubmissionId` and
+ * returned the registration it created the first time. The sync queue counts
+ * that as delivered, because it is: the household is on the register, and the
+ * only thing that ever went missing was a response.
+ */
 export function createCitizen(tenant: string, token: string, input: CitizenWriteInput) {
   return apiFetch<{
     citizenId: string;
     registrationId: string;
     referenceNumber: string;
     propertyCount: number;
+    status: CitizenRecordStatus;
+    deduplicated: boolean;
   }>(tenant, '/citizens', { token, method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -739,7 +855,7 @@ export function updateCitizen(
   citizenId: string,
   input: CitizenWriteInput,
 ) {
-  return apiFetch<{ updated: boolean; citizenId: string }>(
+  return apiFetch<{ updated: boolean; citizenId: string; status: CitizenRecordStatus }>(
     tenant,
     `/citizens/${encodeURIComponent(citizenId)}`,
     { token, method: 'PATCH', body: JSON.stringify(input) },
@@ -791,6 +907,7 @@ export interface StaffSummary {
   lastName: string;
   role: string;
   isActive: boolean;
+  hasConfirmedTotp?: boolean;
   /** Audit entries + reviewed registrations. A permanent delete needs zero. */
   historyCount: number;
   createdAt: string;
@@ -798,8 +915,8 @@ export interface StaffSummary {
 }
 
 /** Every staff account with the history count that gates a permanent delete. */
-export function getStaff(tenant: string, token: string) {
-  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token });
+export function getStaff(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<{ items: StaffSummary[] }>(tenant, '/staff', { token, signal });
 }
 
 /**
@@ -890,6 +1007,8 @@ export function getAuditLog(
     limit?: number;
     offset?: number;
   } = {},
+  /** See `listCitizens`. */
+  signal?: AbortSignal,
 ) {
   const query = new URLSearchParams();
   if (filter.actorId) query.set('actorId', filter.actorId);
@@ -899,7 +1018,10 @@ export function getAuditLog(
   query.set('limit', String(filter.limit ?? 50));
   query.set('offset', String(filter.offset ?? 0));
 
-  return apiFetch<{ items: AuditEntry[]; total: number }>(tenant, `/audit?${query}`, { token });
+  return apiFetch<{ items: AuditEntry[]; total: number }>(tenant, `/audit?${query}`, {
+    token,
+    signal,
+  });
 }
 
 export interface CadastreImportResult {
@@ -1128,6 +1250,7 @@ export interface PendingPayment {
   dueDate: string;
   paymentMethod: string | null;
   whishTransactionRef: string | null;
+  isSeen?: boolean;
   citizenId: string;
   citizenName: string;
   citizenPhone: string | null;
@@ -1135,8 +1258,27 @@ export interface PendingPayment {
 }
 
 /** The clerk's queue: money claimed but not yet confirmed. */
-export function getPendingPayments(tenant: string, token: string) {
-  return apiFetch<{ items: PendingPayment[] }>(tenant, '/fees/payments/pending', { token });
+export function getPendingPayments(tenant: string, token: string, unseenOnly?: boolean) {
+  const query = unseenOnly ? '?unseenOnly=true' : '';
+  return apiFetch<{ items: PendingPayment[] }>(tenant, `/fees/payments/pending${query}`, { token });
+}
+
+/** Mark a pending payment notification as seen. */
+export function markPaymentAsSeen(tenant: string, token: string, id: string) {
+  return apiFetch<{ id: string; isSeen: boolean }>(
+    tenant,
+    `/fees/payments/${encodeURIComponent(id)}/seen`,
+    { token, method: 'PATCH' },
+  );
+}
+
+/** Mark all pending payment notifications as seen. */
+export function markAllPendingPaymentsAsSeen(tenant: string, token: string) {
+  return apiFetch<{ updatedCount: number }>(
+    tenant,
+    '/fees/payments/pending/mark-all-seen',
+    { token, method: 'POST' },
+  );
 }
 
 export async function reviewPayment(
@@ -1269,22 +1411,30 @@ export interface AdminPaymentItem {
  * have) and re-orders newest-first — the سجل العمليات view, as against the
  * fees ledger's "what is owed".
  */
+export function getFeeTitles(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<string[]>(tenant, '/fees/titles', { token, signal });
+}
+
 export function getAllPayments(
   tenant: string,
   token: string,
   filter: {
     status?: string;
     search?: string;
+    feeTitle?: string;
     citizenId?: string;
     method?: string;
     transactionsOnly?: boolean;
     limit?: number;
     offset?: number;
   } = {},
+  /** See `listCitizens`. */
+  signal?: AbortSignal,
 ) {
   const query = new URLSearchParams();
   if (filter.status) query.set('status', filter.status);
   if (filter.search) query.set('search', filter.search);
+  if (filter.feeTitle) query.set('feeTitle', filter.feeTitle);
   if (filter.citizenId) query.set('citizenId', filter.citizenId);
   if (filter.method) query.set('method', filter.method);
   if (filter.transactionsOnly) query.set('transactionsOnly', 'true');
@@ -1302,7 +1452,7 @@ export function getAllPayments(
       collector: number;
       awaiting: number;
     };
-  }>(tenant, `/fees/payments${suffix}`, { token });
+  }>(tenant, `/fees/payments${suffix}`, { token, signal });
 }
 
 /**
@@ -1465,3 +1615,90 @@ export async function restoreSnapshot(
   }
   return payload as RestoreReport;
 }
+
+export async function changeStaffPassword(
+  tenant: string,
+  token: string,
+  input: { currentPassword: string; newPassword: string },
+): Promise<{ changed: boolean }> {
+  return apiFetch<{ changed: boolean }>(tenant, '/auth/staff/change-password', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function changeStaffEmail(
+  tenant: string,
+  token: string,
+  input: { newEmail: string; currentPassword: string },
+): Promise<{ email: string }> {
+  return apiFetch<{ email: string }>(tenant, '/auth/staff/change-email', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function sendStaffPasswordResetEmail(
+  tenant: string,
+  token: string,
+  redirectTo?: string,
+): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>(tenant, '/auth/staff/send-reset-password-email', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ redirectTo }),
+  });
+}
+
+/**
+ * Public — reached from the reset-password landing page before any session
+ * exists. `accessToken` is the Supabase recovery token the email link's own
+ * redirect appends to that page's URL, not this app's session token.
+ */
+export async function confirmStaffPasswordReset(
+  tenant: string,
+  accessToken: string,
+  newPassword: string,
+): Promise<{ confirmed: boolean }> {
+  return apiFetch<{ confirmed: boolean }>(tenant, '/auth/staff/confirm-password-reset', {
+    method: 'POST',
+    body: JSON.stringify({ accessToken, newPassword }),
+  });
+}
+
+export async function beginStaffTotpEnrolment(
+  tenant: string,
+  token: string,
+): Promise<{ secret: string; keyUri: string }> {
+  return apiFetch<{ secret: string; keyUri: string }>(tenant, '/auth/staff/totp/enrol', {
+    method: 'POST',
+    token,
+  });
+}
+
+export async function confirmStaffTotpEnrolment(
+  tenant: string,
+  token: string,
+  input: { token: string },
+): Promise<{ confirmed: boolean }> {
+  return apiFetch<{ confirmed: boolean }>(tenant, '/auth/staff/totp/confirm', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function disableStaffTotp(
+  tenant: string,
+  token: string,
+  input: { currentPassword?: string },
+): Promise<{ disabled: boolean }> {
+  return apiFetch<{ disabled: boolean }>(tenant, '/auth/staff/totp/disable', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input),
+  });
+}
+

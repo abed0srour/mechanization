@@ -1,4 +1,5 @@
 import type {
+  BloodType,
   DocumentType,
   Gender,
   IdentityDocType,
@@ -14,6 +15,17 @@ import type {
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
   gender: { MALE: 'ذكر', FEMALE: 'أنثى' } satisfies Record<Gender, string>,
+
+  bloodType: {
+    A_POSITIVE: 'A+',
+    A_NEGATIVE: 'A-',
+    B_POSITIVE: 'B+',
+    B_NEGATIVE: 'B-',
+    AB_POSITIVE: 'AB+',
+    AB_NEGATIVE: 'AB-',
+    O_POSITIVE: 'O+',
+    O_NEGATIVE: 'O-',
+  } satisfies Record<BloodType, string>,
 
   /** How often a fee recurs. */
   feeFrequency: {
@@ -120,4 +132,213 @@ export const ar = {
     RESIDENCY_PROOF: 'إثبات الإقامة',
     EXTRA_PHOTO: 'صورة إضافية',
   } satisfies Record<DocumentType, string>,
+
+  /**
+   * Where a filed record stands. `REQUIRES_REVIEW` is not a rejection — the
+   * citizen is registered and billable; named fields on the record were simply
+   * never established, and the reasons are stored with it.
+   */
+  citizenRecordStatus: {
+    PENDING: 'قيد الانتظار',
+    REQUIRES_REVIEW: 'يتطلب مراجعة',
+  },
+
+  /**
+   * Field names as the «غير مؤكَّد» list shows them, keyed by the last segment
+   * of a flag path — `properties.2.landlordPhone` reads out as رقم هاتف المالك.
+   *
+   * Separate from the labels the inputs themselves render because those vary
+   * with context (نوع الوثيقة renames رقم الوثيقة; اسم المبنى becomes
+   * اسم المبنى/المنزل for a house) and a review list has none of that context
+   * to hand. One stable name per field is what someone scanning a queue needs.
+   */
+  citizenField: {
+    firstName: 'الاسم الأول',
+    middleName: 'اسم الأب',
+    lastName: 'الشهرة',
+    gender: 'الجنس',
+    bloodType: 'فئة الدم',
+    identityDocType: 'نوع وثيقة الإثبات',
+    identityDocNumber: 'رقم وثيقة الإثبات',
+    civilRecordNumber: 'رقم السجل',
+    nationality: 'الجنسية',
+    isLebanese: 'الجنسية اللبنانية',
+    residencyNumber: 'رقم الإقامة',
+    residentStatus: 'صفة الإقامة',
+    maritalStatus: 'الحالة الاجتماعية',
+    phone: 'رقم الهاتف',
+    whatsapp: 'رقم الواتساب',
+    whatsappSameAsPhone: 'واتساب نفس رقم الهاتف',
+    familySize: 'عدد أفراد الأسرة',
+    occupancyType: 'نوع الإشغال',
+    landlordName: 'اسم المالك',
+    landlordPhone: 'رقم هاتف المالك',
+    propertyType: 'نوع العقار',
+    neighborhood: 'الحي',
+    propertyNumber: 'رقم العقار',
+    buildingName: 'اسم المبنى',
+    side: 'الجهة',
+    landType: 'نوع الأرض',
+    tentLocation: 'موقع الخيمة',
+    unitArea: 'المساحة',
+    sharedRights: 'حقوق مشتركة',
+    units: 'وحدات المبنى',
+  } as Record<string, string>,
 } as const;
+
+export const en = {
+  gender: { MALE: 'Male', FEMALE: 'Female' } satisfies Record<Gender, string>,
+
+  bloodType: {
+    A_POSITIVE: 'A+',
+    A_NEGATIVE: 'A-',
+    B_POSITIVE: 'B+',
+    B_NEGATIVE: 'B-',
+    AB_POSITIVE: 'AB+',
+    AB_NEGATIVE: 'AB-',
+    O_POSITIVE: 'O+',
+    O_NEGATIVE: 'O-',
+  } satisfies Record<BloodType, string>,
+
+  feeFrequency: {
+    ONCE: 'Once',
+    MONTHLY: 'Monthly',
+    HALF_YEARLY: 'Semi-Annually',
+    ANNUALLY: 'Annually',
+  },
+
+  feeTargetType: {
+    ALL_CITIZENS: 'All Citizens',
+    BUILDING_CATEGORY: 'Property Category',
+    INDIVIDUAL_CITIZEN: 'Individual Citizen',
+  },
+
+  feeTargetCategory: {
+    BUILDING: 'Buildings',
+    HOUSE: 'Houses',
+    LAND: 'Land',
+    TENT: 'Tents',
+    APARTMENT: 'Apartments',
+    CLINIC: 'Clinics',
+    SHOP: 'Commercial Shops',
+  },
+
+  paymentStatus: {
+    UNPAID: 'Unpaid',
+    PENDING_REVIEW: 'Pending Review',
+    PAID: 'Paid',
+    OVERDUE: 'Overdue',
+  },
+
+  paymentMethod: {
+    CASH: 'Cash at Municipality',
+    WHISH_MONEY: 'Whish Money Transfer',
+    COLLECTOR: 'Via Collector',
+  },
+
+  staffRole: {
+    SUPER_ADMIN: 'System Administrator',
+    AUDITOR: 'Auditor',
+    FIELD_INSPECTOR: 'Field Inspector',
+    COLLECTOR: 'Collector',
+    ACCOUNTANT: 'Accountant',
+    ADMINISTRATIVE_OFFICER: 'Administrative Officer',
+  } satisfies Record<StaffRole, string>,
+
+  residentStatus: {
+    REFUGEE: 'Refugee',
+    DISPLACED: 'Displaced',
+    VILLAGE_RESIDENT: 'Village Resident',
+  } satisfies Record<ResidentStatus, string>,
+
+  identityDocType: {
+    NATIONAL_ID: 'National ID',
+    FAMILY_RECORD: 'Family Record',
+    DRIVER_LICENSE: 'Driver License',
+    PASSPORT: 'Passport',
+  } satisfies Record<IdentityDocType, string>,
+
+  identityDocNumberLabel: {
+    NATIONAL_ID: 'National ID Number',
+    FAMILY_RECORD: 'Family Record Number',
+    DRIVER_LICENSE: 'Driver License Number',
+    PASSPORT: 'Passport Number',
+  } satisfies Record<IdentityDocType, string>,
+
+  maritalStatus: {
+    SINGLE: 'Single',
+    MARRIED: 'Married',
+    DIVORCED: 'Divorced',
+    WIDOWED: 'Widowed',
+  } satisfies Record<MaritalStatus, string>,
+
+  occupancyType: { OWNER: 'Owner', TENANT: 'Tenant' } satisfies Record<OccupancyType, string>,
+
+  propertyType: {
+    BUILDING: 'Building',
+    HOUSE: 'House',
+    LAND: 'Land',
+    TENT: 'Tent',
+  } satisfies Record<PropertyType, string>,
+
+  unitType: {
+    APARTMENT: 'Apartment',
+    CLINIC: 'Clinic',
+    SHOP: 'Commercial Shop',
+  } satisfies Record<UnitType, string>,
+
+  landType: {
+    AGRICULTURAL: 'Agricultural',
+    INDUSTRIAL: 'Industrial',
+  } satisfies Record<LandType, string>,
+
+  documentType: {
+    IDENTITY: 'Identity Document',
+    OWNERSHIP_PROOF: 'Proof of Ownership',
+    RENTAL_CONTRACT: 'Rental Agreement',
+    RESIDENCY_PROOF: 'Residency Verification',
+    EXTRA_PHOTO: 'Additional Photograph',
+  } satisfies Record<DocumentType, string>,
+
+  citizenRecordStatus: {
+    PENDING: 'Pending',
+    REQUIRES_REVIEW: 'Requires Review',
+  },
+
+  citizenField: {
+    firstName: 'First Name',
+    middleName: "Father's Name",
+    lastName: 'Last Name',
+    gender: 'Gender',
+    bloodType: 'Blood Type',
+    identityDocType: 'ID Document Type',
+    identityDocNumber: 'ID Document Number',
+    civilRecordNumber: 'Civil Record (Sijil) No.',
+    nationality: 'Nationality',
+    isLebanese: 'Lebanese Nationality',
+    residencyNumber: 'Residency Permit No.',
+    residentStatus: 'Residency Status',
+    maritalStatus: 'Marital Status',
+    phone: 'Phone Number',
+    whatsapp: 'WhatsApp Number',
+    whatsappSameAsPhone: 'WhatsApp Same As Phone',
+    familySize: 'Household Size',
+    occupancyType: 'Occupancy Type',
+    landlordName: 'Landlord Name',
+    landlordPhone: 'Landlord Phone',
+    propertyType: 'Property Type',
+    neighborhood: 'Neighborhood',
+    propertyNumber: 'Property Number',
+    buildingName: 'Building Name',
+    side: 'Side / Orientation',
+    landType: 'Land Type',
+    tentLocation: 'Tent Location',
+    unitArea: 'Area',
+    sharedRights: 'Shared Rights',
+    units: 'Building Units',
+  } as Record<string, string>,
+} as const;
+
+export function getLabels(locale: string = 'ar') {
+  return locale === 'en' ? en : ar;
+}

@@ -17,7 +17,7 @@ import {
 } from '../../../domain/interfaces/user-repository.interface';
 import { StaffRole } from '../../../domain/entities/user.entity';
 import { SessionRevocationService } from '../identity/session-revocation.service';
-import { ConflictError, ForbiddenError, NotFoundError } from '../../common/exceptions';
+import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../../common/exceptions';
 
 /**
  * Staff accounts, managed by a SUPER_ADMIN.
@@ -289,5 +289,116 @@ export class StaffService {
       actorId: input.actor.id,
       actorRole: input.actor.role,
     });
+  }
+
+  /**
+   * Change own password. Verifies current password first.
+   */
+  async changePassword(input: {
+    tenantSlug: string;
+    staffId: string;
+    currentPassword: string;
+    newPassword: string;
+    actor: { id: string; role: string };
+  }): Promise<void> {
+    const target = await this.users.findById(input.staffId);
+    if (!target || target.kind !== 'STAFF' || !target.passwordHash) {
+      throw new NotFoundError('Staff user', input.staffId);
+    }
+
+    const match = await this.hasher.verify(input.currentPassword, target.passwordHash);
+    if (!match) {
+      throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const passwordHash = await this.hasher.hash(input.newPassword);
+    await this.users.updateStaff(input.staffId, { passwordHash });
+
+    await this.revocation.forget(input.staffId);
+
+    try {
+      if (target.email) {
+        await this.supabaseAuth.updateStaffUser({
+          email: target.email,
+          password: input.newPassword,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_PASSWORD_CHANGED',
+      tenantSlug: input.tenantSlug,
+      staffId: input.staffId,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+    });
+  }
+
+  /**
+   * Change own email. Verifies current password first and ensures new email is not taken.
+   */
+  async changeEmail(input: {
+    tenantSlug: string;
+    staffId: string;
+    newEmail: string;
+    currentPassword: string;
+    actor: { id: string; role: string };
+  }): Promise<{ email: string }> {
+    const target = await this.users.findById(input.staffId);
+    if (!target || target.kind !== 'STAFF' || !target.passwordHash) {
+      throw new NotFoundError('Staff user', input.staffId);
+    }
+
+    const match = await this.hasher.verify(input.currentPassword, target.passwordHash);
+    if (!match) {
+      throw new UnauthorizedError('كلمة المرور الحالية غير صحيحة');
+    }
+
+    const nextEmail = input.newEmail.trim().toLowerCase();
+    if (nextEmail === target.email?.toLowerCase()) {
+      return { email: nextEmail };
+    }
+
+    const existing = await this.users.findStaffByEmail(nextEmail);
+    if (existing) {
+      throw new ConflictError('البريد الإلكتروني مستخدم بالفعل من قبل موظف آخر');
+    }
+
+    await this.users.updateStaff(input.staffId, { email: nextEmail });
+
+    try {
+      if (target.email) {
+        await this.supabaseAuth.updateStaffUser({
+          email: target.email,
+          newEmail: nextEmail,
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    this.events.emit('staff.changed', {
+      action: 'STAFF_EMAIL_CHANGED',
+      tenantSlug: input.tenantSlug,
+      staffId: input.staffId,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+    });
+
+    return { email: nextEmail };
+  }
+
+  async sendPasswordResetEmail(input: {
+    staffId: string;
+    redirectTo?: string;
+  }): Promise<{ message: string }> {
+    const user = await this.users.findById(input.staffId);
+    if (!user || !user.email) {
+      throw new NotFoundError('Staff user', input.staffId);
+    }
+    await this.supabaseAuth.sendPasswordResetEmail(user.email, input.redirectTo);
+    return { message: 'تم إرسال بريد إعادة تعيين كلمة المرور بنجاح' };
   }
 }

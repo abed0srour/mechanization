@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Inbox, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react';
+import { Inbox, Loader2, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +16,52 @@ import { cn } from '@/lib/utils';
  * states as one component so a card, a drawer and a chart panel answer "where
  * is my data" identically.
  */
+
+/**
+ * "Still loading", centred in whatever space it is given.
+ *
+ * Every screen wrote its own — a bare `<p>جارٍ التحميل…</p>` pinned to the
+ * top-left of the content area, so a full-page wait looked like a page that had
+ * rendered one line of text and stopped. Centring it is most of the fix: the
+ * reader's eye is already in the middle of the region that is about to fill.
+ *
+ * `fullHeight` is for a screen with nothing else on it yet, where the wait
+ * should sit in the middle of the viewport rather than the middle of a
+ * zero-height container.
+ */
+export function LoadingState({
+  label,
+  className,
+  compact = false,
+  fullHeight = false,
+}: {
+  label?: string;
+  className?: string;
+  /** Tighter padding, for a wait inside a card rather than a page. */
+  compact?: boolean;
+  /** Fills the available height, for a route-level wait. */
+  fullHeight?: boolean;
+}): React.JSX.Element {
+  return (
+    <div
+      /**
+       * `role="status"` with `aria-live="polite"`: a screen reader is
+       * otherwise told nothing at all between the click and the content, and
+       * the spinner is a purely visual signal.
+       */
+      role="status"
+      aria-live="polite"
+      className={cn(
+        'flex flex-col items-center justify-center gap-3 px-6 text-center',
+        fullHeight ? 'min-h-[60vh] py-10' : compact ? 'py-8' : 'py-14',
+        className,
+      )}
+    >
+      <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
+      {label ? <p className="text-sm text-muted-foreground">{label}</p> : null}
+    </div>
+  );
+}
 
 export function EmptyState({
   icon: Icon = Inbox,

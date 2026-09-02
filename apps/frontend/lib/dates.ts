@@ -55,32 +55,25 @@ export function formatDateTime(value: string | Date): string {
   return `${formatDate(value)} · ${formatTime(value)}`;
 }
 
-/** `أغسطس 2026` — the Arabic month name, with a Latin year. */
+/** Month name with year, respecting locale. */
 export function formatMonth(
   value: string | Date,
   options: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' },
+  locale: string = 'ar',
 ): string {
-  return new Date(value).toLocaleDateString(WORDS, options);
+  const loc = locale === 'en' ? 'en-US' : WORDS;
+  return new Date(value).toLocaleDateString(loc, options);
 }
 
-/**
- * How long ago, in words: «أمس», «قبل ساعتين», «قبل 3 أيام».
- *
- * `Intl.RelativeTimeFormat` rather than a `${n} أيام` template because Arabic
- * has a dual form — two days is «يومين», not «2 أيام» — and a template gets
- * every count of two wrong. It also collapses 1 and 2 into «أمس»/«أول أمس»,
- * which is what a person would say.
- */
-const RELATIVE = new Intl.RelativeTimeFormat(WORDS, { numeric: 'auto' });
-
-export function formatRelative(value: string | Date): string {
+export function formatRelative(value: string | Date, locale: string = 'ar'): string {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
   const magnitude = Math.abs(seconds);
+  const relativeFormatter = new Intl.RelativeTimeFormat(locale === 'en' ? 'en-US' : WORDS, { numeric: 'auto' });
 
-  if (magnitude < 60) return 'الآن';
-  if (magnitude < 3_600) return RELATIVE.format(Math.round(seconds / 60), 'minute');
-  if (magnitude < 86_400) return RELATIVE.format(Math.round(seconds / 3_600), 'hour');
-  if (magnitude < 2_592_000) return RELATIVE.format(Math.round(seconds / 86_400), 'day');
-  if (magnitude < 31_536_000) return RELATIVE.format(Math.round(seconds / 2_592_000), 'month');
-  return RELATIVE.format(Math.round(seconds / 31_536_000), 'year');
+  if (magnitude < 60) return locale === 'en' ? 'Just now' : 'الآن';
+  if (magnitude < 3_600) return relativeFormatter.format(Math.round(seconds / 60), 'minute');
+  if (magnitude < 86_400) return relativeFormatter.format(Math.round(seconds / 3_600), 'hour');
+  if (magnitude < 2_592_000) return relativeFormatter.format(Math.round(seconds / 86_400), 'day');
+  if (magnitude < 31_536_000) return relativeFormatter.format(Math.round(seconds / 2_592_000), 'month');
+  return relativeFormatter.format(Math.round(seconds / 31_536_000), 'year');
 }

@@ -235,7 +235,6 @@ export function ProfileSection({
               <SettingsField
                 label={copy.profile.nameAr}
                 htmlFor="name-ar"
-                hint={copy.profile.nameArHint}
               >
                 <Input
                   id="name-ar"
@@ -247,7 +246,6 @@ export function ProfileSection({
               <SettingsField
                 label={copy.profile.nameEn}
                 htmlFor="name-en"
-                hint={copy.profile.nameEnHint}
               >
                 <Input
                   id="name-en"
@@ -265,7 +263,6 @@ export function ProfileSection({
               <SettingsField
                 label={copy.profile.phone}
                 htmlFor="phone"
-                hint={copy.profile.phoneHint}
               >
                 <Input
                   id="phone"
@@ -280,7 +277,6 @@ export function ProfileSection({
               <SettingsField
                 label={copy.profile.whatsapp}
                 htmlFor="whatsapp"
-                hint={copy.profile.whatsappHint}
               >
                 <Input
                   id="whatsapp"

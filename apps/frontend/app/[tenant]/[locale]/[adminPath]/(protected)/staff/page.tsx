@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
@@ -17,7 +18,7 @@ import {
   UserPlus,
   UsersRound,
 } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import { getLabels } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   createStaff,
@@ -28,7 +29,8 @@ import {
   updateStaff,
 } from '@/lib/api-client';
 import type { StaffSummary } from '@/lib/api-client';
-import { clearSession, loadSession } from '@/lib/session';
+import { loadSession } from '@/lib/session';
+import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,26 +49,54 @@ import { useToast } from '@/components/ui/toast';
 import { ActionTooltip } from '@/components/ui/tooltip';
 import { StaffForm, type StaffFormValues } from '@/components/admin/staff-form';
 
-const TABLE_LABELS: DataTableLabels = {
-  searchAriaLabel: 'بحث في الموظفين',
-  searchPlaceholder: 'ابحث بالاسم أو البريد الإلكتروني…',
-  clearSearch: 'مسح البحث',
-  empty: 'لا يوجد موظفون بعد.',
-  emptySearch: 'لا نتائج مطابقة لبحثك.',
-  loadError: 'تعذّر تحميل الموظفين.',
-  retry: 'إعادة المحاولة',
-  previous: 'السابق',
-  next: 'التالي',
-  pageOf: 'صفحة {current} من {total}',
-  rowsPerPage: 'عدد الصفوف',
-  totalRows: '{count} موظف',
-  sortAscending: 'ترتيب تصاعدي',
-  sortDescending: 'ترتيب تنازلي',
-  sortNone: 'إلغاء الترتيب',
-  columns: 'الأعمدة',
-  columnsHint: 'الأعمدة الظاهرة',
-  resetColumns: 'استعادة الافتراضي',
-};
+function getTableLabels(locale: string): DataTableLabels {
+  if (locale === 'en') {
+    return {
+      searchAriaLabel: 'Search staff',
+      searchPlaceholder: 'Search by name or email…',
+      clearSearch: 'Clear search',
+      searchHint: 'Enter',
+      searchApplied: 'Search: "{term}"',
+      empty: 'No staff accounts yet.',
+      emptySearch: 'No results match your search.',
+      loadError: 'Failed to load staff accounts.',
+      retry: 'Retry',
+      previous: 'Previous',
+      next: 'Next',
+      pageOf: 'Page {current} of {total}',
+      rowsPerPage: 'Rows per page',
+      totalRows: '{count} staff members',
+      sortAscending: 'Sort ascending',
+      sortDescending: 'Sort descending',
+      sortNone: 'Clear sorting',
+      columns: 'Columns',
+      columnsHint: 'Visible columns',
+      resetColumns: 'Reset to default',
+    };
+  }
+  return {
+    searchAriaLabel: 'بحث في الموظفين',
+    searchPlaceholder: 'ابحث بالاسم أو البريد الإلكتروني…',
+    clearSearch: 'مسح البحث',
+    searchHint: 'Enter',
+    searchApplied: 'بحث: «{term}»',
+    empty: 'لا يوجد موظفون بعد.',
+    emptySearch: 'لا نتائج مطابقة لبحثك.',
+    loadError: 'تعذّر تحميل الموظفين.',
+    retry: 'إعادة المحاولة',
+    previous: 'السابق',
+    next: 'التالي',
+    pageOf: 'صفحة {current} من {total}',
+    rowsPerPage: 'عدد الصفوف',
+    totalRows: '{count} موظف',
+    sortAscending: 'ترتيب تصاعدي',
+    sortDescending: 'ترتيب تنازلي',
+    sortNone: 'إلغاء الترتيب',
+    columns: 'الأعمدة',
+    columnsHint: 'الأعمدة الظاهرة',
+    resetColumns: 'استعادة الافتراضي',
+  };
+}
 
 /**
  * Staff account administration — SUPER_ADMIN only.
@@ -87,9 +117,8 @@ export default function StaffPage({
 
   const [token, setToken] = useState<string | null>(null);
   const [selfId, setSelfId] = useState<string | null>(null);
-  const [items, setItems] = useState<StaffSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /** A failed *write*. The read reports its own failure through the query. */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<StaffSummary | null>(null);
@@ -114,28 +143,43 @@ export default function StaffPage({
     setSelfId(session.user.id);
   }, [tenant, base, router]);
 
-  const load = useCallback(async () => {
-    if (!token) return;
-    try {
-      const result = await getStaff(tenant, token);
-      setItems(result.items);
-      setError(null);
-    } catch (caught) {
-      logApiError(caught);
-      if (caught instanceof ApiRequestError && caught.status === 401) {
-        clearSession(tenant);
-        router.replace(`${base}/login`);
-        return;
-      }
-      setError('تعذّر تحميل الموظفين.');
-    } finally {
-      setLoading(false);
-    }
-  }, [tenant, token, base, router]);
+  /*
+    Unparameterised: the whole staff list, filtered and paged in the browser.
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+    That is right here and nowhere else on the portal — a municipality has a
+    dozen accounts, not a register of thousands — so the search box below is
+    TanStack's own and never reaches the API. It still benefits from the cache:
+    coming back to this screen shows the accounts immediately and re-reads
+    behind them.
+  */
+  const query = useStaffQuery({
+    queryKey: ['staff', tenant],
+    queryFn: (accessToken, signal) => getStaff(tenant, accessToken, signal),
+    tenant,
+    base,
+    token,
+    errorMessage: 'تعذّر تحميل الموظفين.',
+  });
+
+  const items = query.data?.items ?? [];
+  /*
+    The banner above the page and the state inside the table say different
+    things, and used to say the same one twice.
+
+    A failed *read* belongs to the table: it is the table that has no rows to
+    show, it is the table that needs the retry button, and a table rendering
+    «لا توجد نتائج» after a request failed is telling the reader the register is
+    empty when it is only unreachable. A failed *write* has no such home — the
+    rows are fine, an action was refused — so that is what the banner is for.
+  */
+  const error = actionError;
+
+  /** Re-reads the accounts after a create, an edit, a deactivation or a reset. */
+  const queryClient = useQueryClient();
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['staff', tenant] }),
+    [queryClient, tenant],
+  );
 
   const [createdTotp, setCreatedTotp] = useState<{
     email: string;
@@ -211,7 +255,7 @@ export default function StaffPage({
         logApiError(caught);
         const message =
           caught instanceof ApiRequestError ? caught.message : 'تعذّر تحديث الحساب.';
-        setError(message);
+        setActionError(message);
         toast.error('تعذّر تحديث الحساب', { description: message });
       } finally {
         setBusyId(null);
@@ -232,7 +276,7 @@ export default function StaffPage({
         logApiError(caught);
         const message =
           caught instanceof ApiRequestError ? caught.message : 'تعذّر حذف الحساب.';
-        setError(message);
+        setActionError(message);
         // Rethrown so the dialog stays open with the reason in place — the
         // server refuses the last SUPER_ADMIN, and that is worth reading.
         throw new Error(message);
@@ -243,21 +287,25 @@ export default function StaffPage({
     [tenant, token, load, toast],
   );
 
+  const labels = getLabels(locale);
+
   const columns = useMemo<ColumnDef<StaffSummary>[]>(
     () => [
       {
         accessorKey: 'fullName',
-        header: 'الاسم',
+        header: locale === 'en' ? 'Name' : 'الاسم',
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
             <span className="font-medium">{row.original.fullName}</span>
-            {row.original.id === selfId ? <Badge variant="outline">أنت</Badge> : null}
+            {row.original.id === selfId ? (
+              <Badge variant="outline">{locale === 'en' ? 'You' : 'أنت'}</Badge>
+            ) : null}
           </div>
         ),
       },
       {
         accessorKey: 'email',
-        header: 'البريد الإلكتروني',
+        header: locale === 'en' ? 'Email' : 'البريد الإلكتروني',
         cell: ({ row }) => (
           <a
             href={`mailto:${row.original.email}`}
@@ -271,32 +319,32 @@ export default function StaffPage({
       },
       {
         accessorKey: 'role',
-        header: 'الصلاحية',
+        header: locale === 'en' ? 'Role' : 'الصلاحية',
         cell: ({ row }) => (
           <Badge variant={row.original.role === 'SUPER_ADMIN' ? 'default' : 'secondary'}>
-            {ar.staffRole?.[row.original.role as never] ?? row.original.role}
+            {labels.staffRole?.[row.original.role as never] ?? row.original.role}
           </Badge>
         ),
       },
       {
         accessorKey: 'isActive',
-        header: 'الحالة',
+        header: locale === 'en' ? 'Status' : 'الحالة',
         cell: ({ row }) =>
           row.original.isActive ? (
             <Badge className="gap-1.5 border-emerald-600/30 bg-emerald-600/10 py-1 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" variant="outline">
               <CheckCircle2 className="size-3.5" aria-hidden />
-              فعّال
+              {locale === 'en' ? 'Active' : 'فعّال'}
             </Badge>
           ) : (
             <Badge className="gap-1.5 py-1" variant="outline">
               <Ban className="size-3.5" aria-hidden />
-              معطّل
+              {locale === 'en' ? 'Disabled' : 'معطّل'}
             </Badge>
           ),
       },
       {
         accessorKey: 'lastLoginAt',
-        header: 'آخر دخول',
+        header: locale === 'en' ? 'Last Login' : 'آخر دخول',
         cell: ({ row }) =>
           row.original.lastLoginAt
             ? formatDate(row.original.lastLoginAt)
@@ -304,28 +352,22 @@ export default function StaffPage({
       },
       {
         id: 'actions',
-        header: 'إجراء',
+        header: locale === 'en' ? 'Actions' : 'إجراء',
         enableSorting: false,
-        // Pinned to the card footer on a phone rather than rendered as a
-        // label/value row, which squeezed four icon buttons into a
-        // right-aligned <dd>.
         meta: { mobile: 'actions' },
         cell: ({ row }) => {
           const staff = row.original;
           const isSelf = staff.id === selfId;
           const busy = busyId === staff.id;
-          // Erasing an account that has reviewed a claim would strip the name
-          // off that decision, so the option only exists while there is
-          // nothing to orphan. The server enforces the same rule.
           const deletable = staff.historyCount === 0 && !isSelf;
 
           return (
             <div className="flex items-center gap-1.5">
-              <ActionTooltip label="تعديل">
+              <ActionTooltip label={locale === 'en' ? 'Edit' : 'تعديل'}>
                 <Button
                   variant="secondary"
                   size="icon-sm"
-                  aria-label="تعديل"
+                  aria-label={locale === 'en' ? 'Edit' : 'تعديل'}
                   disabled={busy}
                   onClick={() => {
                     setEditing(staff);
@@ -338,11 +380,21 @@ export default function StaffPage({
               </ActionTooltip>
 
               {!isSelf ? (
-                <ActionTooltip label={staff.isActive ? 'إلغاء التفعيل' : 'إعادة التفعيل'}>
+                <ActionTooltip
+                  label={
+                    staff.isActive
+                      ? (locale === 'en' ? 'Disable Account' : 'إلغاء التفعيل')
+                      : (locale === 'en' ? 'Re-activate Account' : 'إعادة التفعيل')
+                  }
+                >
                   <Button
                     variant="outline"
                     size="icon-sm"
-                    aria-label={staff.isActive ? 'إلغاء التفعيل' : 'إعادة التفعيل'}
+                    aria-label={
+                      staff.isActive
+                        ? (locale === 'en' ? 'Disable' : 'إلغاء التفعيل')
+                        : (locale === 'en' ? 'Re-activate' : 'إعادة التفعيل')
+                    }
                     disabled={busy}
                     onClick={() => void toggleActive(staff)}
                   >
@@ -358,11 +410,11 @@ export default function StaffPage({
               ) : null}
 
               {deletable ? (
-                <ActionTooltip label="حذف نهائي — لا سجل نشاطات لهذا الحساب">
+                <ActionTooltip label={locale === 'en' ? 'Delete permanently' : 'حذف نهائي — لا سجل نشاطات لهذا الحساب'}>
                   <Button
                     variant="outline"
                     size="icon-sm"
-                    aria-label="حذف نهائي"
+                    aria-label={locale === 'en' ? 'Delete permanently' : 'حذف نهائي'}
                     className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={busy}
                     onClick={() => setPendingDelete(staff)}
@@ -376,21 +428,25 @@ export default function StaffPage({
         },
       },
     ],
-    [selfId, busyId, toggleActive, removeStaff],
+    [selfId, busyId, toggleActive, locale, labels],
   );
 
   if (!token) return null;
 
+  const tableLabels = getTableLabels(locale);
+
   return (
-    <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <div className="flex flex-col items-start justify-between gap-4 border-b pb-6 md:flex-row md:items-center">
         <div className="space-y-2">
           <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
             <UsersRound className="size-7 text-primary" aria-hidden />
-            الموظفون
+            {locale === 'en' ? 'Staff Members' : 'الموظفون'}
           </h1>
           <p className="text-sm text-muted-foreground">
-            إنشاء حسابات موظفي البلدية وتعديل صلاحياتها
+            {locale === 'en'
+              ? 'Manage municipal staff accounts and roles'
+              : 'إنشاء حسابات موظفي البلدية وتعديل صلاحياتها'}
           </p>
         </div>
         <Button
@@ -401,7 +457,7 @@ export default function StaffPage({
           }}
         >
           <UserPlus className="size-4" aria-hidden />
-          إضافة موظف
+          {locale === 'en' ? 'Add Staff Member' : 'إضافة موظف'}
         </Button>
       </div>
 
@@ -418,22 +474,24 @@ export default function StaffPage({
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2 text-lg">
             <UsersRound className="size-5" aria-hidden />
-            حسابات الموظفين
+            {locale === 'en' ? 'Staff Directory' : 'حسابات الموظفين'}
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            إلغاء التفعيل يمنع الدخول ويُبقي سجل نشاطات الموظف كما هو. الحذف النهائي متاح
-            فقط لحساب لم يقم بأي إجراء.
+            {locale === 'en'
+              ? 'Disabling prevents login while preserving historical action logs. Permanent delete is only allowed for accounts with no prior actions.'
+              : 'إلغاء التفعيل يمنع الدخول ويُبقي سجل نشاطات الموظف كما هو. الحذف النهائي متاح فقط لحساب لم يقم بأي إجراء.'}
           </p>
         </CardHeader>
         <CardContent className="p-6">
           <DataTable
             columns={columns}
             data={items}
-            labels={TABLE_LABELS}
+            labels={tableLabels}
             columnStorageKey="staff"
             getRowId={(row) => row.id}
-            loading={loading}
-            onRetry={() => void load()}
+            loading={query.loading}
+            error={query.error}
+            onRetry={query.refetch}
           />
         </CardContent>
       </Card>
@@ -448,6 +506,7 @@ export default function StaffPage({
           if (!next) setEditing(null);
         }}
         onSubmit={(values) => void submitForm(values)}
+        locale={locale}
       />
 
       <ConfirmDialog
@@ -455,25 +514,31 @@ export default function StaffPage({
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
         }}
-        title="حذف الحساب نهائياً"
+        title={locale === 'en' ? 'Permanently Delete Account' : 'حذف الحساب نهائياً'}
         description={
           pendingDelete ? (
-            <>
-              سيُحذف حساب{' '}
-              <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> ولن
-              يستطيع تسجيل الدخول. سجل نشاطه في «سجل النشاطات» يبقى كما هو.
-              {/* The gentler option, offered at the moment the harsher one is
-                  being considered: disabling keeps the account attributable in
-                  the audit trail, and is what most of these actually want. */}
-              <span className="mt-2 block text-muted-foreground">
-                إن كان الهدف منع الدخول مؤقتاً، «التعطيل» يكفي ويمكن التراجع عنه.
-              </span>
-            </>
+            locale === 'en' ? (
+              <>
+                Account for <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> will be deleted and will no longer be able to log in. Their activity remains in the audit log.
+                <span className="mt-2 block text-muted-foreground">
+                  If the goal is to temporarily revoke access, &quot;Disable&quot; is sufficient and reversible.
+                </span>
+              </>
+            ) : (
+              <>
+                سيُحذف حساب{' '}
+                <span className="font-semibold text-foreground">{pendingDelete.fullName}</span> ولن
+                يستطيع تسجيل الدخول. سجل نشاطه في «سجل النشاطات» يبقى كما هو.
+                <span className="mt-2 block text-muted-foreground">
+                  إن كان الهدف منع الدخول مؤقتاً، «التعطيل» يكفي ويمكن التراجع عنه.
+                </span>
+              </>
+            )
           ) : null
         }
-        confirmLabel="حذف نهائي"
+        confirmLabel={locale === 'en' ? 'Delete Permanently' : 'حذف نهائي'}
         requireText={pendingDelete?.email}
-        requireTextHint="اكتب البريد الإلكتروني للحساب للتأكيد"
+        requireTextHint={locale === 'en' ? 'Type the account email address to confirm' : 'اكتب البريد الإلكتروني للحساب للتأكيد'}
         onConfirm={async () => {
           if (pendingDelete) await removeStaff(pendingDelete);
         }}
@@ -488,24 +553,31 @@ export default function StaffPage({
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" closeLabel={locale === 'en' ? 'Close' : 'إغلاق'}>
           <DialogHeader>
             <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20">
               <KeyRound className="size-6" />
             </div>
             <DialogTitle className="text-center text-xl font-bold">
-              رمز التحقق بخطوتين (2FA)
+              {locale === 'en' ? 'Two-Factor Authentication (2FA)' : 'رمز التحقق بخطوتين (2FA)'}
             </DialogTitle>
             <DialogDescription className="text-center text-sm leading-relaxed">
-              تم إنشاء حساب المسؤول <span className="font-semibold text-foreground">{createdTotp?.name}</span> بنجاح.
-              سلّم هذا المفتاح للمسؤول لإدخاله في تطبيق المصادقة (Google Authenticator).
+              {locale === 'en' ? (
+                <>
+                  Admin account <span className="font-semibold text-foreground">{createdTotp?.name}</span> created successfully. Provide this setup key to the administrator to enter into their authenticator app (Google Authenticator).
+                </>
+              ) : (
+                <>
+                  تم إنشاء حساب المسؤول <span className="font-semibold text-foreground">{createdTotp?.name}</span> بنجاح. سلّم هذا المفتاح للمسؤول لإدخاله في تطبيق المصادقة (Google Authenticator).
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="rounded-xl border border-border/80 bg-muted/40 p-4 space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>مفتاح الإعداد (Setup Key):</span>
+                <span>{locale === 'en' ? 'Setup Key:' : 'مفتاح الإعداد (Setup Key):'}</span>
                 <span className="font-mono">{createdTotp?.email}</span>
               </div>
               <div className="flex items-center gap-2">
@@ -528,12 +600,12 @@ export default function StaffPage({
                   {copiedSecret ? (
                     <>
                       <Check className="size-4 text-emerald-600" />
-                      <span className="text-xs">تم النسخ</span>
+                      <span className="text-xs">{locale === 'en' ? 'Copied' : 'تم النسخ'}</span>
                     </>
                   ) : (
                     <>
                       <Copy className="size-4" />
-                      <span className="text-xs">نسخ</span>
+                      <span className="text-xs">{locale === 'en' ? 'Copy' : 'نسخ'}</span>
                     </>
                   )}
                 </Button>
@@ -541,7 +613,11 @@ export default function StaffPage({
             </div>
 
             <div className="rounded-lg bg-amber-500/5 p-3 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-              ⚠️ <strong>تنبيه:</strong> هذا المفتاح يُعرض <strong>لمرة واحدة فقط</strong> الآن ولن يمكن استرجاعه لاحقاً من الموقع. في حال فقدانه يمكن إعادة تعيينه عبر موجه الأوامر (CLI).
+              {locale === 'en' ? (
+                <>⚠️ <strong>Notice:</strong> This key is displayed <strong>only once</strong> now and cannot be retrieved later from the site. If lost, it can be reset via the CLI.</>
+              ) : (
+                <>⚠️ <strong>تنبيه:</strong> هذا المفتاح يُعرض <strong>لمرة واحدة فقط</strong> الآن ولن يمكن استرجاعه لاحقاً من الموقع. في حال فقدانه يمكن إعادة تعيينه عبر موجه الأوامر (CLI).</>
+              )}
             </div>
           </div>
 
@@ -554,7 +630,7 @@ export default function StaffPage({
                 setCopiedSecret(false);
               }}
             >
-              تم الحفظ والإغلاق
+              {locale === 'en' ? 'Saved & Close' : 'تم الحفظ والإغلاق'}
             </Button>
           </DialogFooter>
         </DialogContent>

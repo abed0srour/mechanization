@@ -73,7 +73,11 @@ export default function CitizenLogin({
       );
     } catch (caught) {
       logApiError(caught);
-      setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر إرسال الرمز.');
+      setError(
+        caught instanceof ApiRequestError
+          ? caught.message
+          : (locale === 'en' ? 'Failed to send verification code.' : 'تعذّر إرسال الرمز.'),
+      );
     } finally {
       setBusy(false);
     }
@@ -83,16 +87,12 @@ export default function CitizenLogin({
     setBusy(true);
     setError(null);
     try {
-      // Omitted rather than sent empty: the schema accepts a missing code
-      // (for the OTP-disabled case) but still rejects `''` against the
-      // six-digit pattern.
       const result = await verifyOtp(tenant, {
         phone,
         ...(code ? { code } : {}),
         citizenId,
       });
 
-      // `status` is the discriminant: a real session never carries one.
       if ('status' in result) {
         setChoices(result.choices);
         setStage('choose');
@@ -103,7 +103,11 @@ export default function CitizenLogin({
       router.push(`/${tenant}/${locale}/my-account`);
     } catch (caught) {
       logApiError(caught);
-      setError(caught instanceof ApiRequestError ? caught.message : 'تعذّر التحقق من الرمز.');
+      setError(
+        caught instanceof ApiRequestError
+          ? caught.message
+          : (locale === 'en' ? 'Failed to verify code.' : 'تعذّر التحقق من الرمز.'),
+      );
     } finally {
       setBusy(false);
     }
@@ -112,8 +116,12 @@ export default function CitizenLogin({
   return (
     <div className="space-y-8">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">الدخول لمتابعة طلبي</h1>
-        <p className="text-muted-foreground">ندخلك برقم هاتفك — لا حاجة لكلمة مرور.</p>
+        <h1 className="text-3xl font-bold tracking-tight">
+          {locale === 'en' ? 'Sign in to track my application' : 'الدخول لمتابعة طلبي'}
+        </h1>
+        <p className="text-muted-foreground">
+          {locale === 'en' ? 'Sign in with your phone number — no password needed.' : 'ندخلك برقم هاتفك — لا حاجة لكلمة مرور.'}
+        </p>
       </div>
 
       {error ? (
@@ -127,14 +135,13 @@ export default function CitizenLogin({
 
       {stage === 'phone' ? (
         <div className="space-y-5">
-          <Field label="رقم الهاتف" htmlFor="phone" required>
+          <Field label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'} htmlFor="phone" required>
             <Input
               id="phone"
               type="tel"
               inputMode="tel"
-              dir="ltr"
               placeholder="03 123456"
-              className="text-start"
+              className="text-start font-mono"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
@@ -146,14 +153,21 @@ export default function CitizenLogin({
             disabled={busy || phone.trim().length < 7}
             onClick={() => send(1)}
           >
-            {busy ? 'جارٍ الإرسال…' : 'أرسل الرمز'}
+            {busy
+              ? (locale === 'en' ? 'Sending code…' : 'جارٍ الإرسال…')
+              : (locale === 'en' ? 'Send Code' : 'أرسل الرمز')}
           </Button>
         </div>
       ) : null}
 
       {stage === 'code' ? (
         <div className="space-y-5">
-          <Field label="رمز التحقق" htmlFor="code" required hint="ستة أرقام وصلتك برسالة نصية">
+          <Field
+            label={locale === 'en' ? 'Verification Code' : 'رمز التحقق'}
+            htmlFor="code"
+            required
+            hint={locale === 'en' ? '6 digits sent via SMS' : 'ستة أرقام وصلتك برسالة نصية'}
+          >
             <Input
               id="code"
               inputMode="numeric"
@@ -168,7 +182,8 @@ export default function CitizenLogin({
 
           {devCode ? (
             <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-              وضع التطوير — الرمز: <span dir="ltr">{devCode}</span>
+              {locale === 'en' ? 'Development Mode — Code: ' : 'وضع التطوير — الرمز: '}
+              <span dir="ltr">{devCode}</span>
             </p>
           ) : null}
 
@@ -178,7 +193,9 @@ export default function CitizenLogin({
             disabled={busy || code.length !== 6}
             onClick={() => verify()}
           >
-            {busy ? 'جارٍ التحقق…' : 'تحقّق وادخل'}
+            {busy
+              ? (locale === 'en' ? 'Verifying…' : 'جارٍ التحقق…')
+              : (locale === 'en' ? 'Verify & Sign In' : 'تحقّق وادخل')}
           </Button>
 
           <Button
@@ -188,23 +205,26 @@ export default function CitizenLogin({
             disabled={busy || cooldown > 0}
             onClick={() => send(attempt + 1)}
           >
-            {cooldown > 0 ? `إعادة الإرسال بعد ${cooldown} ثانية` : 'لم يصلني الرمز — أعد الإرسال'}
+            {cooldown > 0
+              ? (locale === 'en' ? `Resend code in ${cooldown}s` : `إعادة الإرسال بعد ${cooldown} ثانية`)
+              : (locale === 'en' ? 'Did not receive code? Resend' : 'لم يصلني الرمز — أعد الإرسال')}
           </Button>
 
-          {/**
-           * The way out when SMS simply does not arrive. Without this the login
-           * page is a dead end for exactly the citizens this service exists for.
-           */}
           <p className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-            إذا لم يصلك الرمز بعد عدة محاولات، يمكنك مراجعة البلدية مباشرة مع رقمك المرجعي
-            وسيتمكن الموظف من عرض حالة طلبك.
+            {locale === 'en'
+              ? 'If you do not receive the code after multiple attempts, you can visit the municipality directly with your reference number to check your status.'
+              : 'إذا لم يصلك الرمز بعد عدة محاولات، يمكنك مراجعة البلدية مباشرة مع رقمك المرجعي وسيتمكن الموظف من عرض حالة طلبك.'}
           </p>
         </div>
       ) : null}
 
       {stage === 'choose' ? (
         <div className="space-y-5">
-          <p className="text-muted-foreground">هذا الرقم مسجّل لأكثر من شخص. اختر اسمك للمتابعة.</p>
+          <p className="text-muted-foreground">
+            {locale === 'en'
+              ? 'This phone number is associated with multiple files. Choose your name to proceed.'
+              : 'هذا الرقم مسجّل لأكثر من شخص. اختر اسمك للمتابعة.'}
+          </p>
 
           <div className="grid gap-3">
             {choices.map((choice) => (
@@ -215,7 +235,11 @@ export default function CitizenLogin({
                 checked={chosenId === choice.id}
                 onChange={setChosenId}
                 title={choice.displayName}
-                description={`رقم الوثيقة ينتهي بـ ${choice.identityDocLastDigits}`}
+                description={
+                  locale === 'en'
+                    ? `ID document ends in ${choice.identityDocLastDigits}`
+                    : `رقم الوثيقة ينتهي بـ ${choice.identityDocLastDigits}`
+                }
               />
             ))}
           </div>
@@ -226,7 +250,7 @@ export default function CitizenLogin({
             disabled={busy || !chosenId}
             onClick={() => verify(chosenId)}
           >
-            متابعة
+            {locale === 'en' ? 'Continue' : 'متابعة'}
           </Button>
         </div>
       ) : null}

@@ -108,6 +108,7 @@ model User {
   civilRecordNumber String?
   familySize        Int?
   maritalStatus     MaritalStatus?
+  bloodType         BloodType?
 
   /// رقم مرجعي — usable when a phone is lost or shared.
   referenceNumber String? @unique
@@ -131,6 +132,22 @@ model User {
   /// ninety seconds — long enough for an observed code to be replayed. A login
   /// presenting a step at or below this one is refused whatever the digits say.
   lastTotpStep BigInt?
+
+  /// Read-only. A Postgres `GENERATED ALWAYS AS ... STORED` column holding
+  /// every value this row can be looked up by, folded to one alphabet:
+  /// hamza-carrying alefs to bare alef, taa marbuta to haa, alef maqsura to
+  /// yaa, tashkeel stripped, Arabic-Indic digits to Latin, every separator to
+  /// a space — plus a second, space-free copy of each identifier so a
+  /// reference number typed without its dashes still matches.
+  ///
+  /// **Never write to it.** The database computes it and rejects any INSERT or
+  /// UPDATE that supplies a value. It is optional here only because Prisma
+  /// omits an absent optional field from the statement it builds, which is the
+  /// one way to model a generated column in a schema language that has no
+  /// word for one. Declared so it can be *filtered* on; see
+  /// `searchTokens` in application/common/search-terms.ts for the matching
+  /// query side, and migration 0018 for the definition.
+  searchText String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -179,6 +196,12 @@ model OtpChallenge {
 
 enum ReportStatus {
   PENDING
+
+  /// Filed with named fields left unestablished — see `flaggedFields`. Not a
+  /// rejection and not a draft: the citizen is registered, searchable and
+  /// billable from the moment the row exists.
+  REQUIRES_REVIEW
+
   UNDER_REVIEW
   VERIFIED
   APPROVED
@@ -205,6 +228,29 @@ model Registration {
   /// blob (the reviewer submits the whole set at once) — a row per flag would
   /// buy queryability nothing here asks for.
   rejectedFields String[] @default([])
+
+  /// «غير مؤكَّد / بانتظار المعلومة» — the fields a field officer could not
+  /// establish, each with the reason they gave, as
+  /// `[{ "path": "personal.civilRecordNumber", "reason": "…" }]`.
+  ///
+  /// Paths are the dot-paths `rejectedFields` already uses and the ones the
+  /// form resolves back to an input, so a stored flag renders beside the field
+  /// it excuses without a second mapping. Non-empty here is exactly what
+  /// `status = REQUIRES_REVIEW` means; the two are always written together.
+  ///
+  /// Json rather than a join table, for the reason stated just above: written
+  /// once when the record is filed, read whole when someone opens it to finish.
+  flaggedFields Json @default("[]")
+
+  /// The browser's own name for the submission that created this row.
+  ///
+  /// Minted before the record is ever sent, so it survives being queued in
+  /// IndexedDB on a phone with no signal and travels with every retry. Unique,
+  /// which is what makes syncing safe to repeat: a submission whose response
+  /// was lost to the same bad connection that queued it is recognised on
+  /// arrival and answered with the registration it already created, rather than
+  /// registering the person a second time. Null for anything filed online.
+  clientSubmissionId String? @unique
 
   /// Whether the citizen may fix the flagged fields themselves.
   ///
@@ -270,12 +316,20 @@ model PropertyEntry {
   propertyType   PropertyType
   /// الحي — common to every property type. Free text: unlike رقم العقار there is
   /// no neighbourhood layer in the cadastre to check it against.
-  neighborhood   String
+  ///
+  /// Nullable only so it can hold the absence a «غير مؤكَّد» flag records.
+  /// `propertyEntrySchema` still requires it of every card filed without one.
+  neighborhood   String?
   /// رقم العقار as printed on the deed. Deliberately NOT unique: an apartment
   /// building is one cadastral number shared by every owner and tenant inside
   /// it, so co-registration is the normal case. Uniqueness here used to tell the
   /// second resident of a building that their own address was already taken.
-  propertyNumber String
+  ///
+  /// Nullable for the same reason الحي is, and it is the commoner of the two in
+  /// practice: the deed is with a relative in another town, or the settlement
+  /// has no cadastral number at all. A null one is simply absent from the
+  /// cadastre lookup rather than matching nothing.
+  propertyNumber String?
   /// unitType/floor/side/unitArea/sharedRights describe a single unit, which is
   /// all a HOUSE or a LAND ever has. A BUILDING reads its units from
   /// `units` instead — see BuildingUnit.
@@ -706,6 +760,14 @@ model CitizenPayment {
   /// cannot depend on it remembering to check first.
   periodKey String @default("ONCE")
 
+  /// Read-only, generated. The invoice's own searchable text — its title and
+  /// the Whish reference — folded by the same rules as `User.searchText`, which
+  /// see. The payer is reached through the join, not copied in here.
+  searchText String?
+
+  /// Whether a staff member has marked this pending verification notification as seen.
+  isSeen Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -793,4 +855,15 @@ model PaymentTransaction {
   /// What the municipality took today, across every collector and clerk.
   @@index([occurredAt])
   @@map("payment_transactions")
+}
+
+enum BloodType {
+  A_POSITIVE
+  A_NEGATIVE
+  B_POSITIVE
+  B_NEGATIVE
+  AB_POSITIVE
+  AB_NEGATIVE
+  O_POSITIVE
+  O_NEGATIVE
 }

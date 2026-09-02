@@ -2,60 +2,40 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, MapPin, Phone, Search, User, Users, X } from 'lucide-react';
-import { ar } from '@mechanization/shared-schemas';
+import {
+  CheckCircle2,
+  ChevronLeft,
+  Coins,
+  MapPin,
+  Phone,
+  Search,
+  User,
+  Users,
+  X,
+} from 'lucide-react';
 import type { RegisteredParcel } from '@/lib/api-client';
-import { formatDate } from '@/lib/dates';
+import { formatLbp, formatLbpCompact } from '@/lib/currency';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-/** Past this many people, finding one by eye stops working. */
-const SEARCH_THRESHOLD = 6;
-
-/**
- * Everyone registered on one parcel.
- *
- * **A bottom sheet on a phone, a side panel from `sm` up.** That split is the
- * point of this component. As one panel it was `w-full max-w-sm`, which on a
- * 390px screen is the entire map — a clerk who tapped a marker to ask "who is
- * here" lost the *here* completely, and the only way back was to close the
- * thing they had just opened. A sheet rising from the bottom leaves the marker
- * and its surroundings visible above it, which is the arrangement every map
- * application settled on for the same reason.
- *
- * An inline panel inside the map container rather than a page-level modal:
- * this describes the marker that opened it, so the map has to stay usable
- * behind it — staff compare neighbouring parcels constantly, and a scrim plus
- * a body-scroll lock makes that a close-and-reopen loop. It was a
- * `role="dialog" aria-modal="true"` sheet with no focus trap and no focus
- * restore, which is the worst of both: assistive tech hid the rest of the page
- * while the keyboard could still walk out of the panel.
- *
- * On `sm` and up it is pinned physically right in both text directions — the
- * map's own nav and scale controls sit on the left (see `fullscreen-map.tsx`)
- * to leave that edge clear.
- *
- * A parcel with several people on it is the expected case, not an edge one: an
- * apartment building is one cadastral number, and the buildings here run to
- * dozens of units.
- */
 export function CitizenDetailDrawer({
   parcel,
   citizenHref,
   onClose,
+  locale = 'ar',
 }: {
   parcel: RegisteredParcel | null;
   /** Builds the tenant-scoped profile URL for a citizen id. */
   citizenHref: (citizenId: string) => string;
   onClose: () => void;
+  locale?: string;
 }) {
+  const isEnglish = locale === 'en';
   const [query, setQuery] = useState('');
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // Escape still closes it. Dropping the modal semantics is not a reason to
-  // drop the one keyboard affordance every overlay is expected to have.
   useEffect(() => {
     if (!parcel) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -65,194 +45,222 @@ export function CitizenDetailDrawer({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [parcel, onClose]);
 
-  /*
-   * A new parcel is a new list: the previous filter would otherwise carry over
-   * and show "no results" for a parcel whose occupants are all perfectly
-   * present. Focus moves to the heading for the same reason — a screen reader
-   * user who activated a marker should hear which parcel answered.
-   */
   useEffect(() => {
     if (!parcel) return;
     setQuery('');
     headingRef.current?.focus();
-  }, [parcel?.propertyNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [parcel]);
 
   const registrants = parcel?.registrants ?? [];
+  const financials = parcel?.financials;
 
   const filtered = useMemo(() => {
+    const list = parcel?.registrants ?? [];
     const needle = query.trim().toLowerCase();
-    if (!needle) return registrants;
-    return registrants.filter(
+    if (!needle) return list;
+    return list.filter(
       (registrant) =>
         registrant.fullName.toLowerCase().includes(needle) ||
         (registrant.phone ?? '').includes(needle),
     );
-  }, [registrants, query]);
+  }, [parcel?.registrants, query]);
 
   if (!parcel) return null;
 
   const count = registrants.length;
-  const searchable = count > SEARCH_THRESHOLD;
+
+  // Parcel-level financial status helpers
+  const totalBilled = financials?.totalBilled ?? 0;
+  const totalPaid = financials?.totalPaid ?? 0;
+  const totalDue = financials?.totalDue ?? 0;
+  const status = financials?.status ?? 'NO_BILLS';
 
   return (
     <section
-      aria-label={`المسجّلون على العقار ${parcel.propertyNumber}`}
+      aria-label={
+        isEnglish
+          ? `Registrants on Parcel ${parcel.propertyNumber}`
+          : `المسجّلون على العقار ${parcel.propertyNumber}`
+      }
       className={cn(
-        'absolute z-30 flex flex-col overflow-hidden bg-card shadow-2xl duration-300 animate-in',
-        // Phone: a sheet off the bottom edge, capped so the map keeps a third
-        // of the screen. `dvh` rather than `vh` so a mobile browser's
-        // collapsing address bar does not push the sheet's foot out of reach.
-        'inset-x-0 bottom-0 max-h-[68dvh] rounded-t-2xl border-t slide-in-from-bottom',
-        // `sm` and up: the full-height rail it always was.
+        'absolute z-30 flex flex-col overflow-hidden bg-card shadow-2xl duration-300 animate-in border-border/80',
+        'inset-x-0 bottom-0 max-h-[75dvh] rounded-t-2xl border-t slide-in-from-bottom',
         'sm:inset-y-0 sm:inset-x-auto sm:end-0 sm:max-h-none sm:w-[22rem] sm:rounded-none sm:border-s sm:border-t-0 sm:slide-in-from-bottom-0 sm:slide-in-from-right',
       )}
     >
-      {/*
-        The grab bar is decoration, not a control — the sheet does not drag.
-        It is here because a rounded top edge with nothing on it reads as a
-        rendering artefact, and this shape is what tells a phone user the panel
-        is a sheet rather than a page that failed to fill the screen.
-      */}
-      <div aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border sm:hidden" />
+      <div
+        aria-hidden
+        className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-border sm:hidden"
+      />
 
-      <header className="flex shrink-0 items-start gap-3 p-4 pb-3">
-        <span
-          aria-hidden
-          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
-        >
-          <MapPin className="size-5" />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <h2
-            ref={headingRef}
-            tabIndex={-1}
-            className="truncate text-base font-bold leading-tight outline-none"
+      {/* Header */}
+      <header className="flex shrink-0 items-start justify-between gap-3 border-b p-4 bg-muted/20">
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            aria-hidden
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-2xs"
           >
-            العقار <span dir="ltr">{parcel.propertyNumber}</span>
-          </h2>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Users className="size-3.5 shrink-0" aria-hidden />
-            {count === 1 ? 'مواطن واحد مسجّل' : `${count} مواطنين مسجّلين`}
-          </p>
+            <MapPin className="size-5" />
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h2
+                ref={headingRef}
+                tabIndex={-1}
+                className="truncate text-base font-bold leading-tight outline-none"
+              >
+                {isEnglish ? 'Parcel ' : 'العقار '}
+                <span dir="ltr">#{parcel.propertyNumber}</span>
+              </h2>
+            </div>
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Users className="size-3.5 shrink-0" aria-hidden />
+              <span>
+                {count === 1
+                  ? (isEnglish ? '1 registered citizen' : 'مواطن واحد مسجّل')
+                  : (isEnglish ? `${count} registered citizens` : `${count} مواطنين مسجّلين`)}
+              </span>
+            </p>
+          </div>
         </div>
 
         <Button
           variant="ghost"
           size="icon"
           onClick={onClose}
-          aria-label="إغلاق"
-          className="-me-1 shrink-0"
+          aria-label={isEnglish ? 'Close' : 'إغلاق'}
+          className="-me-1 size-8 shrink-0 text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          <X className="size-5" aria-hidden />
+          <X className="size-4" aria-hidden />
         </Button>
       </header>
 
-      {searchable ? (
-        <div className="shrink-0 px-4 pb-3">
-          <div className="relative">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 start-3 my-auto size-4 text-muted-foreground"
-            />
-            <Input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="ابحث بالاسم أو الهاتف…"
-              aria-label="ابحث في المسجّلين على هذا العقار"
-              className="h-10 ps-9"
-            />
+      {/* Scrollable Content Container */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 space-y-3">
+        {/* Top Financial Summary Card */}
+        <div className="rounded-xl border border-border/80 bg-gradient-to-br from-card to-muted/30 p-3.5 shadow-xs space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+              <Coins className="size-4 text-primary" />
+              {isEnglish ? 'Parcel Fees & Bills' : 'إجمالي الرسوم والمطالبات'}
+            </span>
+
+            {status === 'PAID' ? (
+              <Badge variant="soft-success" className="gap-1 px-2 py-0.5 text-[11px] font-semibold">
+                <CheckCircle2 className="size-3" />
+                {isEnglish ? 'Fully Paid' : 'مسدد بالكامل'}
+              </Badge>
+            ) : status === 'PARTIALLY_PAID' ? (
+              <Badge variant="soft-warning" className="px-2 py-0.5 text-[11px] font-semibold">
+                {isEnglish ? 'Partially Paid' : 'مسدد جزئياً'}
+              </Badge>
+            ) : status === 'UNPAID' ? (
+              <Badge variant="soft-destructive" className="px-2 py-0.5 text-[11px] font-semibold">
+                {isEnglish ? 'Unpaid' : 'غير مسدد'}
+              </Badge>
+            ) : (
+              <Badge variant="soft-muted" className="px-2 py-0.5 text-[11px]">
+                {isEnglish ? 'No Bills' : 'لا توجد رسوم'}
+              </Badge>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/50 text-center">
+            <div className="rounded-lg bg-muted/40 p-2">
+              <p className="text-[10px] text-muted-foreground">
+                {isEnglish ? 'Total' : 'الإجمالي'}
+              </p>
+              <p className="mt-0.5 text-xs font-bold text-foreground" title={formatLbp(totalBilled, locale)}>
+                {totalBilled > 0 ? formatLbpCompact(totalBilled, locale) : '—'}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-emerald-500/10 p-2">
+              <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                {isEnglish ? 'Paid' : 'المسدد'}
+              </p>
+              <p className="mt-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300" title={formatLbp(totalPaid, locale)}>
+                {totalPaid > 0 ? formatLbpCompact(totalPaid, locale) : '0'}
+              </p>
+            </div>
+
+            <div className={cn(
+              'rounded-lg p-2',
+              totalDue > 0 ? 'bg-destructive/10 text-destructive' : 'bg-muted/40 text-muted-foreground'
+            )}>
+              <p className="text-[10px]">
+                {isEnglish ? 'Remaining' : 'المتبقي'}
+              </p>
+              <p className="mt-0.5 text-xs font-bold" title={formatLbp(totalDue, locale)}>
+                {totalDue > 0 ? formatLbpCompact(totalDue, locale) : (totalBilled > 0 ? '0' : '—')}
+              </p>
+            </div>
           </div>
         </div>
-      ) : null}
 
-      {/* Only the list scrolls, so the parcel number and the count stay put
-          however many people are on it. */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
+        {/* Search inside the sidebar */}
+        <div className="relative">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 start-2.5 my-auto size-3.5 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={isEnglish ? 'Search by name or phone…' : 'ابحث بالاسم أو الهاتف…'}
+            className="h-8.5 ps-8 text-xs bg-muted/40 rounded-lg border-border/80"
+          />
+        </div>
+
+        {/* Occupants Section Title */}
+        <div className="flex items-center justify-between px-1 pt-0.5">
+          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+            {isEnglish ? 'Registered Citizens' : 'المسجلون على هذا العقار'} ({filtered.length})
+          </span>
+        </div>
+
+        {/* Occupants List: Only Profile Icon, Full Name, and Phone Number */}
         {filtered.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            لا نتائج مطابقة لبحثك.
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            {isEnglish ? 'No matching occupants found.' : 'لا نتائج مطابقة للبحث.'}
           </p>
         ) : (
-          <ul className="space-y-1">
-            {filtered.map((registrant) => (
-              <li key={registrant.registrationId}>
-                {/*
-                  One tappable row per person, replacing a card that carried a
-                  two-row definition list and a full-width button each. Four
-                  neighbours used to be a scroll; an apartment building was a
-                  long one.
-
-                  `relative` + the stretched link below: the whole row opens the
-                  profile, while the phone number stays its own tap target. A
-                  nested <a> would be invalid HTML and, on a phone, an
-                  unhittable 3mm strip inside a much larger link.
-                */}
-                <div className="group relative flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-accent focus-within:bg-accent">
-                  <span
-                    aria-hidden
-                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground"
-                  >
+          <div className="divide-y divide-border/70 rounded-xl border border-border/80 bg-card overflow-hidden shadow-xs">
+            {filtered.map((registrant, idx) => (
+              <Link
+                key={registrant.registrationId || `${registrant.citizenId}-${idx}`}
+                href={citizenHref(registrant.citizenId)}
+                title={isEnglish ? `View profile of ${registrant.fullName}` : `عرض ملف ${registrant.fullName}`}
+                className="group flex items-center justify-between gap-2 px-3 py-2.5 transition-colors hover:bg-accent/60 cursor-pointer text-start"
+              >
+                {/* Profile Icon, Name, and Phone aligned next to each other on the same line */}
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-transform group-hover:scale-105">
                     <User className="size-4" />
                   </span>
 
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Link
-                      href={citizenHref(registrant.citizenId)}
-                      className="block truncate font-semibold outline-none after:absolute after:inset-0 focus-visible:underline"
-                    >
-                      {registrant.fullName}
-                    </Link>
+                  <span className="truncate text-xs font-bold text-foreground group-hover:text-primary transition-colors">
+                    {registrant.fullName}
+                  </span>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant="soft-muted" className="font-normal">
-                        {ar.occupancyType[registrant.occupancyType as never] ??
-                          registrant.occupancyType}
-                      </Badge>
-                      <Badge variant="soft-muted" className="font-normal">
-                        {ar.propertyType[registrant.propertyType as never] ??
-                          registrant.propertyType}
-                      </Badge>
-                      {registrant.unitCount > 0 ? (
-                        <Badge variant="soft-muted" className="font-normal">
-                          {registrant.unitCount} وحدة
-                        </Badge>
-                      ) : null}
-                    </div>
-
-                    {registrant.buildingName ? (
-                      <p className="truncate text-xs text-muted-foreground">
-                        {registrant.buildingName}
-                      </p>
-                    ) : null}
-
-                    <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      {registrant.phone ? (
-                        // `relative z-10` lifts it out of the stretched link's
-                        // reach so tapping the number dials instead of opening
-                        // the profile.
-                        <a
-                          href={`tel:${registrant.phone}`}
-                          dir="ltr"
-                          className="relative z-10 inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                        >
-                          <Phone className="size-3 shrink-0" aria-hidden />
-                          {registrant.phone}
-                        </a>
-                      ) : null}
-                      <span>سُجّل {formatDate(registrant.registeredAt)}</span>
-                    </p>
-                  </div>
-
-                  <ChevronLeft
-                    aria-hidden
-                    className="mt-1 size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5 rtl:rotate-180 rtl:group-hover:translate-x-0.5"
-                  />
+                  {registrant.phone ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ms-auto font-mono" dir="ltr">
+                      <Phone className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
+                      <span>{registrant.phone}</span>
+                    </span>
+                  ) : null}
                 </div>
-              </li>
+
+                {/* Navigation Arrow */}
+                <ChevronLeft
+                  aria-hidden
+                  className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover:-translate-x-0.5 rtl:rotate-180 rtl:group-hover:translate-x-0.5 group-hover:text-foreground"
+                />
+              </Link>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </section>

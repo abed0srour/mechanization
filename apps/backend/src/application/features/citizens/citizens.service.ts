@@ -4,23 +4,30 @@ import {
   adminCreateCitizenSchema,
   buildCitizenPayload,
   IMPORT_COLUMNS,
+  statusForFlags,
 } from '@mechanization/shared-schemas';
 import type {
-  AdminCreateCitizen,
-  AdminUpdateCitizen,
+  AdminCitizenSubmission,
+  AdminCitizenUpdateSubmission,
   CitizenImportResult,
   CitizenImportRowResult,
+  CitizenRecordStatus,
+  FieldFlag,
   ImportRow,
 } from '@mechanization/shared-schemas';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
+import { likePattern, searchTokens } from '../../common/search-terms';
 import { Prisma } from '../../../generated/tenant-client';
 import { PropertyEntry, PropertyType } from '../../../domain/entities/property-entry.entity';
 import { ReferenceNumber } from '../../../domain/value-objects/reference-number.vo';
 import { PARCEL_REPOSITORY } from '../../../domain/interfaces/base-repository.interface';
 import type { ParcelRepository } from '../../../domain/interfaces/parcel-repository.interface';
 import { ConflictError, NotFoundError, ValidationError } from '../../common/exceptions';
-import { RegistrationService } from '../registration/registration.service';
+import {
+  RegistrationService,
+  unestablishedOnCard,
+} from '../registration/registration.service';
 import { TenantService } from '../tenant/tenant.service';
 
 /** A page of the registry beyond this is a report, not a screen. */
@@ -47,6 +54,27 @@ function columnHeaderFor(path: ReadonlyArray<string | number> | undefined): stri
 }
 
 /**
+ * The stored «غير مؤكَّد» flags, read back defensively.
+ *
+ * `flaggedFields` is a json column, so Prisma's type for it is "any json" and
+ * the database will hand back whatever was written — including `[]` from the
+ * default, and, for a row written before this column existed, nothing at all.
+ * Rather than trusting the shape, entries that do not carry both a path and a
+ * reason are dropped: a flag with no reason is precisely the thing this feature
+ * exists to prevent, and showing one would misreport the record as explained.
+ */
+function readFlags(value: unknown): FieldFlag[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const { path, reason } = entry as Record<string, unknown>;
+    if (typeof path !== 'string' || typeof reason !== 'string') return [];
+    return [{ path, reason }];
+  });
+}
+
+/**
  * One row of the staff citizens registry.
  *
  * Deliberately flat and pre-aggregated: this is what a table renders, so the
@@ -59,6 +87,7 @@ export interface CitizenListItem {
   fullName: string;
   phone: string | null;
   whatsapp: string | null;
+  gender: string | null;
   referenceNumber: string | null;
   identityDocType: string | null;
   identityDocNumber: string | null;
@@ -71,6 +100,14 @@ export interface CitizenListItem {
   /** Status of the most recent registration, or null for a citizen with none. */
   latestStatus: string | null;
   latestSubmittedAt: string | null;
+  /**
+   * How many fields on that registration were left «غير مؤكَّد».
+   *
+   * The registry shows the count rather than the flags themselves — the list
+   * answers "how much of this record is missing", the record's own page
+   * answers "which parts, and why".
+   */
+  unestablishedFieldCount: number;
 
   /** Everything ever billed to this citizen. */
   feesTotal: number;
@@ -100,6 +137,7 @@ interface CitizenListRow {
   lastName: string;
   phone: string | null;
   whatsapp: string | null;
+  gender: string | null;
   referenceNumber: string | null;
   identityDocType: string | null;
   identityDocNumber: string | null;
@@ -110,14 +148,25 @@ interface CitizenListRow {
   propertyCount: number;
   latestStatus: string | null;
   latestSubmittedAt: Date | null;
+  unestablishedFieldCount: number;
   feesTotal: number;
   paidTotal: number;
   outstandingTotal: number;
   overdueTotal: number;
   overdueCount: number;
   pendingReviewCount: number;
+}
+
+/**
+ * The second statement's single row: the figures over the whole filtered set.
+ *
+ * Separate from the page rather than carried on it, because an aggregate query
+ * returns its row whether or not anything matched — which is exactly what the
+ * window-function version could not do. See `list`.
+ */
+interface CitizenListAggregate {
   total: number;
-  /** Window aggregates over the whole filtered set — identical on every row. */
+  allRequiringReview: number;
   allOutstanding: number;
   allOverdue: number;
   allInArrears: number;
@@ -162,33 +211,86 @@ export class CitizensService {
    * single connection per tenant schema, parallel queries contend with each
    * other, and this page opens with all of them at once.
    */
-  async list(filter: { search?: string; limit?: number; offset?: number } = {}): Promise<{
+  async list(
+    filter: {
+      search?: string;
+      limit?: number;
+      offset?: number;
+      /**
+       * Narrows to citizens whose latest registration stands at this status —
+       * in practice only ever `REQUIRES_REVIEW`, which is the work queue of
+       * records filed with fields left unestablished.
+       */
+      status?: string;
+    } = {},
+  ): Promise<{
     items: CitizenListItem[];
     total: number;
-    totals: { outstanding: number; overdue: number; inArrears: number };
+    totals: { outstanding: number; overdue: number; inArrears: number; requiringReview: number };
   }> {
     const limit = Math.min(filter.limit ?? 100, MAX_LIST_ROWS);
     const offset = Math.max(filter.offset ?? 0, 0);
-    const search = filter.search?.trim();
+    /*
+      Every token has to appear somewhere in the row's folded text.
 
-    // `%` and `_` in a citizen's own search term are literals, not wildcards.
-    const pattern = search ? `%${search.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
+      This replaced one `ILIKE` per column ORed together, which could not match
+      «أحمد نصرالله» against أحمد خالد نصرالله — the name was compared
+      as one string including the middle name, so a first-plus-family search,
+      which is how everyone refers to everyone, found nobody. It also compared
+      raw: أ against ا, ٠٧٠ against 070, and a reference number typed without
+      its dashes against one stored with them.
 
-    const searchFilter = pattern
-      ? Prisma.sql`AND (
-          (u."firstName" || ' ' || COALESCE(u."middleName" || ' ', '') || u."lastName") ILIKE ${pattern}
-          OR u.phone ILIKE ${pattern}
-          OR u.whatsapp ILIKE ${pattern}
-          OR u."referenceNumber" ILIKE ${pattern}
-          OR u."identityDocNumber" ILIKE ${pattern}
-          OR u."residencyNumber" ILIKE ${pattern}
-          OR u."civilRecordNumber" ILIKE ${pattern}
-          OR u.id::text ILIKE ${pattern}
-        )`
+      `searchText` is the generated column those cases fold into (migration
+      0018); `searchTokens` applies the identical fold to the query. Two
+      substring tests then answer what seven ILIKEs could not.
+    */
+    const tokens = searchTokens(filter.search);
+
+    const searchFilter = tokens.length
+      ? Prisma.join(
+          tokens.map((token) => Prisma.sql`AND u."searchText" LIKE ${likePattern(token)}`),
+          ' ',
+        )
       : Prisma.empty;
 
-    const rows = await withConnectionRetry(() =>
-      this.db.$queryRaw<CitizenListRow[]>`
+    /*
+      "Show me only the records still waiting to be finished."
+
+      Matched against the *latest* registration alone, which is the one the edit
+      form owns: a citizen who came back a year later with a second, complete
+      filing is not still queued for the first one. Compared as text rather than
+      cast to the enum so a status this build has not heard of narrows to
+      nothing instead of failing the whole query — the enum is per-tenant DDL,
+      and a schema part-way through `tenant:migrate-all` is a thing that happens.
+    */
+    const statusFilter = filter.status
+      ? Prisma.sql`AND (
+          SELECT r.status::text FROM registrations r
+           WHERE r."citizenId" = u.id ORDER BY r."submittedAt" DESC LIMIT 1
+        ) = ${filter.status}`
+      : Prisma.empty;
+
+    /*
+      The page and the figures above it, on one connection and one snapshot.
+
+      They were a single query, with `count(*) OVER()` and three `sum(...)
+      OVER()` carrying the totals on every row. That is elegant while the page
+      has rows and wrong the moment it does not: window aggregates arrive
+      *attached to rows*, so an empty page — a search that matched nothing, or
+      an offset past the end after a filter narrowed the set — returned no
+      rows at all, `rows[0]` was `undefined`, and the screen reported a total
+      of zero with all three headline cards blanked. A clerk on page 4 who
+      ticked «المتأخرات» saw a municipality that owed nothing.
+
+      An aggregate query with no GROUP BY always returns exactly one row, so
+      the totals no longer depend on the page having content. `$transaction`
+      rather than two awaits, for the same reason `listAllPayments` uses it:
+      both statements read the same snapshot, so the count above the table
+      cannot disagree with the rows in it.
+    */
+    const [rows, [aggregate]] = await withConnectionRetry(() =>
+      this.db.$transaction([
+        this.db.$queryRaw<CitizenListRow[]>`
         SELECT
           u.id,
           u."firstName",
@@ -196,6 +298,7 @@ export class CitizensService {
           u."lastName",
           u.phone,
           u.whatsapp,
+          u.gender::text AS gender,
           u."referenceNumber",
           u."identityDocType"::text  AS "identityDocType",
           u."identityDocNumber",
@@ -215,6 +318,16 @@ export class CitizensService {
           (SELECT r."submittedAt" FROM registrations r
             WHERE r."citizenId" = u.id ORDER BY r."submittedAt" DESC LIMIT 1)
             AS "latestSubmittedAt",
+          -- How many «غير مؤكَّد» fields that latest registration carries.
+          -- jsonb_typeof guards the count against a row whose column holds
+          -- something other than an array; the default is an empty array, but
+          -- a hand-run fix or an older backup restored here need not be.
+          COALESCE((SELECT
+              CASE WHEN jsonb_typeof(r."flaggedFields") = 'array'
+                   THEN jsonb_array_length(r."flaggedFields") ELSE 0 END
+             FROM registrations r
+            WHERE r."citizenId" = u.id ORDER BY r."submittedAt" DESC LIMIT 1), 0)::int
+            AS "unestablishedFieldCount",
           COALESCE((SELECT sum(p.amount) FROM citizen_payments p
                      WHERE p."citizenId" = u.id), 0)::float8
             AS "feesTotal",
@@ -236,37 +349,57 @@ export class CitizensService {
             AS "overdueCount",
           (SELECT count(*)::int FROM citizen_payments p
             WHERE p."citizenId" = u.id AND p."paymentStatus" = 'PENDING_REVIEW')
-            AS "pendingReviewCount",
-          count(*) OVER()::int AS total,
-          /*
-            The registry's headline figures, over the whole filtered set.
-            A window function is evaluated before LIMIT/OFFSET — the same
-            property that already makes the total above a true total — so
-            these describe every matching citizen rather than the page. The
-            screen used to sum them in the browser, which was correct only
-            while the browser held every row; once the list is paged, that
-            would silently turn the outstanding figure into "on this page".
-          */
-          sum(COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
-                         WHERE p."citizenId" = u.id AND p."paymentStatus" <> 'PAID'), 0))
-            OVER()::float8 AS "allOutstanding",
-          sum(COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
-                         WHERE p."citizenId" = u.id
-                           AND p."paymentStatus" = 'UNPAID'
-                           AND p."dueDate" < now()), 0))
-            OVER()::float8 AS "allOverdue",
+            AS "pendingReviewCount"
+        FROM users u
+        WHERE u.kind = 'CITIZEN'
+        ${searchFilter}
+        ${statusFilter}
+        ORDER BY u."createdAt" DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `,
+        /*
+          The registry's headline figures, over the whole filtered set rather
+          than the page. The screen used to sum them in the browser, which was
+          correct only while the browser held every row; once the list is
+          paged, that silently turns "outstanding" into "outstanding on this
+          page".
+        */
+        this.db.$queryRaw<CitizenListAggregate[]>`
+        SELECT
+          count(*)::int AS total,
+          COALESCE(sum(
+            COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
+                       WHERE p."citizenId" = u.id AND p."paymentStatus" <> 'PAID'), 0)
+          ), 0)::float8 AS "allOutstanding",
+          COALESCE(sum(
+            COALESCE((SELECT sum(p.amount - p."paidAmount") FROM citizen_payments p
+                       WHERE p."citizenId" = u.id
+                         AND p."paymentStatus" = 'UNPAID'
+                         AND p."dueDate" < now()), 0)
+          ), 0)::float8 AS "allOverdue",
           count(*) FILTER (
             WHERE (SELECT count(*) FROM citizen_payments p
                     WHERE p."citizenId" = u.id
                       AND p."paymentStatus" = 'UNPAID'
                       AND p."dueDate" < now()) > 0
-          ) OVER()::int AS "allInArrears"
+          )::int AS "allInArrears",
+          /*
+            How many records still need finishing, over the whole search — not
+            over the page, and deliberately not narrowed by the status filter
+            either. It is the count the «يتطلب مراجعة» tab offers to *show*, so
+            it has to keep reporting the same number once that tab is on;
+            narrowed too, ticking it would make the tab read its own result back.
+          */
+          count(*) FILTER (
+            WHERE (SELECT r.status::text FROM registrations r
+                    WHERE r."citizenId" = u.id
+                    ORDER BY r."submittedAt" DESC LIMIT 1) = 'REQUIRES_REVIEW'
+          )::int AS "allRequiringReview"
         FROM users u
         WHERE u.kind = 'CITIZEN'
         ${searchFilter}
-        ORDER BY u."createdAt" DESC
-        LIMIT ${limit} OFFSET ${offset}
       `,
+      ]),
     );
 
     return {
@@ -275,6 +408,7 @@ export class CitizensService {
         fullName: [row.firstName, row.middleName, row.lastName].filter(Boolean).join(' '),
         phone: row.phone,
         whatsapp: row.whatsapp,
+        gender: row.gender,
         referenceNumber: row.referenceNumber,
         identityDocType: row.identityDocType,
         identityDocNumber: row.identityDocNumber,
@@ -285,6 +419,7 @@ export class CitizensService {
         propertyCount: row.propertyCount,
         latestStatus: row.latestStatus,
         latestSubmittedAt: row.latestSubmittedAt?.toISOString() ?? null,
+        unestablishedFieldCount: row.unestablishedFieldCount,
         feesTotal: row.feesTotal,
         paidTotal: row.paidTotal,
         outstandingTotal: row.outstandingTotal,
@@ -292,12 +427,13 @@ export class CitizensService {
         overdueCount: row.overdueCount,
         pendingReviewCount: row.pendingReviewCount,
       })),
-      total: rows[0]?.total ?? 0,
+      total: aggregate?.total ?? 0,
       /** Across every matching citizen, not the returned page. */
       totals: {
-        outstanding: rows[0]?.allOutstanding ?? 0,
-        overdue: rows[0]?.allOverdue ?? 0,
-        inArrears: rows[0]?.allInArrears ?? 0,
+        outstanding: aggregate?.allOutstanding ?? 0,
+        overdue: aggregate?.allOverdue ?? 0,
+        inArrears: aggregate?.allInArrears ?? 0,
+        requiringReview: aggregate?.allRequiringReview ?? 0,
       },
     };
   }
@@ -331,6 +467,7 @@ export class CitizensService {
           whatsapp: true,
           maritalStatus: true,
           familySize: true,
+          bloodType: true,
           registrations: {
             orderBy: { submittedAt: 'desc' },
             take: 1,
@@ -338,6 +475,7 @@ export class CitizensService {
               id: true,
               referenceNumber: true,
               status: true,
+              flaggedFields: true,
               properties: {
                 orderBy: { createdAt: 'asc' },
                 include: { units: { orderBy: { createdAt: 'asc' } } },
@@ -357,11 +495,18 @@ export class CitizensService {
       registrationId: registration?.id ?? null,
       referenceNumber: registration?.referenceNumber ?? null,
       status: registration?.status ?? null,
+      /**
+       * The «غير مؤكَّد» fields and the reasons given for them, so the edit
+       * form opens with the record's gaps already marked rather than making
+       * whoever completes it re-derive which blanks were deliberate.
+       */
+      flags: readFlags(registration?.flaggedFields),
       personal: {
         firstName: citizen.firstName,
         middleName: citizen.middleName ?? '',
         lastName: citizen.lastName,
         gender: citizen.gender,
+        bloodType: citizen.bloodType ?? '',
         nationality: citizen.nationality,
         isLebanese: citizen.isLebanese,
         residencyNumber: citizen.residencyNumber ?? '',
@@ -418,40 +563,42 @@ export class CitizensService {
    */
   async create(input: {
     tenantSlug: string;
-    payload: AdminCreateCitizen;
+    payload: AdminCitizenSubmission;
     actor: { id: string; role: string };
   }) {
     const result = await this.registrations.submit({
       tenantSlug: input.tenantSlug,
-      // `documentSlots` and `declarationAccepted` belong to the citizen-facing
-      // wizard; the submit path reads neither, and the schema that requires
-      // them is not the one that validated this payload.
-      payload: {
-        personal: input.payload.personal,
-        contact: input.payload.contact,
-        properties: input.payload.properties,
-        documentSlots: [],
-        declarationAccepted: true,
-      } as never,
+      payload: input.payload,
     });
 
-    this.events.emit('citizen.changed', {
-      tenantSlug: input.tenantSlug,
-      citizenId: result.citizenId,
-      action: 'CITIZEN_CREATED',
-      after: {
-        referenceNumber: result.referenceNumber,
-        propertyCount: result.propertyCount,
-      },
-      actorId: input.actor.id,
-      actorRole: input.actor.role,
-    });
+    // A re-delivered offline submission created nothing, so it is not a change
+    // to announce: the audit log already carries the entry the first delivery
+    // wrote, and a second one would read as the citizen having been registered
+    // twice by a clerk who only did it once.
+    if (!result.deduplicated) {
+      this.events.emit('citizen.changed', {
+        tenantSlug: input.tenantSlug,
+        citizenId: result.citizenId,
+        action: 'CITIZEN_CREATED',
+        after: {
+          referenceNumber: result.referenceNumber,
+          propertyCount: result.propertyCount,
+          status: result.status,
+          unestablishedFields: input.payload.flags.length,
+        },
+        actorId: input.actor.id,
+        actorRole: input.actor.role,
+      });
+    }
 
     return {
       citizenId: result.citizenId,
       registrationId: result.registrationId,
       referenceNumber: result.referenceNumber,
       propertyCount: result.propertyCount,
+      status: result.status,
+      /** The queue reads this to tell "created" from "already had it". */
+      deduplicated: result.deduplicated,
     };
   }
 
@@ -514,7 +661,17 @@ export class CitizensService {
       try {
         const created = await this.create({
           tenantSlug: input.tenantSlug,
-          payload: parsed.data,
+          /*
+            A spreadsheet row carries no flags, and cannot.
+
+            «غير مؤكَّد» is a statement by a named officer about one field they
+            personally could not establish, with their reason. A bulk import is
+            a municipality's existing paper register arriving in one file, with
+            nobody standing behind any individual gap — so a row is either
+            complete enough for `adminCreateCitizenSchema`, which validated it
+            above, or it is reported as a failed row for the clerk to fix.
+          */
+          payload: { ...parsed.data, flags: [], clientSubmissionId: undefined },
           actor: input.actor,
         });
         results.push({ row, ok: true, name, referenceNumber: created.referenceNumber });
@@ -557,10 +714,11 @@ export class CitizensService {
   async update(input: {
     tenantSlug: string;
     citizenId: string;
-    payload: AdminUpdateCitizen;
+    payload: AdminCitizenUpdateSubmission;
     actor: { id: string; role: string };
   }) {
     const tenant = await this.tenants.resolve(input.tenantSlug);
+    const flags = input.payload.flags;
 
     const citizen = await this.db.user.findFirst({
       where: { id: input.citizenId, kind: 'CITIZEN' },
@@ -577,21 +735,30 @@ export class CitizensService {
     if (!citizen) throw new NotFoundError('Citizen', input.citizenId);
 
     // Same construction the submit path performs: the taxonomy rules live in
-    // the aggregate, so an edit gets the identical guarantees a submission did.
+    // the aggregate, so an edit gets the identical guarantees a submission did
+    // — including which of them this edit's own flags waive.
     const cadastre = await this.resolveParcels(
-      input.payload.properties.map((property) => property.propertyNumber),
+      input.payload.properties
+        .map((property) => property.propertyNumber)
+        .filter((number): number is string => Boolean(number)),
     );
 
-    const entries = input.payload.properties.map((property) => {
+    const entries = input.payload.properties.map((property, index) => {
       const { id, ...values } = property as { id?: string } & Record<string, unknown>;
-      const parcel = cadastre.get(String(values.propertyNumber).trim());
+      const parcel =
+        typeof values.propertyNumber === 'string'
+          ? cadastre.get(values.propertyNumber.trim())
+          : undefined;
       return {
         id,
-        entry: PropertyEntry.create({
-          ...values,
-          latitude: parcel?.latitude ?? null,
-          longitude: parcel?.longitude ?? null,
-        } as never),
+        entry: PropertyEntry.create(
+          {
+            ...values,
+            latitude: parcel?.latitude ?? null,
+            longitude: parcel?.longitude ?? null,
+          } as never,
+          unestablishedOnCard(flags, index),
+        ),
       };
     });
 
@@ -619,6 +786,10 @@ export class CitizensService {
     const keptIds = new Set(entries.map(({ id }) => id).filter(Boolean) as string[]);
     const removedIds = [...existingIds].filter((id) => !keptIds.has(id));
 
+    // Where the record stands *after* this save. A record whose last gap was
+    // just filled in leaves «يتطلب مراجعة» by the same rule that put it there.
+    const nextStatus: CitizenRecordStatus = statusForFlags(flags);
+
     await this.db.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: citizen.id },
@@ -626,21 +797,40 @@ export class CitizensService {
           firstName: input.payload.personal.firstName,
           middleName: input.payload.personal.middleName || null,
           lastName: input.payload.personal.lastName,
-          gender: input.payload.personal.gender as never,
-          nationality: input.payload.personal.nationality,
-          isLebanese: input.payload.personal.isLebanese,
+          /*
+            Every column is written explicitly, `null` included.
+
+            `undefined` in a Prisma `update` means "leave this alone", which is
+            the wrong answer for a field the officer has just flagged: the
+            record would claim the value is unestablished while still storing
+            the old one, and whoever came to complete it would find it already
+            filled. Flagging a field clears it, here as on the create path.
+          */
+          gender: (input.payload.personal.gender ?? null) as never,
+          nationality: input.payload.personal.nationality ?? null,
+          isLebanese: input.payload.personal.isLebanese ?? null,
           residencyNumber: input.payload.personal.residencyNumber || null,
-          residentStatus: input.payload.personal.residentStatus as never,
-          identityDocType: input.payload.personal.identityDocType as never,
+          residentStatus: (input.payload.personal.residentStatus ?? null) as never,
+          identityDocType: (input.payload.personal.identityDocType ?? null) as never,
+          /*
+            Null, not '', when the document itself was left unestablished.
+
+            The empty string is a value, and `users` is uniquely keyed by
+            (نوع الوثيقة, رقم الوثيقة) — so a second citizen in the same
+            position would collide with the first on a number neither of them
+            has. A null is distinct from every other null in a Postgres unique
+            index, which is exactly the semantics "we do not know" needs.
+          */
           identityDocNumber:
             input.payload.personal.identityDocNumber ||
             input.payload.personal.residencyNumber ||
-            '',
+            null,
           civilRecordNumber: input.payload.personal.civilRecordNumber || null,
-          phone: input.payload.contact.phone,
-          whatsapp: input.payload.contact.whatsapp ?? input.payload.contact.phone,
-          maritalStatus: input.payload.contact.maritalStatus as never,
-          familySize: input.payload.contact.familySize,
+          phone: input.payload.contact.phone ?? null,
+          whatsapp: input.payload.contact.whatsapp ?? input.payload.contact.phone ?? null,
+          maritalStatus: (input.payload.contact.maritalStatus ?? null) as never,
+          familySize: input.payload.contact.familySize ?? null,
+          bloodType: (input.payload.personal.bloodType ?? null) as never,
         },
       });
 
@@ -654,11 +844,29 @@ export class CitizensService {
             data: {
               citizenId: citizen.id,
               referenceNumber: ReferenceNumber.generate(tenant.referencePrefix).value,
-              status: 'PENDING',
+              status: nextStatus,
+              flaggedFields: flags as never,
             },
             select: { id: true },
           })
         ).id;
+
+      /*
+        The flags are replaced by this save, not merged into what was there.
+
+        The edit form shows every field and every flag on it at once, so what
+        the officer submits *is* the current state of the record: a field they
+        have now filled in arrives without its flag, and that is what clears
+        it. Merging would make a completed field impossible to un-flag through
+        the only screen that edits it — and leave records stuck at
+        «يتطلب مراجعة» long after there was anything left to review.
+      */
+      if (existing?.id) {
+        await tx.registration.update({
+          where: { id: existing.id },
+          data: { status: nextStatus, flaggedFields: flags as never },
+        });
+      }
 
       if (removedIds.length > 0) {
         await tx.propertyEntry.deleteMany({
@@ -722,12 +930,14 @@ export class CitizensService {
       after: {
         propertyCount: entries.length,
         propertiesRemoved: removedIds.length,
+        status: nextStatus,
+        unestablishedFields: flags.length,
       },
       actorId: input.actor.id,
       actorRole: input.actor.role,
     });
 
-    return { updated: true, citizenId: citizen.id };
+    return { updated: true, citizenId: citizen.id, status: nextStatus };
   }
 
   /**

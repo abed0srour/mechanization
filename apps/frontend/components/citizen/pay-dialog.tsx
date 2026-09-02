@@ -37,6 +37,7 @@ export function PayDialog({
   error,
   onOpenChange,
   onDeclare,
+  locale = 'ar',
 }: {
   payment: CitizenPaymentItem | null;
   settings: MunicipalitySettings | null;
@@ -44,6 +45,7 @@ export function PayDialog({
   error: string | null;
   onOpenChange: (open: boolean) => void;
   onDeclare: (input: { method: string; whishTransactionRef?: string }) => void;
+  locale?: string;
 }) {
   const whishAvailable = Boolean(settings?.whishMoneyNumber);
   const [method, setMethod] = useState<'CASH' | 'WHISH_MONEY'>('CASH');
@@ -51,7 +53,6 @@ export function PayDialog({
 
   useEffect(() => {
     if (payment) {
-      // Defaults to whichever route the municipality actually offers.
       setMethod(whishAvailable ? 'WHISH_MONEY' : 'CASH');
       setReference('');
     }
@@ -62,11 +63,14 @@ export function PayDialog({
 
   return (
     <Dialog open={payment !== null} onOpenChange={onOpenChange}>
-      <DialogContent closeLabel="إغلاق" className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
+      <DialogContent closeLabel={locale === 'en' ? 'Close' : 'إغلاق'} className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
         <DialogHeader className="shrink-0 space-y-1 border-b p-6 text-start">
-          <DialogTitle>دفع {payment?.title}</DialogTitle>
+          <DialogTitle>
+            {locale === 'en' ? `Pay ${payment?.title}` : `دفع ${payment?.title}`}
+          </DialogTitle>
           <DialogDescription>
-            المبلغ المستحق: <span className="font-semibold">{payment ? lbp(payment.amount) : ''}</span>
+            {locale === 'en' ? 'Amount due: ' : 'المبلغ المستحق: '}
+            <span className="font-semibold">{payment ? lbp(payment.amount) : ''}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -85,16 +89,24 @@ export function PayDialog({
               active={method === 'CASH'}
               onSelect={() => setMethod('CASH')}
               icon={<Building2 className="size-5" aria-hidden />}
-              title="نقداً في البلدية"
-              description="ادفع في مكتب المالية واستلم إيصالاً."
+              title={locale === 'en' ? 'Cash at Municipality' : 'نقداً في البلدية'}
+              description={
+                locale === 'en'
+                  ? 'Pay at the municipal finance office and receive an official receipt.'
+                  : 'ادفع في مكتب المالية واستلم إيصالاً.'
+              }
             />
             {whishAvailable ? (
               <MethodCard
                 active={method === 'WHISH_MONEY'}
                 onSelect={() => setMethod('WHISH_MONEY')}
                 icon={<Smartphone className="size-5" aria-hidden />}
-                title="تحويل عبر Whish Money"
-                description="حوّل المبلغ ثم أدخل رقم العملية."
+                title={locale === 'en' ? 'Transfer via Whish Money' : 'تحويل عبر Whish Money'}
+                description={
+                  locale === 'en'
+                    ? 'Transfer the amount then enter the transaction reference.'
+                    : 'حوّل المبلغ ثم أدخل رقم العملية.'
+                }
               />
             ) : null}
           </div>
@@ -103,25 +115,37 @@ export function PayDialog({
             <div className="space-y-2 rounded-lg border bg-muted/30 p-4 text-sm">
               <p className="flex items-center gap-2 font-medium">
                 <MapPin className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                {settings?.cashOfficeAddress ?? 'مبنى البلدية — مكتب المالية'}
+                {settings?.cashOfficeAddress ??
+                  (locale === 'en'
+                    ? 'Municipal Building — Finance Department'
+                    : 'مبنى البلدية — مكتب المالية')}
               </p>
               <p className="flex items-center gap-2 text-muted-foreground">
                 <Clock className="size-4 shrink-0" aria-hidden />
-                {settings?.cashOfficeHours ?? 'خلال أوقات الدوام الرسمية'}
+                {settings?.cashOfficeHours ??
+                  (locale === 'en'
+                    ? 'During official working hours'
+                    : 'خلال أوقات الدوام الرسمية')}
               </p>
               <p className="text-muted-foreground">
-                أحضر رقمك المرجعي. تُحدَّث حالة الدفعة بعد أن يسجّلها الموظف.
+                {locale === 'en'
+                  ? 'Bring your reference number. Payment status is updated once recorded by the clerk.'
+                  : 'أحضر رقمك المرجعي. تُحدَّث حالة الدفعة بعد أن يسجّلها الموظف.'}
               </p>
             </div>
           ) : (
             <div className="space-y-4">
               <ol className="space-y-2 rounded-lg border bg-muted/30 p-4 text-sm">
                 <li className="flex gap-2">
-                  <span className="font-semibold text-primary">١.</span>
+                  <span className="font-semibold text-primary">
+                    {locale === 'en' ? '1.' : '١.'}
+                  </span>
                   <span>
-                    افتح تطبيق Whish Money وحوّل{' '}
-                    <span className="font-semibold">{payment ? lbp(payment.amount) : ''}</span> إلى
-                    الرقم:
+                    {locale === 'en'
+                      ? 'Open Whish Money app and transfer '
+                      : 'افتح تطبيق Whish Money وحوّل '}
+                    <span className="font-semibold">{payment ? lbp(payment.amount) : ''}</span>
+                    {locale === 'en' ? ' to number:' : ' إلى الرقم:'}
                   </span>
                 </li>
                 <li className="flex items-center justify-center rounded-md border bg-background p-3">
@@ -130,16 +154,32 @@ export function PayDialog({
                   </span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="font-semibold text-primary">٢.</span>
-                  <span>احتفظ بإيصال العملية وأدخل رقمها أدناه.</span>
+                  <span className="font-semibold text-primary">
+                    {locale === 'en' ? '2.' : '٢.'}
+                  </span>
+                  <span>
+                    {locale === 'en'
+                      ? 'Keep the transaction receipt and enter its reference below.'
+                      : 'احتفظ بإيصال العملية وأدخل رقمها أدناه.'}
+                  </span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="font-semibold text-primary">٣.</span>
-                  <span>تُصبح الدفعة «قيد المراجعة» حتى يؤكّدها موظف البلدية.</span>
+                  <span className="font-semibold text-primary">
+                    {locale === 'en' ? '3.' : '٣.'}
+                  </span>
+                  <span>
+                    {locale === 'en'
+                      ? 'Payment status becomes "Pending Review" until confirmed by staff.'
+                      : 'تُصبح الدفعة «قيد المراجعة» حتى يؤكّدها موظف البلدية.'}
+                  </span>
                 </li>
               </ol>
 
-              <Field label="رقم عملية التحويل" htmlFor="whish-ref" required>
+              <Field
+                label={locale === 'en' ? 'Transfer Reference Number' : 'رقم عملية التحويل'}
+                htmlFor="whish-ref"
+                required
+              >
                 <Input
                   id="whish-ref"
                   dir="ltr"
@@ -155,7 +195,7 @@ export function PayDialog({
 
         <DialogFooter className="shrink-0 gap-2 border-t p-6">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            إلغاء
+            {locale === 'en' ? 'Cancel' : 'إلغاء'}
           </Button>
           <Button
             disabled={!canSubmit}
@@ -167,7 +207,9 @@ export function PayDialog({
             }
           >
             {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            {method === 'CASH' ? 'سأدفع في البلدية' : 'أبلغ عن الدفع'}
+            {method === 'CASH'
+              ? (locale === 'en' ? 'I will pay at municipality' : 'سأدفع في البلدية')
+              : (locale === 'en' ? 'Declare Payment' : 'أبلغ عن الدفع')}
           </Button>
         </DialogFooter>
       </DialogContent>

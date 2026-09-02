@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   AlertCircle,
@@ -15,49 +15,15 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { ApiRequestError, isTotpRequired, loginStaff, logApiError } from '@/lib/api-client';
-import { saveSession } from '@/lib/session';
+import { loadSession, saveSession } from '@/lib/session';
+import { defaultPathFor } from '@/components/admin/nav';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/states';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-
-/**
- * Staff sign-in.
- *
- * The obscure path segment is scan-deterrence, not security — the guards on
- * every admin endpoint are what actually protect this, and they hold once the
- * URL becomes known, which it eventually will. The page shows no municipal
- * branding and no hints: anyone who reaches it without credentials should learn
- * nothing from it, including whether the municipality exists.
- *
- * That constraint shapes the layout rather than fighting it. The split panel is
- * the ordinary shape of a professional sign-in, so its lack of a logo reads as
- * a deliberately neutral system rather than as a page whose branding failed to
- * load — and everything the panel says (encrypted session, scoped permissions,
- * logged attempts) is true of any such system, so a visitor who is not staff
- * still leaves knowing nothing. The mark is a generic shield, and the only
- * colour is `--primary`, which every accent and every tenant brand already
- * resolves through.
- */
-
-/** Generic and tenant-free — see the note above on why the panel can say these. */
-const ASSURANCES = [
-  {
-    icon: Lock,
-    title: 'اتصال مشفّر',
-    body: 'بيانات الدخول والجلسة تمرّ عبر قناة مشفّرة بالكامل.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'صلاحيات محدّدة',
-    body: 'لكل حساب صلاحياته، ولا يظهر للموظف إلا ما يخصّ عمله.',
-  },
-  {
-    icon: History,
-    title: 'سجل كامل',
-    body: 'كل محاولة دخول وكل إجراء يُسجَّل مع وقته وصاحبه.',
-  },
-] as const;
+import { LanguageSwitcher } from '@/components/language-switcher';
+import { useTranslations } from 'next-intl';
 
 export default function StaffLogin({
   params,
@@ -66,6 +32,9 @@ export default function StaffLogin({
 }) {
   const { tenant, locale, adminPath } = use(params);
   const router = useRouter();
+  const tAuth = useTranslations('auth');
+  const tCommon = useTranslations('common');
+  const isEn = locale === 'en';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -74,16 +43,18 @@ export default function StaffLogin({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * The second factor, as a second step rather than a third field.
-   *
-   * Showing a code box alongside the password would ask every staff member to
-   * ignore it, and would leak which accounts have an authenticator to anyone
-   * who typed an email. The server decides: it answers a correct password with
-   * either a session or `TOTP_REQUIRED`, and only then does this appear.
-   */
   const [totpToken, setTotpToken] = useState('');
   const [totpStage, setTotpStage] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    const session = loadSession(tenant);
+    if (session && session.user.kind === 'STAFF') {
+      router.replace(`/${tenant}/${locale}/${adminPath}${defaultPathFor(session.user.role)}`);
+      return;
+    }
+    setChecking(false);
+  }, [tenant, locale, adminPath, router]);
 
   async function submit() {
     setBusy(true);
@@ -94,8 +65,6 @@ export default function StaffLogin({
         email,
         password,
         remember: rememberMe,
-        // Sent only once the server has asked, so a stale value from an
-        // abandoned attempt is never replayed into a fresh one.
         ...(totpStage && totpToken ? { totpToken } : {}),
       });
 
@@ -106,15 +75,28 @@ export default function StaffLogin({
       }
 
       saveSession(tenant, result, rememberMe);
-      router.push(`/${tenant}/${locale}/${adminPath}/dashboard`);
+      router.replace(
+        `/${tenant}/${locale}/${adminPath}${defaultPathFor(result.user.role)}`,
+      );
     } catch (caught) {
       logApiError(caught);
-      setError(
-        caught instanceof ApiRequestError ? caught.message : 'تعذّر تسجيل الدخول.',
-      );
-      // A rejected code is retried on its own; a rejected password sends the
-      // form back to the start rather than leaving a code box above a
-      // credential the server has already refused.
+      if (caught instanceof ApiRequestError) {
+        if (caught.status === 401) {
+          if (totpStage) {
+            setError(
+              isEn
+                ? 'Invalid verification code. Please check your authenticator app.'
+                : 'رمز التحقق غير صحيح. يرجى مراجعة تطبيق المصادقة.',
+            );
+          } else {
+            setError(isEn ? 'Invalid email or password.' : 'بيانات الدخول غير صحيحة.');
+          }
+        } else {
+          setError(caught.message);
+        }
+      } else {
+        setError(isEn ? 'Unable to sign in.' : 'تعذّر تسجيل الدخول.');
+      }
       if (caught instanceof ApiRequestError && caught.status === 401 && !totpStage) {
         setTotpStage(false);
       }
@@ -123,115 +105,144 @@ export default function StaffLogin({
     }
   }
 
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <LoadingState />
+      </div>
+    );
+  }
+
+  const guarantees = [
+    {
+      icon: Lock,
+      title: tAuth('encryptedConnection'),
+      desc: tAuth('encryptedDesc'),
+    },
+    {
+      icon: ShieldCheck,
+      title: tAuth('scopedPermissions'),
+      desc: tAuth('scopedDesc'),
+    },
+    {
+      icon: History,
+      title: tAuth('auditLogged'),
+      desc: tAuth('auditLoggedDesc'),
+    },
+  ];
+
   return (
-    <div className="flex min-h-screen bg-background">
-      {/**
-       * Assurance panel. Hidden below `lg` rather than stacked above the form:
-       * on a phone the form is the whole point of the page, and pushing it
-       * under a screenful of reassurance is the most common way this layout
-       * goes wrong.
-       */}
-      <aside className="relative hidden w-[44%] max-w-[560px] shrink-0 flex-col justify-between overflow-hidden bg-primary p-12 text-primary-foreground lg:flex">
-        {/* Depth, in white/black alpha so it composes over any accent. */}
+    <div className="relative flex min-h-screen w-full bg-background text-foreground">
+      {/* Left Column: Brand & Security Guarantees */}
+      <aside className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-primary/95 p-12 lg:flex xl:p-16 text-primary-foreground">
+        {/* Subtle decorative background patterns */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/15 via-transparent to-black/25"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-black/25"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.12]"
-          style={{
-            backgroundImage:
-              'linear-gradient(currentColor 1px, transparent 1px), linear-gradient(90deg, currentColor 1px, transparent 1px)',
-            backgroundSize: '44px 44px',
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-32 -end-24 size-80 rounded-full bg-white/10 blur-3xl"
+          className="pointer-events-none absolute -top-32 -end-24 size-96 rounded-full bg-white/10 blur-3xl"
         />
 
-        <div className="relative flex size-12 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
-          <ShieldCheck className="size-6" aria-hidden />
+        {/* Brand Header */}
+        <div className="relative z-10 flex items-center gap-4">
+          <img src="/logo.png" alt="" className="size-20 shrink-0 object-contain" aria-hidden />
+          <div className="space-y-0.5">
+            <span className="block text-lg font-bold font-display tracking-tight">
+              {isEn ? 'Municipal Platform' : 'السجل البلدي'}
+            </span>
+            <span className="block text-xs font-medium text-primary-foreground/80">
+              {isEn ? 'Staff Administration' : 'منظومة إدارة البلدية'}
+            </span>
+          </div>
         </div>
 
-        {/**
-         * Secondary text on this panel stops at /90 and goes no lower. The
-         * usual /70 would be fine on a dark surface with a white foreground,
-         * but dark mode here pairs a *near-black* `--primary-foreground` with a
-         * 56%-lightness blue — 5.3:1 at full strength, so there is almost no
-         * headroom to spend on alpha (/80 lands at 4.2:1, /75 at 3.9:1). The
-         * hierarchy is carried by size and weight instead.
-         */}
-        <div className="relative space-y-10">
-          <div className="space-y-4">
-            <h2 className="font-display text-3xl font-bold leading-snug tracking-tight">
-              لوحة إدارة الطلبات
-            </h2>
-            <p className="max-w-sm text-base leading-relaxed text-primary-foreground/90">
-              مساحة عمل الموظفين لمتابعة المعاملات ومراجعتها والبتّ فيها.
+        {/* Center Information */}
+        <div className="relative z-10 my-auto max-w-md py-10 space-y-8">
+          <div className="space-y-3">
+            <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl leading-snug">
+              {isEn ? 'Administration Portal' : 'لوحة إدارة المعاملات'}
+            </h1>
+            <p className="text-sm sm:text-base leading-relaxed text-primary-foreground/90">
+              {isEn
+                ? 'Staff workspace to review, process, and manage municipal records.'
+                : 'مساحة عمل مخصّصة لموظفي البلدية لمتابعة المعاملات ومراجعتها والبتّ فيها.'}
             </p>
           </div>
 
-          <ul className="space-y-6">
-            {ASSURANCES.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="flex items-start gap-4">
-                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15">
-                  <Icon className="size-4" aria-hidden />
-                </span>
-                <span className="space-y-1">
-                  <span className="block font-semibold">{title}</span>
-                  <span className="block text-sm leading-relaxed text-primary-foreground/90">
-                    {body}
+          <ul className="space-y-5">
+            {guarantees.map(({ icon: Icon, title, desc }) => (
+              <li key={title} className="flex items-start gap-3">
+                <Icon className="mt-0.5 size-5 shrink-0 text-primary-foreground" aria-hidden />
+                <div className="space-y-0.5">
+                  <span className="block text-sm font-semibold">{title}</span>
+                  <span className="block text-xs sm:text-sm leading-relaxed text-primary-foreground/85">
+                    {desc}
                   </span>
-                </span>
+                </div>
               </li>
             ))}
           </ul>
         </div>
 
-        <p className="relative text-sm text-primary-foreground/90">
-          الدخول مقتصر على الحسابات المصرّح لها.
-        </p>
+        {/* Bottom Footer Notice */}
+        <div className="relative z-10 pt-4">
+          <p className="text-xs text-primary-foreground/80">
+            {isEn
+              ? '© 2026 — Access restricted to authorized personnel.'
+              : '© 2026 — الدخول مقتصر على الحسابات المصرّح لها.'}
+          </p>
+        </div>
       </aside>
 
-      {/* Form column */}
-      <main className="flex flex-1 items-center justify-center px-5 py-12 sm:px-10">
-        <div className="w-full max-w-[400px]">
-          <div className="mb-9 space-y-2.5">
-            <div
-              aria-hidden
-              className="mb-7 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15 lg:hidden"
-            >
-              <ShieldCheck className="size-6" />
+      {/* Right Column: Sign-in Form */}
+      <main className="relative flex flex-1 flex-col justify-between px-6 py-10 sm:px-12 lg:px-16 xl:px-24">
+        {/* Language Switcher in top corner */}
+        <div className="flex w-full justify-end">
+          <LanguageSwitcher currentLocale={locale} variant="dropdown" />
+        </div>
+
+        {/* Form Container */}
+        <div className="my-auto mx-auto w-full max-w-[400px] py-8">
+          {/* Mobile Logo Header */}
+          <div className="mb-8 flex items-center gap-3.5 lg:hidden">
+            <img src="/logo.png" alt="" className="size-16 shrink-0 object-contain" />
+            <div className="space-y-0.5">
+              <span className="block text-lg font-bold font-display">
+                {isEn ? 'Municipal Platform' : 'السجل البلدي'}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {isEn ? 'Staff Administration' : 'منظومة إدارة البلدية'}
+              </span>
             </div>
-            <h1 className="font-display text-3xl font-bold tracking-tight">
-              {totpStage ? 'التحقق بخطوتين' : 'دخول الموظفين'}
-            </h1>
-            <p className="text-muted-foreground">
+          </div>
+
+          <div className="mb-8 space-y-2">
+            <h2 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
               {totpStage
-                ? 'أدخل الرمز المكوّن من ستة أرقام من تطبيق المصادقة.'
-                : 'أدخل بيانات حسابك للمتابعة إلى لوحة الإدارة.'}
+                ? tAuth('totpPrompt')
+                : (isEn ? 'Sign in to your account' : 'تسجيل الدخول إلى حسابك')}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {totpStage
+                ? tAuth('totpHolder')
+                : tAuth('staffLoginDesc')}
             </p>
           </div>
 
           {error ? (
-            <p
+            <div
               role="alert"
-              className="mb-6 flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm leading-relaxed text-destructive"
+              className="mb-6 flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-3.5 text-sm leading-relaxed text-destructive animate-in fade-in-0 duration-200"
             >
               <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
               <span>{error}</span>
-            </p>
+            </div>
           ) : null}
 
-          {/**
-           * A real <form>: the previous version wired submit to a click handler
-           * only, so Enter from the password field — how a staff member who
-           * signs in every morning actually submits — did nothing at all.
-           */}
           <form
-            className="space-y-5"
+            className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               if (busy) return;
@@ -245,7 +256,9 @@ export default function StaffLogin({
             {totpStage ? (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="totp">رمز التحقق</Label>
+                  <Label htmlFor="totp" className="text-sm font-medium">
+                    {tAuth('totpPrompt')}
+                  </Label>
                   <div className="relative">
                     <KeyRound
                       aria-hidden
@@ -253,20 +266,13 @@ export default function StaffLogin({
                     />
                     <Input
                       id="totp"
-                      dir="ltr"
                       inputMode="numeric"
-                      /**
-                       * `one-time-code` is what lets a password manager or the
-                       * OS offer the code it can already see. Without it the
-                       * staff member retypes six digits from another device on
-                       * every sign-in, which is the step people abandon 2FA
-                       * over.
-                       */
                       autoComplete="one-time-code"
                       maxLength={6}
                       autoFocus
                       required
-                      className="ps-10 text-center font-mono text-lg tracking-[0.4em]"
+                      placeholder="••••••"
+                      className="h-11 px-10 text-center font-mono text-xl tracking-[0.4em]"
                       value={totpToken}
                       onChange={(e) =>
                         setTotpToken(e.target.value.replace(/\D/g, '').slice(0, 6))
@@ -277,16 +283,16 @@ export default function StaffLogin({
 
                 <Button
                   type="submit"
-                  className="h-12 w-full rounded-lg text-base font-semibold shadow-sm"
+                  className="h-11 w-full rounded-lg text-sm font-semibold shadow-sm cursor-pointer"
                   disabled={busy || totpToken.length !== 6}
                 >
                   {busy ? (
                     <>
                       <Loader2 className="size-4 animate-spin" aria-hidden />
-                      جارٍ التحقق…
+                      {tCommon('loading')}
                     </>
                   ) : (
-                    'تأكيد'
+                    tAuth('verifyCode')
                   )}
                 </Button>
 
@@ -298,102 +304,126 @@ export default function StaffLogin({
                     setPassword('');
                     setError(null);
                   }}
-                  className="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground pt-2 cursor-pointer"
                 >
-                  <ArrowRight className="size-4" aria-hidden />
-                  الرجوع إلى تسجيل الدخول
+                  <ArrowRight className="size-3.5 rtl:rotate-0 ltr:rotate-180" aria-hidden />
+                  {tCommon('back')}
                 </button>
               </>
             ) : (
               <>
-            <div className="space-y-2">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
-              <div className="relative">
-                <Mail
-                  aria-hidden
-                  className="pointer-events-none absolute inset-y-0 start-3.5 my-auto size-4 text-muted-foreground"
-                />
-                <Input
-                  id="email"
-                  type="email"
-                  dir="ltr"
-                  autoComplete="username"
-                  autoFocus
-                  required
-                  className="ps-10 text-start"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-            </div>
+                {/* Email Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-sm font-medium">
+                    {tAuth('email')}
+                  </Label>
+                  <div className="relative">
+                    <Mail
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 start-3.5 my-auto size-4 text-muted-foreground"
+                    />
+                    <Input
+                      id="email"
+                      type="email"
+                      autoComplete="username"
+                      autoFocus
+                      required
+                      placeholder="name@example.com"
+                      className="h-11 ps-10 pe-4 text-start text-sm"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">كلمة المرور</Label>
-              <div className="relative">
-                <Lock
-                  aria-hidden
-                  className="pointer-events-none absolute inset-y-0 start-3.5 my-auto size-4 text-muted-foreground"
-                />
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  required
-                  className="ps-10 pe-11"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((shown) => !shown)}
-                  aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                  aria-pressed={showPassword}
-                  className="absolute inset-y-0 end-0 flex w-11 items-center justify-center rounded-e-md text-muted-foreground transition-colors hover:text-foreground"
+                {/* Password Field */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password" className="text-sm font-medium">
+                      {tAuth('password')}
+                    </Label>
+                  </div>
+                  <div className="relative">
+                    <Lock
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 start-3.5 my-auto size-4 text-muted-foreground"
+                    />
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      required
+                      placeholder="••••••••"
+                      className="h-11 ps-10 pe-11 text-start text-sm"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((shown) => !shown)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-pressed={showPassword}
+                      className="absolute inset-y-0 end-0 flex w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" aria-hidden />
+                      ) : (
+                        <Eye className="size-4" aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Remember Me Checkbox */}
+                <div className="flex items-center gap-2.5 pt-1">
+                  <Checkbox
+                    id="rememberMe"
+                    checked={rememberMe}
+                    onCheckedChange={(checked) => setRememberMe(checked === true)}
+                  />
+                  <Label
+                    htmlFor="rememberMe"
+                    className="cursor-pointer text-xs sm:text-sm font-normal text-muted-foreground select-none"
+                  >
+                    {tAuth('rememberMe')}
+                  </Label>
+                </div>
+
+                {/* Submit Button */}
+                <Button
+                  type="submit"
+                  className="mt-2 h-11 w-full rounded-lg text-sm font-semibold shadow-sm cursor-pointer"
+                  disabled={busy || !email || !password}
                 >
-                  {showPassword ? (
-                    <EyeOff className="size-5" aria-hidden />
+                  {busy ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      {tAuth('signingIn')}
+                    </>
                   ) : (
-                    <Eye className="size-5" aria-hidden />
+                    tAuth('signIn')
                   )}
-                </button>
-              </div>
-            </div>
-
-            <label className="flex cursor-pointer items-center gap-2.5 pt-1">
-              <Checkbox
-                checked={rememberMe}
-                onCheckedChange={(checked) => setRememberMe(checked === true)}
-              />
-              <Label className="cursor-pointer font-normal text-muted-foreground">
-                تذكّرني على هذا الجهاز
-              </Label>
-            </label>
-
-            <Button
-              type="submit"
-              className="h-12 w-full rounded-lg text-base font-semibold shadow-sm"
-              disabled={busy || !email || !password}
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  جارٍ الدخول…
-                </>
-              ) : (
-                'دخول'
-              )}
-            </Button>
+                </Button>
               </>
             )}
           </form>
 
-          {/**
-           * There is no self-serve reset behind this, so it is a sentence
-           * rather than a link: a «نسيت كلمة المرور؟» that goes nowhere is
-           * worse than none at all.
-           */}
-          <p className="mt-8 border-t border-border/70 pt-6 text-sm leading-relaxed text-muted-foreground">
-            نسيت كلمة المرور أو تعذّر الدخول؟ تواصل مع مسؤول النظام لاستعادة الوصول إلى حسابك.
+          {/* Admin Help Footer */}
+          <div className="mt-8 border-t border-border/70 pt-6 text-center text-xs text-muted-foreground leading-relaxed">
+            <p>
+              {isEn
+                ? 'Forgot your password or unable to sign in? Contact your system administrator.'
+                : 'نسيت كلمة المرور أو تعذّر الدخول؟ تواصل مع مسؤول النظام لاستعادة الوصول إلى حسابك.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Mobile Footer */}
+        <div className="text-center lg:hidden">
+          <p className="text-xs text-muted-foreground">
+            {isEn
+              ? '© 2026 — Access restricted to authorized personnel.'
+              : '© 2026 — الدخول مقتصر على الحسابات المصرّح لها.'}
           </p>
         </div>
       </main>

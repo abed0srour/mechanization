@@ -93,3 +93,16 @@ export const DOCUMENT_TYPE = [
 ] as const;
 export const documentTypeSchema = arabicEnum(DOCUMENT_TYPE, 'نوع المستند غير صالح');
 export type DocumentType = z.infer<typeof documentTypeSchema>;
+
+export const BLOOD_TYPE = [
+  'A_POSITIVE',
+  'A_NEGATIVE',
+  'B_POSITIVE',
+  'B_NEGATIVE',
+  'AB_POSITIVE',
+  'AB_NEGATIVE',
+  'O_POSITIVE',
+  'O_NEGATIVE',
+] as const;
+export const bloodTypeSchema = arabicEnum(BLOOD_TYPE, 'فئة الدم مطلوبة');
+export type BloodType = z.infer<typeof bloodTypeSchema>;
