@@ -157,8 +157,15 @@ export interface CitizenProfileUnit {
  */
 export interface CitizenProfileProperty {
   id: string;
-  neighborhood: string;
-  propertyNumber: string;
+  /**
+   * Null when the officer recorded الحي or رقم العقار as «غير مؤكَّد».
+   *
+   * The profile is the record as it actually stands, so an absence shows as an
+   * absence rather than as an empty string that reads like a rendering bug —
+   * the registration's own flag list is what says why.
+   */
+  neighborhood: string | null;
+  propertyNumber: string | null;
   propertyType: string;
   occupancyType: string;
   /** TENANT only — the wizard requires both when occupancy is مستأجر. */
@@ -192,8 +199,31 @@ export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   submittedAt: string;
+  /** `REQUIRES_REVIEW` when `flags` is non-empty; `PENDING` otherwise. */
+  status: string;
+  flags: Array<{ path: string; reason: string }>;
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
+}
+
+/**
+ * The stored flags, read back without trusting the json column's shape.
+ *
+ * Same reasoning as `CitizensService.readFlags` — an entry missing either half
+ * is dropped, because a flag with no reason is the exact thing this feature
+ * exists to prevent and rendering one would report the gap as explained when
+ * nobody explained it. Duplicated rather than shared because these two
+ * services deliberately have no dependency between them.
+ */
+function readRegistrationFlags(value: unknown): Array<{ path: string; reason: string }> {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const { path, reason } = entry as Record<string, unknown>;
+    if (typeof path !== 'string' || typeof reason !== 'string') return [];
+    return [{ path, reason }];
+  });
 }
 
 /** One invoice on the citizen's profile — the same shape the portal shows them. */
@@ -485,7 +515,21 @@ export class ReportingService {
   private async computeSpatialData(): Promise<SpatialFeature[]> {
     const rows = await withConnectionRetry(() =>
       this.db.propertyEntry.findMany({
-        where: { latitude: { not: null }, longitude: { not: null } },
+        /*
+          `propertyNumber: not null` is redundant against the coordinate filter
+          and stated anyway.
+
+          Coordinates only ever come from looking رقم العقار up in the cadastre,
+          so a card whose number was left «غير مؤكَّد» has none and is already
+          excluded. Saying so here means a marker's label can never be blank —
+          and if that ever stops being true, this is the line that says the map
+          was written expecting it.
+        */
+        where: {
+          latitude: { not: null },
+          longitude: { not: null },
+          propertyNumber: { not: null },
+        },
         select: {
           id: true,
           propertyNumber: true,
@@ -501,7 +545,7 @@ export class ReportingService {
 
     return rows.map((row) => ({
       id: row.id,
-      propertyNumber: row.propertyNumber,
+      propertyNumber: row.propertyNumber!,
       propertyType: row.propertyType,
       latitude: row.latitude!,
       longitude: row.longitude!,
@@ -582,6 +626,8 @@ export class ReportingService {
             id: true,
             referenceNumber: true,
             submittedAt: true,
+            status: true,
+            flaggedFields: true,
             properties: {
               select: {
                 id: true,
@@ -716,6 +762,17 @@ export class ReportingService {
         id: registration.id,
         referenceNumber: registration.referenceNumber,
         submittedAt: registration.submittedAt.toISOString(),
+        status: registration.status,
+        /**
+         * The «غير مؤكَّد» fields and the reason given for each.
+         *
+         * On the profile rather than only on the edit form because this is the
+         * page a collector opens before knocking on a door: "we have no phone
+         * number for this household, and here is why" is exactly what they
+         * need before setting out, and it is not something to discover by
+         * opening the record for editing.
+         */
+        flags: readRegistrationFlags(registration.flaggedFields),
         properties: registration.properties.map((property) => ({
           id: property.id,
           neighborhood: property.neighborhood,
@@ -784,7 +841,13 @@ export class ReportingService {
   private async computeRegisteredParcels(): Promise<RegisteredParcel[]> {
     const rows = await withConnectionRetry(() =>
       this.db.propertyEntry.findMany({
-        where: { latitude: { not: null }, longitude: { not: null } },
+        // Same reasoning as `computeSpatialData`: a parcel is keyed by its
+        // رقم العقار here, and a card that has none was never located.
+        where: {
+          latitude: { not: null },
+          longitude: { not: null },
+          propertyNumber: { not: null },
+        },
         select: {
           propertyNumber: true,
           propertyType: true,
@@ -871,8 +934,8 @@ export class ReportingService {
         citizenStatus = 'UNPAID';
       }
 
-      const parcel = byParcel.get(row.propertyNumber) ?? {
-        propertyNumber: row.propertyNumber,
+      const parcel = byParcel.get(row.propertyNumber!) ?? {
+        propertyNumber: row.propertyNumber!,
         latitude: row.latitude!,
         longitude: row.longitude!,
         registrants: [],
@@ -902,7 +965,7 @@ export class ReportingService {
         },
       });
 
-      byParcel.set(row.propertyNumber, parcel);
+      byParcel.set(row.propertyNumber!, parcel);
     }
 
     // Compute parcel-level aggregated financials

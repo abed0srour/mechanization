@@ -10,6 +10,7 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
+  FileQuestion,
   FileSpreadsheet,
   Loader2,
   MessageCircle,
@@ -33,6 +34,7 @@ import {
   setCitizenActive,
 } from '@/lib/api-client';
 import { ImportCitizensDialog } from '@/components/admin/import-citizens-dialog';
+import { OfflineQueuePanel } from '@/components/admin/offline-queue';
 import { PageHeader } from '@/components/ui/page-header';
 import type { CitizenListItem } from '@/lib/api-client';
 import { loadSession } from '@/lib/session';
@@ -141,6 +143,15 @@ export default function CitizensPage({
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 });
   /** The committed term — set when the clerk presses Enter, not as they type. */
   const [appliedSearch, setAppliedSearch] = useState('');
+  /**
+   * Whether the table is narrowed to records still needing to be finished.
+   *
+   * A toggle rather than a saved filter or a page of its own: «يتطلب مراجعة»
+   * is a slice of the register, not a different register, and someone working
+   * through it needs to be able to drop back to the whole thing in one tap
+   * when a name they are looking for is not in the queue.
+   */
+  const [reviewOnly, setReviewOnly] = useState(false);
   /** A failed *write*. The read's own failure is the table's, via `useStaffQuery`. */
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -182,13 +193,21 @@ export default function CitizensPage({
     doing it twice was what opened the race in the first place.
   */
   const query = useStaffQuery({
-    queryKey: ['citizens', tenant, appliedSearch, pagination.pageIndex, pagination.pageSize],
+    queryKey: [
+      'citizens',
+      tenant,
+      appliedSearch,
+      reviewOnly,
+      pagination.pageIndex,
+      pagination.pageSize,
+    ],
     queryFn: (accessToken, signal) =>
       listCitizens(
         tenant,
         accessToken,
         {
           search: appliedSearch || undefined,
+          status: reviewOnly ? 'REQUIRES_REVIEW' : undefined,
           limit: pagination.pageSize,
           offset: pagination.pageIndex * pagination.pageSize,
         },
@@ -203,7 +222,12 @@ export default function CitizensPage({
 
   const items = query.data?.items ?? [];
   const total = query.data?.total ?? 0;
-  const totals = query.data?.totals ?? { outstanding: 0, overdue: 0, inArrears: 0 };
+  const totals = query.data?.totals ?? {
+    outstanding: 0,
+    overdue: 0,
+    inArrears: 0,
+    requiringReview: 0,
+  };
   /*
     The banner above the page and the state inside the table say different
     things, and used to say the same one twice.
@@ -318,6 +342,24 @@ export default function CitizensPage({
                     <Badge variant="outline" className="shrink-0 gap-1 py-0">
                       <Ban className="size-3" aria-hidden />
                       {locale === 'en' ? 'Disabled' : 'معطّل'}
+                    </Badge>
+                  ) : null}
+                  {/*
+                    On the name rather than in a column of its own, and never
+                    hideable: an incomplete record is a fact about the person,
+                    not a statistic about them, and it has to reach whoever
+                    opens their file to bill them — including the desk that
+                    turned every optional column off months ago.
+                  */}
+                  {citizen.latestStatus === 'REQUIRES_REVIEW' ? (
+                    <Badge
+                      variant="outline"
+                      className="shrink-0 gap-1 border-warning/40 bg-warning/10 py-0 text-warning"
+                    >
+                      <FileQuestion className="size-3" aria-hidden />
+                      {locale === 'en'
+                        ? `Requires review (${citizen.unestablishedFieldCount})`
+                        : `يتطلب مراجعة (${citizen.unestablishedFieldCount})`}
                     </Badge>
                   ) : null}
                 </p>
@@ -707,6 +749,47 @@ export default function CitizensPage({
           accent="bg-warning/10"
         />
       </div>
+
+      {/*
+        Records this device is still holding, above the table rather than
+        beside it. As far as the officer is concerned these people *are*
+        registered — putting the queue anywhere else invites reading the table
+        below as the complete register when it is not yet.
+      */}
+      <OfflineQueuePanel tenant={tenant} locale={locale} />
+
+      {/*
+        The review queue, offered only when there is one.
+
+        A permanent tab reading «يتطلب مراجعة (٠)» is a standing invitation to
+        check something that is never there. It appears when a record needs
+        finishing — and stays visible while the filter is on, so the way back
+        out is where the way in was.
+      */}
+      {totals.requiringReview > 0 || reviewOnly ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={reviewOnly ? 'default' : 'outline'}
+            onClick={() => {
+              setReviewOnly((current) => !current);
+              setPagination((current) => ({ ...current, pageIndex: 0 }));
+            }}
+            className="h-8 gap-1.5 px-3 text-xs"
+          >
+            <FileQuestion className="size-3.5" aria-hidden />
+            {locale === 'en'
+              ? `Requires review (${totals.requiringReview})`
+              : `يتطلب مراجعة (${totals.requiringReview})`}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {locale === 'en'
+              ? 'Records filed with fields the officer could not establish. Open one to see the reason given for each.'
+              : 'سجلات حُفظت بحقول لم يتمكّن الموظف من التثبّت منها. افتح السجل لقراءة سبب كل حقل.'}
+          </p>
+        </div>
+      ) : null}
 
       <Card className="overflow-hidden">
         <CardHeader className="border-b">

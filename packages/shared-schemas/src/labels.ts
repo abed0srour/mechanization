@@ -132,6 +132,58 @@ export const ar = {
     RESIDENCY_PROOF: 'إثبات الإقامة',
     EXTRA_PHOTO: 'صورة إضافية',
   } satisfies Record<DocumentType, string>,
+
+  /**
+   * Where a filed record stands. `REQUIRES_REVIEW` is not a rejection — the
+   * citizen is registered and billable; named fields on the record were simply
+   * never established, and the reasons are stored with it.
+   */
+  citizenRecordStatus: {
+    PENDING: 'قيد الانتظار',
+    REQUIRES_REVIEW: 'يتطلب مراجعة',
+  },
+
+  /**
+   * Field names as the «غير مؤكَّد» list shows them, keyed by the last segment
+   * of a flag path — `properties.2.landlordPhone` reads out as رقم هاتف المالك.
+   *
+   * Separate from the labels the inputs themselves render because those vary
+   * with context (نوع الوثيقة renames رقم الوثيقة; اسم المبنى becomes
+   * اسم المبنى/المنزل for a house) and a review list has none of that context
+   * to hand. One stable name per field is what someone scanning a queue needs.
+   */
+  citizenField: {
+    firstName: 'الاسم الأول',
+    middleName: 'اسم الأب',
+    lastName: 'الشهرة',
+    gender: 'الجنس',
+    bloodType: 'فئة الدم',
+    identityDocType: 'نوع وثيقة الإثبات',
+    identityDocNumber: 'رقم وثيقة الإثبات',
+    civilRecordNumber: 'رقم السجل',
+    nationality: 'الجنسية',
+    isLebanese: 'الجنسية اللبنانية',
+    residencyNumber: 'رقم الإقامة',
+    residentStatus: 'صفة الإقامة',
+    maritalStatus: 'الحالة الاجتماعية',
+    phone: 'رقم الهاتف',
+    whatsapp: 'رقم الواتساب',
+    whatsappSameAsPhone: 'واتساب نفس رقم الهاتف',
+    familySize: 'عدد أفراد الأسرة',
+    occupancyType: 'نوع الإشغال',
+    landlordName: 'اسم المالك',
+    landlordPhone: 'رقم هاتف المالك',
+    propertyType: 'نوع العقار',
+    neighborhood: 'الحي',
+    propertyNumber: 'رقم العقار',
+    buildingName: 'اسم المبنى',
+    side: 'الجهة',
+    landType: 'نوع الأرض',
+    tentLocation: 'موقع الخيمة',
+    unitArea: 'المساحة',
+    sharedRights: 'حقوق مشتركة',
+    units: 'وحدات المبنى',
+  } as Record<string, string>,
 } as const;
 
 export const en = {
@@ -247,6 +299,44 @@ export const en = {
     RESIDENCY_PROOF: 'Residency Verification',
     EXTRA_PHOTO: 'Additional Photograph',
   } satisfies Record<DocumentType, string>,
+
+  citizenRecordStatus: {
+    PENDING: 'Pending',
+    REQUIRES_REVIEW: 'Requires Review',
+  },
+
+  citizenField: {
+    firstName: 'First Name',
+    middleName: "Father's Name",
+    lastName: 'Last Name',
+    gender: 'Gender',
+    bloodType: 'Blood Type',
+    identityDocType: 'ID Document Type',
+    identityDocNumber: 'ID Document Number',
+    civilRecordNumber: 'Civil Record (Sijil) No.',
+    nationality: 'Nationality',
+    isLebanese: 'Lebanese Nationality',
+    residencyNumber: 'Residency Permit No.',
+    residentStatus: 'Residency Status',
+    maritalStatus: 'Marital Status',
+    phone: 'Phone Number',
+    whatsapp: 'WhatsApp Number',
+    whatsappSameAsPhone: 'WhatsApp Same As Phone',
+    familySize: 'Household Size',
+    occupancyType: 'Occupancy Type',
+    landlordName: 'Landlord Name',
+    landlordPhone: 'Landlord Phone',
+    propertyType: 'Property Type',
+    neighborhood: 'Neighborhood',
+    propertyNumber: 'Property Number',
+    buildingName: 'Building Name',
+    side: 'Side / Orientation',
+    landType: 'Land Type',
+    tentLocation: 'Tent Location',
+    unitArea: 'Area',
+    sharedRights: 'Shared Rights',
+    units: 'Building Units',
+  } as Record<string, string>,
 } as const;
 
 export function getLabels(locale: string = 'ar') {

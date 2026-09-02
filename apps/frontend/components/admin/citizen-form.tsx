@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ZodError } from 'zod';
 import {
   Building2,
+  CloudOff,
+  FileQuestion,
   IdCard,
   Loader2,
   Plus,
@@ -12,10 +13,10 @@ import {
   UsersRound,
 } from 'lucide-react';
 import {
+  adminCreateCitizenSubmissionSchema,
   allowedPropertyTypesFor,
-  contactDetailsSchema,
-  personalDetailsSchema,
-  propertyEntriesSchema,
+  getLabels,
+  PROPERTY_FIELD_MAP,
 } from '@mechanization/shared-schemas';
 import type { PublicTenantConfig } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ import {
   type PropertyDraft,
   type UnitDraft,
 } from '@/components/citizen/property-card';
+import { FieldFlagProvider, flagsToArray } from '@/components/ui/field';
 import { cn, scopeErrors } from '@/lib/utils';
 import { useSectionNav } from '@/lib/use-section-nav';
 
@@ -33,6 +35,14 @@ export interface CitizenFormValues {
   personal: Record<string, unknown>;
   contact: Record<string, unknown>;
   properties: PropertyDraft[];
+  /**
+   * Fields the officer recorded as «غير مؤكَّد», keyed by dot-path.
+   *
+   * A Map rather than the array the wire uses, because every operation this
+   * form performs on them is by path: is this field flagged, flag it, drop it
+   * when its card is deleted. `flagsToArray` converts at the edge.
+   */
+  flags: Map<string, string>;
 }
 
 /**
@@ -63,16 +73,85 @@ export const EMPTY_CITIZEN: CitizenFormValues = {
   personal: { isLebanese: true },
   contact: { whatsappSameAsPhone: true },
   properties: [{}],
+  flags: new Map(),
 };
 
-/** Turns a failed `safeParse` into the `"personal.firstName"` keys each section reads. */
-function fieldErrorsFrom(error: ZodError, prefix: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = [prefix, ...issue.path].join('.');
-    if (!(key in out)) out[key] = issue.message;
+/**
+ * Every dot-path this form is currently *asking about*.
+ *
+ * The form is branchy — رقم السجل exists only for a Lebanese citizen, a
+ * landlord block only for a tenant, وحدات المبنى only for a building — and an
+ * officer who flags a field and then changes the branch above it leaves a flag
+ * pointing at an input nobody can see. Stored, that flag would hold the record
+ * at «يتطلب مراجعة» over a question the form has stopped asking, and nothing on
+ * screen would explain why.
+ *
+ * So flags are pruned to this set. It is derived from the same
+ * `PROPERTY_FIELD_MAP` the cards render from, which is what keeps "what is on
+ * screen" and "what may be flagged" the same list.
+ */
+function askablePaths(values: CitizenFormValues): Set<string> {
+  const paths = new Set<string>([
+    'personal.firstName',
+    'personal.middleName',
+    'personal.lastName',
+    'personal.gender',
+    'personal.bloodType',
+    'personal.residentStatus',
+    'contact.maritalStatus',
+    'contact.familySize',
+    'contact.phone',
+  ]);
+
+  if (values.personal.isLebanese !== false) {
+    paths.add('personal.identityDocType');
+    paths.add('personal.identityDocNumber');
+    paths.add('personal.civilRecordNumber');
+  } else {
+    paths.add('personal.nationality');
+    paths.add('personal.identityDocNumber');
+    paths.add('personal.residencyNumber');
   }
-  return out;
+
+  if (values.contact.whatsappSameAsPhone === false) paths.add('contact.whatsapp');
+
+  values.properties.forEach((property, index) => {
+    const branch = PROPERTY_FIELD_MAP[property.propertyType as keyof typeof PROPERTY_FIELD_MAP];
+    for (const field of branch ?? []) paths.add(`properties.${index}.${field}`);
+    if (property.occupancyType === 'TENANT') {
+      paths.add(`properties.${index}.landlordName`);
+      paths.add(`properties.${index}.landlordPhone`);
+    }
+  });
+
+  return paths;
+}
+
+/**
+ * Renumbers property flags after the card at `removed` is deleted.
+ *
+ * Drops that card's own flags and shifts every higher index down by one, which
+ * is the same correction `removeProperty` applies to the collapsed set — for
+ * the same reason, and with worse consequences if it is skipped: a stale
+ * collapsed index folds the wrong card, a stale flag index misattributes a
+ * missing field to the wrong property.
+ */
+function reindexFlags(flags: ReadonlyMap<string, string>, removed: number): Map<string, string> {
+  const next = new Map<string, string>();
+
+  for (const [path, reason] of flags) {
+    const match = /^properties\.(\d+)\.(.+)$/.exec(path);
+    if (!match) {
+      next.set(path, reason);
+      continue;
+    }
+
+    const index = Number(match[1]);
+    if (index === removed) continue;
+    next.set(`properties.${index > removed ? index - 1 : index}.${match[2]}`, reason);
+  }
+
+  return next;
 }
 
 /** Drops UI-only fields and coerces the numeric strings the inputs produce. */
@@ -98,9 +177,28 @@ function toPayloadUnit(unit: UnitDraft): Record<string, unknown> {
   };
 }
 
+/** The submission exactly as the server will receive it. */
+export function toSubmission(values: CitizenFormValues) {
+  return {
+    personal: values.personal,
+    contact: values.contact,
+    properties: values.properties.map(toPayloadProperty),
+    flags: flagsToArray(values.flags),
+  };
+}
+
 /**
- * Validates the whole record at once, against the same schemas the server
+ * Validates the whole record at once, against the same schema the server
  * validates against.
+ *
+ * Not "the same rules" — the same object. `adminCreateCitizenSubmissionSchema`
+ * is what the controller's validation pipe runs, so what this form accepts and
+ * what the server accepts cannot drift, and neither can the subtler half: which
+ * complaints a «غير مؤكَّد» flag is allowed to excuse. That matters most in the
+ * case this feature exists for, where the officer is offline and the server is
+ * hours away from seeing the record — a browser that were more permissive would
+ * queue registrations that fail on arrival, in a settlement nobody is going
+ * back to.
  *
  * The wizard checked one step per «التالي» because that was the only moment it
  * could. A single page has no such moment, so everything is checked on save —
@@ -109,17 +207,32 @@ function toPayloadUnit(unit: UnitDraft): Record<string, unknown> {
  * at العقارات.
  */
 function validate(values: CitizenFormValues): Record<string, string> {
-  const personal = personalDetailsSchema.safeParse(values.personal);
-  const contact = contactDetailsSchema.safeParse(values.contact);
-  const properties = propertyEntriesSchema.safeParse(
-    values.properties.map(toPayloadProperty),
-  );
+  const result = adminCreateCitizenSubmissionSchema.safeParse(toSubmission(values));
+  if (result.success) return {};
 
-  return {
-    ...(personal.success ? {} : fieldErrorsFrom(personal.error, 'personal')),
-    ...(contact.success ? {} : fieldErrorsFrom(contact.error, 'contact')),
-    ...(properties.success ? {} : fieldErrorsFrom(properties.error, 'properties')),
-  };
+  const flagPaths = [...values.flags.keys()];
+  const out: Record<string, string> = {};
+
+  for (const issue of result.error.issues) {
+    /*
+      A complaint about a flag is shown on the field it excuses.
+
+      Zod reports it at `flags.3.reason`, which names nothing on screen — the
+      officer sees a reason box under رقم العقار, not a numbered list of flags.
+      Resolving the index back to the path is what puts "يرجى ذكر سبب…"
+      underneath the box it is about.
+    */
+    if (issue.path[0] === 'flags') {
+      const key = flagPaths[Number(issue.path[1])];
+      if (key && !(key in out)) out[key] = issue.message;
+      continue;
+    }
+
+    const key = issue.path.join('.');
+    if (!(key in out)) out[key] = issue.message;
+  }
+
+  return out;
 }
 
 /**
@@ -150,6 +263,7 @@ export function CitizenForm({
   initial,
   submitting,
   error,
+  offline = false,
   onSubmit,
   onCancel,
   locale = 'ar',
@@ -161,6 +275,14 @@ export function CitizenForm({
   submitting: boolean;
   /** Server-side failure, shown above the actions. */
   error: string | null;
+  /**
+   * The browser has no connection, so «حفظ» will queue rather than send.
+   *
+   * Said on the button rather than discovered after pressing it: an officer
+   * who does not know a record was stored locally has no reason to keep the
+   * portal open until it syncs, and closing it is how a queue is forgotten.
+   */
+  offline?: boolean;
   onSubmit: (values: CitizenFormValues) => void;
   onCancel: () => void;
   locale?: string;
@@ -194,6 +316,63 @@ export function CitizenForm({
     setValues((current) => ({ ...current, ...patch }));
   }, []);
 
+  /**
+   * Raise or amend a «غير مؤكَّد» flag — and empty the field it covers.
+   *
+   * Clearing the value is the substantive half. A flag says the value was
+   * never established; leaving a half-typed number underneath it would make
+   * the record contradict itself, and — because the server strips flagged
+   * fields before it validates anything — would be discarded on arrival
+   * anyway. Doing it here means what the officer sees is what gets stored.
+   *
+   * Amending an existing flag (typing in its reason box) does not re-clear,
+   * because there is nothing left to clear; the same code path handles both
+   * since clearing an already-empty field is a no-op.
+   */
+  const setFlag = useCallback((path: string, reason: string) => {
+    setValues((current) => {
+      const flags = new Map(current.flags);
+      flags.set(path, reason);
+
+      const [section, ...rest] = path.split('.');
+
+      if (section === 'personal' || section === 'contact') {
+        const field = rest[0];
+        const next = { ...current[section] };
+        delete next[field];
+        return { ...current, [section]: next, flags };
+      }
+
+      // properties.<index>.<field>
+      const index = Number(rest[0]);
+      const field = rest[1];
+      return {
+        ...current,
+        properties: current.properties.map((property, i) => {
+          if (i !== index) return property;
+          const next = { ...property } as Record<string, unknown>;
+          delete next[field];
+          return next as PropertyDraft;
+        }),
+        flags,
+      };
+    });
+  }, []);
+
+  /** Withdraws a flag. The field comes back empty, which is where it was. */
+  const clearFlag = useCallback((path: string) => {
+    setValues((current) => {
+      const flags = new Map(current.flags);
+      flags.delete(path);
+      return { ...current, flags };
+    });
+  }, []);
+
+  const flagging = useMemo(
+    () => ({ flags: values.flags, set: setFlag, clear: clearFlag, locale }),
+    [values.flags, setFlag, clearFlag, locale],
+  );
+
   const setProperty = useCallback((index: number, next: PropertyDraft) => {
     setValues((current) => ({
       ...current,
@@ -218,6 +397,15 @@ export function CitizenForm({
     setValues((current) => ({
       ...current,
       properties: current.properties.filter((_, i) => i !== index),
+      /*
+        Flags are addressed by card index, so deleting a card renumbers them.
+
+        Left alone, a flag on `properties.2.propertyNumber` would silently
+        become a flag on whatever card slid into position 2 — excusing a field
+        nobody said anything about, and holding that card's real gap against
+        the officer. The removed card's own flags go with it.
+      */
+      flags: reindexFlags(current.flags, index),
     }));
     // Indices above the removed card shift down by one; rebuilding the set
     // rather than deleting from it keeps the wrong card from folding shut.
@@ -271,6 +459,27 @@ export function CitizenForm({
     }));
   }, [allowedTypes, values.properties]);
 
+  /**
+   * A flag whose field the form has stopped asking about is withdrawn.
+   *
+   * Switching a card from خيمة to أرض, or a citizen from أجنبي to لبناني,
+   * retires whole groups of inputs. A flag left behind on one of them would
+   * hold the record at «يتطلب مراجعة» over a question nothing on screen is
+   * asking — the officer would see a complete form and an unexplained status.
+   */
+  useEffect(() => {
+    const askable = askablePaths(values);
+    if ([...values.flags.keys()].every((path) => askable.has(path))) return;
+
+    setValues((current) => {
+      const kept = new Map<string, string>();
+      for (const [path, reason] of current.flags) {
+        if (askable.has(path)) kept.set(path, reason);
+      }
+      return { ...current, flags: kept };
+    });
+  }, [values]);
+
   // Live once a save has been attempted, silent before it: flagging fields a
   // clerk has not reached yet turns a blank form red.
   useEffect(() => {
@@ -300,6 +509,34 @@ export function CitizenForm({
 
   const sectionInvalid = (prefix: string) =>
     Object.keys(shown).some((key) => key.startsWith(`${prefix}.`));
+
+  /**
+   * The «غير مؤكَّد» fields, named, above the save button.
+   *
+   * A flag is a per-field control, so a form with six of them scattered across
+   * three sections gives no sense of how much of the record is actually
+   * missing. This is the whole list in one place, read at the moment it
+   * matters: the officer is about to file the person, and this is what the
+   * record will say about itself when someone opens it next month.
+   */
+  const flagSummary = useMemo(() => {
+    const labels = getLabels(locale);
+    return [...values.flags].map(([path, reason]) => {
+      const segments = path.split('.');
+      const field = labels.citizenField[segments.at(-1) ?? ''] ?? segments.at(-1) ?? path;
+      const card = segments[0] === 'properties' ? Number(segments[1]) + 1 : null;
+      return {
+        path,
+        reason,
+        label:
+          card === null
+            ? field
+            : locale === 'en'
+              ? `${field} — property ${card}`
+              : `${field} — العقار ${card}`,
+      };
+    });
+  }, [values.flags, locale]);
 
   const sections = useMemo(
     () => [
@@ -338,6 +575,7 @@ export function CitizenForm({
   );
 
   return (
+    <FieldFlagProvider value={flagging}>
     <div className="space-y-5">
       <nav
         aria-label={locale === 'en' ? 'Form sections' : 'أقسام النموذج'}
@@ -519,13 +757,41 @@ export function CitizenForm({
           </div>
         ) : null}
 
+        {flagSummary.length > 0 ? (
+          <div className="mb-2.5 space-y-1 rounded-lg border border-warning/40 bg-warning/5 p-2.5 text-xs">
+            <p className="flex items-center gap-1.5 font-semibold text-warning">
+              <FileQuestion className="size-3.5 shrink-0" aria-hidden />
+              {locale === 'en'
+                ? `Saving with ${flagSummary.length} unverified field(s) — the record will be marked "Requires Review".`
+                : `سيُحفظ السجل مع ${flagSummary.length} حقلاً غير مؤكَّد بحالة «يتطلب مراجعة».`}
+            </p>
+            <ul className="grid gap-0.5 ps-1 sm:grid-cols-2">
+              {flagSummary.map((flag) => (
+                <li key={flag.path} className="truncate text-muted-foreground">
+                  <span className="font-medium text-foreground">{flag.label}</span>
+                  {flag.reason ? ` — ${flag.reason}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-block size-2 rounded-full bg-primary/60" />
+            <span
+              className={cn(
+                'inline-block size-2 rounded-full',
+                offline ? 'bg-warning' : 'bg-primary/60',
+              )}
+            />
             <span>
-              {mode === 'edit'
-                ? (locale === 'en' ? 'Editing citizen record' : 'تعديل بيانات المواطن')
-                : (locale === 'en' ? 'New citizen registration' : 'تسجيل مواطن جديد')}
+              {offline
+                ? locale === 'en'
+                  ? 'Offline — this record will be stored on this device and synced automatically'
+                  : 'بدون اتصال — سيُحفظ السجل على هذا الجهاز ويُرسل تلقائياً عند عودة الشبكة'
+                : mode === 'edit'
+                  ? (locale === 'en' ? 'Editing citizen record' : 'تعديل بيانات المواطن')
+                  : (locale === 'en' ? 'New citizen registration' : 'تسجيل مواطن جديد')}
             </span>
           </div>
 
@@ -549,17 +815,22 @@ export function CitizenForm({
             >
               {submitting ? (
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : offline ? (
+                <CloudOff className="size-3.5" aria-hidden />
               ) : (
                 <Save className="size-3.5" aria-hidden />
               )}
-              {mode === 'edit'
-                ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
-                : (locale === 'en' ? 'Save & Create' : 'حفظ وإنشاء')}
+              {offline
+                ? (locale === 'en' ? 'Save on This Device' : 'حفظ على الجهاز')
+                : mode === 'edit'
+                  ? (locale === 'en' ? 'Save Changes' : 'حفظ التعديلات')
+                  : (locale === 'en' ? 'Save & Create' : 'حفظ وإنشاء')}
             </Button>
           </div>
         </div>
       </div>
     </div>
+    </FieldFlagProvider>
   );
 }
 

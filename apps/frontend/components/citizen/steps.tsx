@@ -67,6 +67,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'First Name' : 'الاسم الأول'}
           htmlFor="firstName"
+
+          path="personal.firstName"
           required
           error={errors['personal.firstName']}
         >
@@ -81,6 +83,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? "Father's Name" : 'اسم الأب'}
           htmlFor="middleName"
+
+          path="personal.middleName"
           required
           error={errors['personal.middleName']}
         >
@@ -95,6 +99,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'Last Name' : 'الشهرة'}
           htmlFor="lastName"
+
+          path="personal.lastName"
           required
           error={errors['personal.lastName']}
         >
@@ -111,6 +117,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'Gender' : 'الجنس'}
           htmlFor="gender"
+
+          path="personal.gender"
           required
           error={errors['personal.gender']}
         >
@@ -134,6 +142,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'Blood Type' : 'فئة الدم'}
           htmlFor="bloodType"
+
+          path="personal.bloodType"
           required
           error={errors['personal.bloodType']}
         >
@@ -157,6 +167,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'Nationality' : 'الجنسية'}
           htmlFor="isLebanese"
+
+          path="personal.isLebanese"
           required
           error={errors['personal.isLebanese']}
         >
@@ -184,6 +196,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'Residency Status' : 'صفة الإقامة'}
           htmlFor="residentStatus"
+
+          path="personal.residentStatus"
           required
           error={errors['personal.residentStatus']}
         >
@@ -209,6 +223,8 @@ export function PersonalStep({
         <Field
           label={locale === 'en' ? 'Specific Nationality' : 'الجنسية بالتفصيل'}
           htmlFor="nationality"
+
+          path="personal.nationality"
           required
           error={errors['personal.nationality']}
         >
@@ -227,6 +243,8 @@ export function PersonalStep({
           <Field
             label={locale === 'en' ? 'ID Document Type' : 'نوع وثيقة الإثبات'}
             htmlFor="identityDocType"
+
+            path="personal.identityDocType"
             required
             error={errors['personal.identityDocType']}
           >
@@ -252,6 +270,8 @@ export function PersonalStep({
           <Field
             label={identityDocNumberLabel}
             htmlFor="identityDocNumber"
+
+            path="personal.identityDocNumber"
             required
             error={errors['personal.identityDocNumber']}
           >
@@ -267,6 +287,8 @@ export function PersonalStep({
           <Field
             label={locale === 'en' ? 'Civil Record (Sijil) No.' : 'رقم السجل'}
             htmlFor="civilRecordNumber"
+
+            path="personal.civilRecordNumber"
             required
             error={errors['personal.civilRecordNumber']}
           >
@@ -285,6 +307,8 @@ export function PersonalStep({
           <Field
             label={identityDocNumberLabel}
             htmlFor="identityDocNumber"
+
+            path="personal.identityDocNumber"
             error={errors['personal.identityDocNumber']}
           >
             <Input
@@ -299,6 +323,8 @@ export function PersonalStep({
           <Field
             label={locale === 'en' ? 'Residency Permit No.' : 'رقم الإقامة'}
             htmlFor="residencyNumber"
+
+            path="personal.residencyNumber"
             error={errors['personal.residencyNumber']}
           >
             <Input
@@ -336,6 +362,8 @@ export function ContactStep({
         <Field
           label={locale === 'en' ? 'Marital Status' : 'الحالة الاجتماعية'}
           htmlFor="maritalStatus"
+
+          path="contact.maritalStatus"
           required
           error={errors['contact.maritalStatus']}
         >
@@ -359,6 +387,8 @@ export function ContactStep({
         <Field
           label={locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة'}
           htmlFor="familySize"
+
+          path="contact.familySize"
           required
           error={errors['contact.familySize']}
         >
@@ -377,6 +407,8 @@ export function ContactStep({
         <Field
           label={locale === 'en' ? 'Phone Number' : 'رقم الهاتف'}
           htmlFor="phone"
+
+          path="contact.phone"
           required
           error={errors['contact.phone']}
         >

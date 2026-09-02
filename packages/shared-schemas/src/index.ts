@@ -2,6 +2,7 @@ export * from './enums';
 export * from './labels';
 export * from './primitives';
 export * from './citizen.schema';
+export * from './field-flag.schema';
 export * from './property.schema';
 export * from './registration.schema';
 export * from './admin-citizen.schema';

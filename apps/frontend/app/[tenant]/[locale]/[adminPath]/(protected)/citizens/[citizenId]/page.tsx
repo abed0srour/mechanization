@@ -12,6 +12,7 @@ import {
   Droplet,
   ExternalLink,
   FileDigit,
+  FileQuestion,
   FileText,
   Flag,
   Hash,
@@ -96,6 +97,24 @@ interface FactItem {
  */
 function present(facts: FactItem[]): FactItem[] {
   return facts.filter((fact) => fact.value != null && fact.value !== '');
+}
+
+/**
+ * `properties.1.propertyNumber` → «رقم العقار — العقار ٢».
+ *
+ * A stored flag names a path, which is the right thing to store and the wrong
+ * thing to read: nobody reviewing a household's file thinks in dot-paths. The
+ * card number is 1-based here because that is how the cards are labelled on
+ * the form the officer filled in.
+ */
+function flagFieldLabel(path: string, locale: string): string {
+  const labels = getLabels(locale);
+  const segments = path.split('.');
+  const field = labels.citizenField[segments.at(-1) ?? ''] ?? segments.at(-1) ?? path;
+
+  if (segments[0] !== 'properties') return field;
+  const card = Number(segments[1]) + 1;
+  return locale === 'en' ? `${field} — property ${card}` : `${field} — العقار ${card}`;
 }
 
 /**
@@ -509,6 +528,42 @@ export default function CitizenProfilePage({
             </CardHeader>
 
             <CardContent className="space-y-4 pt-6">
+              {/*
+                What this record does not know about itself, said first.
+
+                Above the properties rather than tucked under them, because it
+                changes how everything below it should be read: a collector
+                looking at a parcel with no رقم العقار needs to know that was a
+                decision someone recorded, not a rendering fault or a field
+                someone forgot.
+              */}
+              {registration.flags.length > 0 ? (
+                <div className="space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-warning">
+                    <FileQuestion className="size-4 shrink-0" aria-hidden />
+                    {locale === 'en'
+                      ? `Requires review — ${registration.flags.length} unverified field(s)`
+                      : `يتطلب مراجعة — ${registration.flags.length} حقلاً غير مؤكَّد`}
+                  </p>
+                  <ul className="space-y-1 text-sm">
+                    {registration.flags.map((flag) => (
+                      <li key={flag.path}>
+                        <span className="font-medium">{flagFieldLabel(flag.path, locale)}</span>
+                        <span className="text-muted-foreground"> — {flag.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {canEdit ? (
+                    <Link
+                      href={`${base}/citizens/${citizen.id}/edit`}
+                      className="inline-block pt-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {locale === 'en' ? 'Complete this record' : 'استكمال بيانات السجل'}
+                    </Link>
+                  ) : null}
+                </div>
+              ) : null}
+
               {registration.properties.map((property) => (
                 <PropertyCard key={property.id} property={property} base={base} locale={locale} />
               ))}
@@ -951,11 +1006,24 @@ function PropertyCard({
             <Icon className="size-5" />
           </span>
           <div className="min-w-0 space-y-1.5">
+            {/*
+              A card whose رقم العقار was never established says so, rather
+              than rendering "العقار رقم " with nothing after it — which reads
+              as a bug and tells a collector nothing about why.
+            */}
             <p className="font-semibold">
-              {locale === 'en' ? 'Property #' : 'العقار رقم '}
-              <span dir="ltr" className="font-mono">
-                {property.propertyNumber}
-              </span>
+              {property.propertyNumber ? (
+                <>
+                  {locale === 'en' ? 'Property #' : 'العقار رقم '}
+                  <span dir="ltr" className="font-mono">
+                    {property.propertyNumber}
+                  </span>
+                </>
+              ) : (
+                <span className="text-warning">
+                  {locale === 'en' ? 'Property number unverified' : 'رقم العقار غير مؤكَّد'}
+                </span>
+              )}
             </p>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="secondary">

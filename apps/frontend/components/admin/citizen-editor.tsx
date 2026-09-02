@@ -18,6 +18,11 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import type { PropertyDraft, UnitDraft } from '@/components/citizen/property-card';
 import { LoadingState } from '@/components/ui/states';
+import { flagsFromArray, flagsToArray } from '@/components/ui/field';
+import { OfflineQueueNotice } from './offline-queue';
+import { offlineStorageAvailable } from '@/lib/offline-db';
+import { queueSubmission, useOfflineQueue, useOnlineStatus } from '@/lib/offline-sync';
+import { useToast } from '@/components/ui/toast';
 import {
   CitizenForm,
   EMPTY_CITIZEN,
@@ -97,8 +102,28 @@ export function CitizenEditor({
   citizenId?: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const base = `/${tenant}/${locale}/${adminPath}`;
   const editing = citizenId !== undefined;
+
+  const online = useOnlineStatus();
+  // Mounting this is also what starts the sync engine and drains any backlog,
+  // so an officer who opens the entry form after regaining signal has their
+  // queue delivered without having to go looking for a button.
+  const queue = useOfflineQueue(tenant);
+
+  /**
+   * Offline entry is for *new* records only.
+   *
+   * A correction is a read-modify-write against a row this device may hold a
+   * stale copy of — queued for hours and replayed later, it would silently
+   * overwrite whatever a colleague changed in the meantime. Registering
+   * someone new has no such conflict: the record does not exist yet, and the
+   * `clientSubmissionId` covers the only race that remains. So an edit made
+   * with no connection fails honestly and is retried by a person.
+   */
+  const canQueue = !editing && offlineStorageAvailable();
+  const willQueue = canQueue && !online;
 
   const [token, setToken] = useState<string | null>(null);
   const [config, setConfig] = useState<PublicTenantConfig | null>(null);
@@ -150,6 +175,10 @@ export function CitizenEditor({
 
         setReference(form.referenceNumber);
         setInitial({
+          // The record's existing «غير مؤكَّد» flags, so whoever opens it to
+          // finish sees which blanks were deliberate and what was said about
+          // each — and clears one simply by filling the field in.
+          flags: flagsFromArray(form.flags ?? []),
           personal: {
             ...form.personal,
             /**
@@ -205,7 +234,53 @@ export function CitizenEditor({
         personal: values.personal,
         contact: values.contact,
         properties: values.properties.map(toPayloadProperty),
+        flags: flagsToArray(values.flags),
       };
+
+      /*
+        No connection: the record is stored on this device and the officer
+        moves on to the next household.
+
+        The id is minted here, before anything is sent, and travels with every
+        later retry as `clientSubmissionId` — which is what makes a lost
+        response harmless. The form has already validated this payload against
+        the very schema the server will use, so a record accepted here is one
+        the server will accept too; that is the whole reason queueing is safe
+        to do silently.
+      */
+      if (willQueue) {
+        try {
+          await queueSubmission({
+            tenant,
+            displayName:
+              [values.personal.firstName, values.personal.lastName]
+                .filter(Boolean)
+                .join(' ')
+                .trim() || (locale === 'en' ? 'Unnamed record' : 'سجل بلا اسم'),
+            payload,
+          });
+
+          toast.success(
+            locale === 'en'
+              ? 'Saved on this device — it will sync automatically when you are back online.'
+              : 'حُفظ على هذا الجهاز — سيُرسل تلقائياً عند عودة الاتصال.',
+          );
+          router.push(`${base}/citizens`);
+          return;
+        } catch (caught) {
+          // IndexedDB refused — a private window, a full disk, the store held
+          // open by another tab mid-upgrade. Said plainly, because the officer
+          // is about to walk away from a record that was not stored.
+          logApiError(caught);
+          setError(
+            locale === 'en'
+              ? 'This device could not store the record. Do not close this page — try again once you have a connection.'
+              : 'تعذّر حفظ السجل على هذا الجهاز. لا تُغلق الصفحة — أعد المحاولة عند توفّر الاتصال.',
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
 
       try {
         if (citizenId) {
@@ -223,6 +298,42 @@ export function CitizenEditor({
           router.replace(`${base}/login`);
           return;
         }
+
+        /*
+          The request left and never arrived — `navigator.onLine` said yes, and
+          it was wrong.
+
+          It is wrong often: a captive portal, a dead uplink, a phone showing
+          bars in a valley. That is precisely the moment this record is most
+          likely to be lost, and the officer has already typed it, so it is
+          queued rather than handed back as an error to retype. Only a
+          brand-new registration takes this path, for the reason `canQueue`
+          explains.
+        */
+        if (canQueue && caught instanceof ApiRequestError && caught.status === 0) {
+          try {
+            await queueSubmission({
+                tenant,
+              displayName:
+                [values.personal.firstName, values.personal.lastName]
+                  .filter(Boolean)
+                  .join(' ')
+                  .trim() || (locale === 'en' ? 'Unnamed record' : 'سجل بلا اسم'),
+              payload,
+            });
+
+            toast.success(
+              locale === 'en'
+                ? 'Connection lost — saved on this device and queued for sync.'
+                : 'انقطع الاتصال — حُفظ السجل على الجهاز وسيُرسل تلقائياً.',
+            );
+            router.push(`${base}/citizens`);
+            return;
+          } catch (queueFailure) {
+            logApiError(queueFailure);
+          }
+        }
+
         setError(
           caught instanceof ApiRequestError
             ? caught.message
@@ -231,7 +342,7 @@ export function CitizenEditor({
         setSubmitting(false);
       }
     },
-    [tenant, token, citizenId, base, router, locale],
+    [tenant, token, citizenId, base, router, locale, willQueue, canQueue, toast],
   );
 
   const cancelHref = useMemo(
@@ -310,6 +421,17 @@ export function CitizenEditor({
         ) : null}
       </div>
 
+      {queue.pending > 0 || queue.blocked > 0 ? (
+        <OfflineQueueNotice
+          pending={queue.pending}
+          blocked={queue.blocked}
+          syncing={queue.syncing}
+          onSync={queue.sync}
+          locale={locale}
+          href={`${base}/citizens`}
+        />
+      ) : null}
+
       <CitizenForm
         tenant={tenant}
         config={config}
@@ -317,6 +439,7 @@ export function CitizenEditor({
         initial={initial}
         submitting={submitting}
         error={error}
+        offline={willQueue}
         onSubmit={(values) => void submit(values)}
         onCancel={() => router.push(cancelHref)}
         locale={locale}

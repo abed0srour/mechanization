@@ -9,13 +9,13 @@ import {
   Query,
 } from '@nestjs/common';
 import {
-  adminCreateCitizenSchema,
-  adminUpdateCitizenSchema,
+  adminCreateCitizenSubmissionSchema,
+  adminUpdateCitizenSubmissionSchema,
   citizenImportSchema,
 } from '@mechanization/shared-schemas';
 import type {
-  AdminCreateCitizen,
-  AdminUpdateCitizen,
+  AdminCitizenSubmission,
+  AdminCitizenUpdateSubmission,
   CitizenImportRequest,
 } from '@mechanization/shared-schemas';
 import { CitizensService } from '../../application/features/citizens/citizens.service';
@@ -79,9 +79,18 @@ export class CitizenController {
     @Query('search') search?: string,
     @Query('limit') limit = '200',
     @Query('offset') offset = '0',
+    /**
+     * `REQUIRES_REVIEW` narrows the registry to records filed with fields left
+     * «غير مؤكَّد». Any other value simply matches nothing rather than being
+     * rejected — this is a view the table offers, not an assertion about the
+     * request, and a stale bookmark should show an empty registry rather than
+     * a 400.
+     */
+    @Query('status') status?: string,
   ) {
     return this.citizens.list({
       search,
+      status,
       limit: Number(limit) || 200,
       offset: Number(offset) || 0,
     });
@@ -170,12 +179,22 @@ export class CitizenController {
     return this.citizens.getEditable(id);
   }
 
-  /** A clerk filing a citizen and their first registration, from paper. */
+  /**
+   * A clerk filing a citizen and their first registration, from paper — or a
+   * field officer's phone delivering one it recorded with no signal.
+   *
+   * One route for both, because they are the same act: the schema validates a
+   * submission with no flags exactly as strictly as it ever did, and a
+   * submission that carries them is held to every rule except the ones the
+   * officer named a reason for. A second, laxer endpoint would be a second
+   * place for "what counts as a registration" to be decided.
+   */
   @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR', 'COLLECTOR', 'ADMINISTRATIVE_OFFICER')
   @Post()
   async create(
     @Param('tenantSlug') tenantSlug: string,
-    @Body(new ZodValidationPipe(adminCreateCitizenSchema)) payload: AdminCreateCitizen,
+    @Body(new ZodValidationPipe(adminCreateCitizenSubmissionSchema))
+    payload: AdminCitizenSubmission,
     @CurrentUser() user: SessionClaims,
   ) {
     return this.citizens.create({
@@ -218,7 +237,8 @@ export class CitizenController {
   async update(
     @Param('tenantSlug') tenantSlug: string,
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(adminUpdateCitizenSchema)) payload: AdminUpdateCitizen,
+    @Body(new ZodValidationPipe(adminUpdateCitizenSubmissionSchema))
+    payload: AdminCitizenUpdateSubmission,
     @CurrentUser() user: SessionClaims,
   ) {
     return this.citizens.update({

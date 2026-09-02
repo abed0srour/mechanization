@@ -130,12 +130,30 @@ export class PrismaUserRepository implements UserRepository {
    * relative's phone must update the same person, not create a second record.
    */
   async upsertCitizen(input: CitizenIdentityInput, referenceNumber: string): Promise<string> {
+    /*
+      An upsert needs the key it upserts on.
+
+      Since «غير مؤكَّد» flags exist, a citizen may be registered with no
+      identity document at all — and this method has nothing to match such a
+      person on. Refused loudly rather than quietly turned into an insert:
+      "upsert" is a promise not to duplicate anyone, and it cannot be kept
+      here. The write path that *can* handle it is
+      `PrismaRegistrationRepository.submit`, which chooses between upsert and
+      insert with the same question in hand.
+    */
+    if (!input.identityDocType || !input.identityDocNumber) {
+      throw new ConflictError(
+        'لا يمكن مطابقة هذا السجل بدون نوع ورقم وثيقة الإثبات',
+      );
+    }
+    const identityDocNumber = input.identityDocNumber;
+
     try {
       const row = await this.db.user.upsert({
         where: {
           identityDocType_identityDocNumber: {
             identityDocType: input.identityDocType as never,
-            identityDocNumber: input.identityDocNumber,
+            identityDocNumber,
           },
         },
         update: {
@@ -167,7 +185,7 @@ export class PrismaUserRepository implements UserRepository {
           residencyNumber: input.residencyNumber ?? null,
           residentStatus: input.residentStatus as never,
           identityDocType: input.identityDocType as never,
-          identityDocNumber: input.identityDocNumber,
+          identityDocNumber,
           civilRecordNumber: input.civilRecordNumber,
           familySize: input.familySize,
           maritalStatus: input.maritalStatus as never,

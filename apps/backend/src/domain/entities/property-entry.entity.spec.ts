@@ -188,3 +188,85 @@ describe('PropertyEntry — coordinates', () => {
     ).not.toThrow();
   });
 });
+
+/**
+ * «غير مؤكَّد» — a field officer who could not establish a field, and said so.
+ *
+ * The waiver reaches the entity as a set of bare field names for one card. What
+ * these assert is the narrowness of it: one named field stops being required,
+ * and nothing else about the card changes.
+ */
+describe('PropertyEntry — unestablished fields', () => {
+  it('waives only the field named, not the one beside it', () => {
+    // Both the name and the units are missing; only the name is excused.
+    expect(() =>
+      PropertyEntry.create(building({ buildingName: '', units: [] }), new Set(['buildingName'])),
+    ).toThrow(/at least one unit/);
+  });
+
+  it('accepts a building whose units were never surveyed', () => {
+    const entry = PropertyEntry.create(building({ units: [] }), new Set(['units']));
+    expect(entry.props.units).toEqual([]);
+  });
+
+  it('still validates the units that were recorded', () => {
+    // The flag covers "we did not go through the building", not "we wrote this
+    // apartment down badly" — a unit that exists is entered whole.
+    expect(() =>
+      PropertyEntry.create(
+        building({ units: [{ unitType: 'APARTMENT', floor: '', unitArea: 90 }] }),
+        new Set(['units']),
+      ),
+    ).toThrow(/requires a floor/);
+  });
+
+  it('accepts a tenant whose landlord could not be reached', () => {
+    const entry = PropertyEntry.create(
+      building({ occupancyType: 'TENANT', landlordName: 'سمير مراد' }),
+      new Set(['landlordPhone']),
+    );
+
+    expect(entry.props.landlordName).toBe('سمير مراد');
+  });
+
+  it('accepts a plot with no رقم العقار and no الحي', () => {
+    const entry = PropertyEntry.create(
+      {
+        occupancyType: 'OWNER',
+        propertyType: 'LAND',
+        landType: 'AGRICULTURAL',
+        unitArea: 800,
+      },
+      new Set(['neighborhood', 'propertyNumber']),
+    );
+
+    // Null rather than an empty string: the column is nullable precisely so it
+    // can hold an absence, and '' is a value that would compare equal across
+    // every unidentified parcel.
+    expect(entry.propertyNumber).toBeNull();
+    expect(entry.props.neighborhood).toBeNull();
+  });
+
+  it('still refuses a contradiction a flag cannot explain', () => {
+    // "Land with units" is not a fact nobody could collect — it is a payload
+    // that disagrees with itself, so no waiver applies.
+    expect(() =>
+      PropertyEntry.create(
+        {
+          occupancyType: 'OWNER',
+          propertyType: 'LAND',
+          neighborhood: 'الزهراء',
+          propertyNumber: 'L-9',
+          landType: 'AGRICULTURAL',
+          unitArea: 800,
+          units: [{ unitType: 'SHOP', floor: '1', unitArea: 40 }],
+        },
+        new Set(['units', 'landType', 'unitArea']),
+      ),
+    ).toThrow(/cannot be divided into units/);
+  });
+
+  it('validates exactly as before when nothing is flagged', () => {
+    expect(() => PropertyEntry.create(building({ buildingName: '' }))).toThrow(/building name/);
+  });
+});

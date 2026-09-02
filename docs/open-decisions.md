@@ -178,3 +178,42 @@ which is harmless now and disruptive later — so do it now.
 
 No real secret is committed to this repository; `apps/backend/.env.example`
 contains placeholders only.
+
+---
+
+## 9. Who is accountable for a «يتطلب مراجعة» record, and by when
+
+**Status:** unanswered. Owner: the municipality, not engineering.
+
+A field officer may now register a citizen with named fields left
+«غير مؤكَّد / بانتظار المعلومة», each with a written reason. That was the only
+honest alternative to the two things the form used to force: invent a value, or
+do not register the person. What it does not decide is what happens next.
+
+Needed from the municipality:
+
+- **Who owns the queue.** A record filed with three unestablished fields sits in
+  «يتطلب مراجعة» until someone opens it and fills them in. Nothing currently
+  assigns that to a person or a desk, so on present behaviour it is whoever
+  notices.
+- **How long is too long.** There is no deadline, no escalation and no reminder.
+  A parcel number missing for a week is a normal afternoon's work; missing for a
+  year is a register that has quietly stopped being accurate about that
+  household — and the two look identical on screen today.
+- **Whether an incomplete record may be billed.** It is billable now: the
+  citizen is registered from the moment the row exists, and the fee engine does
+  not read this status. That is deliberate — a household should not escape
+  رسوم because a clerk could not reach their landlord — but a fee notice for a
+  property with no رقم العقار is a document somebody has to be able to defend.
+- **What may never be flagged.** The code fixes a minimum
+  (`NON_FLAGGABLE_FIELDS`: the name, the nationality question, and the two
+  property discriminators) on structural grounds — a record with no name cannot
+  be found again, and the rest of the form branches on the others. Whether the
+  municipality wants the identity document on that list too is a policy call
+  this codebase should not make on its own.
+
+**Current behaviour:** flagged records are stored, billable, searchable, and
+counted on the registry's «يتطلب مراجعة» filter with the number of fields still
+open. Each flag keeps the officer's reason verbatim, and filling a field in is
+what clears it — there is no separate "resolve" action to forget to perform.
+Nothing expires, nothing escalates, and nobody is notified.

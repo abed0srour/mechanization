@@ -37,8 +37,17 @@ export class Registration extends AggregateRoot {
       throw new ValidationError('A registration must include at least one property');
     }
 
-    /** Two cards in one filing cannot claim the same رقم العقار. */
-    const numbers = props.properties.map((p) => p.propertyNumber);
+    /**
+     * Two cards in one filing cannot claim the same رقم العقار.
+     *
+     * Cards whose number was never established are skipped rather than counted
+     * as matching each other: two unknowns are not a duplicate claim, and a
+     * household registering three tents that have no cadastral number between
+     * them is the ordinary case this system exists for.
+     */
+    const numbers = props.properties
+      .map((p) => p.propertyNumber)
+      .filter((n): n is string => Boolean(n));
     const duplicate = numbers.find((n, i) => numbers.indexOf(n) !== i);
     if (duplicate) {
       throw new ConflictError(`Property number '${duplicate}' appears more than once`);

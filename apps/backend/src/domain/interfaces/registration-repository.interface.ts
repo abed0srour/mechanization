@@ -7,6 +7,16 @@ export interface SubmitRegistrationInput {
   citizenReference: string;
   registrationReference: string;
   properties: PropertyEntry[];
+  /**
+   * `REQUIRES_REVIEW` when anything on the record was left unestablished,
+   * `PENDING` otherwise. Passed rather than derived here so the one place that
+   * decides it is `statusForFlags`, next to the flags themselves.
+   */
+  status: 'PENDING' | 'REQUIRES_REVIEW';
+  /** The «غير مؤكَّد» fields and their stated reasons, stored verbatim. */
+  flaggedFields: ReadonlyArray<{ path: string; reason: string }>;
+  /** The browser's own id for this submission, when it was filed offline. */
+  clientSubmissionId?: string;
 }
 
 export interface SubmitRegistrationResult {
@@ -14,6 +24,12 @@ export interface SubmitRegistrationResult {
   citizenId: string;
   referenceNumber: string;
   propertyIds: string[];
+  /**
+   * True when this call found the submission already stored under its
+   * `clientSubmissionId` and returned that rather than writing a second one.
+   * The sync queue reports it as "already synced" instead of "created".
+   */
+  deduplicated: boolean;
 }
 
 /*

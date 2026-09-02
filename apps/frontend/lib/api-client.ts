@@ -3,8 +3,10 @@ import { cachedRequest, invalidateRequests } from './request-cache';
 import type {
   BackupSchedule,
   CitizenImportResult,
+  CitizenRecordStatus,
   CurrencyCode,
   FeeFrequency,
+  FieldFlag,
   ImportRow,
   NumberingSequence,
   SequenceKey,
@@ -454,8 +456,9 @@ export interface CitizenProfileUnit {
 
 export interface CitizenProfileProperty {
   id: string;
-  neighborhood: string;
-  propertyNumber: string;
+  /** Null when the officer recorded it as «غير مؤكَّد» — see the registration's flags. */
+  neighborhood: string | null;
+  propertyNumber: string | null;
   propertyType: string;
   occupancyType: string;
   /** TENANT only. */
@@ -489,6 +492,17 @@ export interface CitizenProfileRegistration {
   id: string;
   referenceNumber: string;
   submittedAt: string;
+  /** `REQUIRES_REVIEW` when `flags` is non-empty; `PENDING` otherwise. */
+  status: string;
+  /**
+   * Fields the officer could not establish, with the reason given for each.
+   *
+   * Shown on the profile, not only on the edit form: this is the page a
+   * collector opens before setting out, and "no phone number, and here is
+   * why" is something to know before knocking rather than to discover by
+   * opening the record for editing.
+   */
+  flags: FieldFlag[];
   properties: CitizenProfileProperty[];
   documents: CitizenProfileDocument[];
 }
@@ -623,6 +637,15 @@ export interface CitizenListItem {
   propertyCount: number;
   /** When this citizen last filed, if ever. */
   latestSubmittedAt: string | null;
+  /** Where their latest registration stands — `REQUIRES_REVIEW` or `PENDING`. */
+  latestStatus: string | null;
+  /**
+   * How many fields on that registration were left «غير مؤكَّد».
+   *
+   * The registry shows the count; the record's own page shows which fields and
+   * the reason given for each.
+   */
+  unestablishedFieldCount: number;
 
   feesTotal: number;
   paidTotal: number;
@@ -641,7 +664,13 @@ export interface CitizenListItem {
 export function listCitizens(
   tenant: string,
   token: string,
-  filter: { search?: string; limit?: number; offset?: number } = {},
+  filter: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+    /** `REQUIRES_REVIEW` narrows to records with fields left «غير مؤكَّد». */
+    status?: CitizenRecordStatus;
+  } = {},
   /**
    * Cancels the request when a newer one supersedes it.
    *
@@ -654,14 +683,26 @@ export function listCitizens(
 ) {
   const query = new URLSearchParams();
   if (filter.search) query.set('search', filter.search);
+  if (filter.status) query.set('status', filter.status);
   query.set('limit', String(filter.limit ?? 200));
   query.set('offset', String(filter.offset ?? 0));
 
   return apiFetch<{
     items: CitizenListItem[];
     total: number;
-    /** Computed over every matching citizen, not the returned page. */
-    totals: { outstanding: number; overdue: number; inArrears: number };
+    /**
+     * Computed over every matching citizen, not the returned page.
+     *
+     * `requiringReview` is deliberately *not* narrowed by the status filter —
+     * it is the number the «يتطلب مراجعة» tab offers, so it has to keep saying
+     * the same thing once that tab is the one you are on.
+     */
+    totals: {
+      outstanding: number;
+      overdue: number;
+      inArrears: number;
+      requiringReview: number;
+    };
   }>(tenant, `/citizens?${query}`, { token, signal });
 }
 
@@ -681,6 +722,14 @@ export interface CitizenFormData {
   personal: Record<string, unknown>;
   contact: Record<string, unknown>;
   properties: Array<Record<string, unknown>>;
+  /**
+   * The «غير مؤكَّد» fields already on this record, with the reasons given.
+   *
+   * The edit form opens with these restored so whoever completes the record
+   * sees which blanks were deliberate — and can clear a flag simply by filling
+   * the field in, which is what takes the record out of «يتطلب مراجعة».
+   */
+  flags: FieldFlag[];
 }
 
 export function getCitizenForm(tenant: string, token: string, citizenId: string) {
@@ -695,6 +744,20 @@ export interface CitizenWriteInput {
   personal: Record<string, unknown>;
   contact: Record<string, unknown>;
   properties: Array<Record<string, unknown>>;
+  /**
+   * Fields the officer recorded as «غير مؤكَّد», each with their reason.
+   *
+   * Absent means "this record is complete", which is what every online save
+   * from the counter sends and what the server validates strictly. The server
+   * decides what a flag excuses — this only carries them.
+   */
+  flags?: FieldFlag[];
+  /**
+   * The browser's own id for this submission, sent only when it was queued
+   * offline. It is what lets a retry after a lost response be recognised
+   * rather than registering the household a second time.
+   */
+  clientSubmissionId?: string;
 }
 
 /**
@@ -759,13 +822,25 @@ export async function importCitizens(
   return merged;
 }
 
-/** Files a citizen and their first registration. Lands as PENDING, like any claim. */
+/**
+ * Files a citizen and their first registration.
+ *
+ * Lands as PENDING like any claim — or as REQUIRES_REVIEW when the submission
+ * carries «غير مؤكَّد» flags, which is what `status` reports back.
+ *
+ * `deduplicated` says the server already held this `clientSubmissionId` and
+ * returned the registration it created the first time. The sync queue counts
+ * that as delivered, because it is: the household is on the register, and the
+ * only thing that ever went missing was a response.
+ */
 export function createCitizen(tenant: string, token: string, input: CitizenWriteInput) {
   return apiFetch<{
     citizenId: string;
     registrationId: string;
     referenceNumber: string;
     propertyCount: number;
+    status: CitizenRecordStatus;
+    deduplicated: boolean;
   }>(tenant, '/citizens', { token, method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -780,7 +855,7 @@ export function updateCitizen(
   citizenId: string,
   input: CitizenWriteInput,
 ) {
-  return apiFetch<{ updated: boolean; citizenId: string }>(
+  return apiFetch<{ updated: boolean; citizenId: string; status: CitizenRecordStatus }>(
     tenant,
     `/citizens/${encodeURIComponent(citizenId)}`,
     { token, method: 'PATCH', body: JSON.stringify(input) },

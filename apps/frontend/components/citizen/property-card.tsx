@@ -1,15 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Loader2, MapPin, Plus, Trash2, Users } from 'lucide-react';
-import { getLabels, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
+import {
+  CheckCircle2,
+  ChevronDown,
+  FileQuestion,
+  Loader2,
+  MapPin,
+  Plus,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react';
+import { getLabels, isFlaggablePath, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
 import type { LandType, OccupancyType, PropertyType, UnitType } from '@mechanization/shared-schemas';
 import { checkPropertyNumber, type PropertyNumberCheck } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Field } from '@/components/ui/field';
+import { Field, useFieldFlags } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -46,6 +56,18 @@ export interface PropertyDraft {
 }
 
 const CHECK_DEBOUNCE_MS = 500;
+
+/**
+ * This card's dot-path for one of its fields — `properties.2.propertyNumber`.
+ *
+ * The index is the card's position in the form, which is the same index the
+ * server's flag paths and the validator's error keys use. Written here rather
+ * than interpolated at each of a dozen call sites so there is one place the
+ * three vocabularies are made to agree.
+ */
+function flagPath(index: number, field: string): string {
+  return `properties.${index}.${field}`;
+}
 
 export function PropertyCard({
   tenant,
@@ -129,6 +151,8 @@ export function PropertyCard({
             <Field
               label={locale === 'en' ? 'Neighborhood' : 'الحي'}
               htmlFor={`nb-${index}`}
+
+              path={flagPath(index, 'neighborhood')}
               required
               error={errors.neighborhood}
             >
@@ -202,6 +226,8 @@ export function PropertyCard({
               <Field
                 label={locale === 'en' ? 'Landlord Name' : 'اسم المالك'}
                 htmlFor={`ln-${index}`}
+
+                path={flagPath(index, 'landlordName')}
                 required
                 error={errors.landlordName}
               >
@@ -215,6 +241,8 @@ export function PropertyCard({
               <Field
                 label={locale === 'en' ? 'Landlord Phone' : 'رقم هاتف المالك'}
                 htmlFor={`lp-${index}`}
+
+                path={flagPath(index, 'landlordPhone')}
                 required
                 error={errors.landlordPhone}
               >
@@ -242,6 +270,8 @@ export function PropertyCard({
                     : (locale === 'en' ? 'Building / House Name' : 'اسم المبنى/المنزل')
                 }
                 htmlFor={`bn-${index}`}
+
+                path={flagPath(index, 'buildingName')}
                 required
                 error={errors.buildingName}
               >
@@ -258,6 +288,8 @@ export function PropertyCard({
               <Field
                 label={locale === 'en' ? 'Land Type' : 'نوع الأرض'}
                 htmlFor={`lt-${index}`}
+
+                path={flagPath(index, 'landType')}
                 required
                 error={errors.landType}
               >
@@ -283,6 +315,8 @@ export function PropertyCard({
               <Field
                 label={locale === 'en' ? 'Side / Orientation' : 'الجهة'}
                 htmlFor={`sd-${index}`}
+
+                path={flagPath(index, 'side')}
               >
                 <Input
                   id={`sd-${index}`}
@@ -297,6 +331,8 @@ export function PropertyCard({
               <Field
                 label={locale === 'en' ? 'Tent Location Description' : 'وصف موقع الخيمة'}
                 htmlFor={`tl-${index}`}
+
+                path={flagPath(index, 'tentLocation')}
                 required
                 error={errors.tentLocation}
               >
@@ -314,6 +350,8 @@ export function PropertyCard({
               <Field
                 label={locale === 'en' ? 'Unit Area (sq. meters)' : 'مساحة الوحدة (متر مربع)'}
                 htmlFor={`ua-${index}`}
+
+                path={flagPath(index, 'unitArea')}
                 required
                 error={errors.unitArea}
               >
@@ -331,6 +369,7 @@ export function PropertyCard({
           {visible.includes('sharedRights') ? (
             <SharedRightsField
               idPrefix={`sr-${index}`}
+              path={flagPath(index, 'sharedRights')}
               selected={draft.sharedRights ?? []}
               onChange={(sharedRights) => set({ sharedRights })}
               locale={locale}
@@ -428,11 +467,18 @@ function summarise(draft: PropertyDraft, locale: string = 'ar'): string {
 
 function SharedRightsField({
   idPrefix,
+  path,
   selected,
   onChange,
   locale = 'ar',
 }: {
   idPrefix: string;
+  /**
+   * Absent for a unit's own shared rights — those live inside a building's
+   * units, and this form flags the unit collection as a whole rather than
+   * field by field inside it. See `UnitsEditor`.
+   */
+  path?: string;
   selected: string[];
   onChange: (next: string[]) => void;
   locale?: string;
@@ -445,6 +491,7 @@ function SharedRightsField({
     <Field
       label={locale === 'en' ? 'Shared Rights' : 'حقوق مشتركة'}
       htmlFor={idPrefix}
+      path={path}
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 pt-1">
         {sharedRightsOptions.map((right, rightIndex) => {
@@ -505,6 +552,21 @@ function UnitsEditor({
   const labels = getLabels(locale);
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
 
+  /*
+    The whole unit list is flaggable; the fields inside one are not.
+
+    "We could not go through the building" is a real afternoon — the caretaker
+    was out, the stairwell was locked, the owner is abroad — and it is the
+    answer this control records. "We wrote down apartment 3 but not its floor"
+    is not that; it is an unfinished form, and letting it through one field at
+    a time would turn a building into a list of half-units nobody can bill.
+  */
+  const flagging = useFieldFlags();
+  const path = flagPath(index, 'units');
+  const flaggable = Boolean(flagging && isFlaggablePath(path));
+  const reason = flaggable ? flagging?.flags.get(path) : undefined;
+  const flagged = reason !== undefined;
+
   const setUnit = (unitIndex: number, patch: Partial<UnitDraft>) =>
     onChange(units.map((u, i) => (i === unitIndex ? { ...u, ...patch } : u)));
 
@@ -535,18 +597,71 @@ function UnitsEditor({
 
   return (
     <section className="space-y-4">
-      <header className="space-y-1">
-        <h3 className="text-lg font-semibold">
-          {locale === 'en' ? 'Building Units' : 'وحدات المبنى'}
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {locale === 'en'
-            ? 'If you own the entire building, add each unit separately. Property number and building name remain the same for all units.'
-            : 'إذا كنت تملك المبنى بالكامل، أضف كل وحدة فيه على حدة. رقم العقار واسم المبنى يبقيان كما هما لجميع الوحدات.'}
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-lg font-semibold">
+            {locale === 'en' ? 'Building Units' : 'وحدات المبنى'}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {locale === 'en'
+              ? 'If you own the entire building, add each unit separately. Property number and building name remain the same for all units.'
+              : 'إذا كنت تملك المبنى بالكامل، أضف كل وحدة فيه على حدة. رقم العقار واسم المبنى يبقيان كما هما لجميع الوحدات.'}
+          </p>
+        </div>
+
+        {flaggable ? (
+          <button
+            type="button"
+            onClick={() => (flagged ? flagging?.clear(path) : flagging?.set(path, ''))}
+            aria-pressed={flagged}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+              flagged
+                ? 'bg-warning/15 text-warning ring-1 ring-warning/40'
+                : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
+            )}
+          >
+            {flagged ? (
+              <X className="size-3 shrink-0" aria-hidden />
+            ) : (
+              <FileQuestion className="size-3 shrink-0" aria-hidden />
+            )}
+            {flagged
+              ? locale === 'en'
+                ? 'Undo'
+                : 'تراجع'
+              : locale === 'en'
+                ? 'Units not surveyed'
+                : 'الوحدات غير مجرودة'}
+          </button>
+        ) : null}
       </header>
 
-      {units.map((unit, unitIndex) => {
+      {flagged ? (
+        <div className="space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2">
+          <label
+            htmlFor={`units-reason-${index}`}
+            className="text-[11px] font-medium text-warning"
+          >
+            {locale === 'en'
+              ? 'Why were the units not recorded? (required)'
+              : 'سبب عدم جرد الوحدات (إلزامي)'}
+          </label>
+          <input
+            id={`units-reason-${index}`}
+            value={reason ?? ''}
+            onChange={(event) => flagging?.set(path, event.target.value)}
+            placeholder={
+              locale === 'en'
+                ? 'e.g. Caretaker absent — return visit scheduled'
+                : 'مثال: الناطور غير موجود — زيارة لاحقة'
+            }
+            className="h-9 w-full rounded-md border border-warning/40 bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
+          />
+        </div>
+      ) : null}
+
+      {flagged ? null : units.map((unit, unitIndex) => {
         const unitCollapsed = collapsed.has(unitIndex);
         const unitErrors = scopeErrors(errors, String(unitIndex));
 
@@ -676,10 +791,12 @@ function UnitsEditor({
         );
       })}
 
-      <Button variant="outline" className="w-full border-dashed" onClick={addUnit}>
-        <Plus className="size-4" aria-hidden />
-        {locale === 'en' ? 'Add Another Unit' : 'إضافة وحدة أخرى'}
-      </Button>
+      {flagged ? null : (
+        <Button variant="outline" className="w-full border-dashed" onClick={addUnit}>
+          <Plus className="size-4" aria-hidden />
+          {locale === 'en' ? 'Add Another Unit' : 'إضافة وحدة أخرى'}
+        </Button>
+      )}
     </section>
   );
 }
@@ -759,6 +876,7 @@ function PropertyNumberField({
     <Field
       label={locale === 'en' ? 'Property Number' : 'رقم العقار'}
       htmlFor={`pn-${index}`}
+      path={flagPath(index, 'propertyNumber')}
       required
       error={error}
     >

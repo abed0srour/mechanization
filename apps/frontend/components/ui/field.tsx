@@ -1,12 +1,74 @@
 'use client';
 
+import { createContext, useContext, useId } from 'react';
+import { FileQuestion, X } from 'lucide-react';
+import { isFlaggablePath, type FieldFlag } from '@mechanization/shared-schemas';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+
+/**
+ * The «غير مؤكَّد» controls, shared by every field on a form that offers them.
+ *
+ * A context rather than a prop threaded through `PersonalStep`, `ContactStep`,
+ * `PropertyCard` and `UnitsEditor`: those four components render some fifty
+ * fields between them, they are shared with the citizen-facing wizard which
+ * offers no flagging at all, and a prop chain that long is one someone
+ * eventually forgets to extend — leaving a field that cannot be flagged for no
+ * reason anyone can see. With a context, a field opts in by naming its own
+ * path, and a form opts in by providing one.
+ */
+interface FieldFlagApi {
+  /** Flags in effect, keyed by dot-path. */
+  flags: ReadonlyMap<string, string>;
+  /** Raise or amend a flag. An empty reason is what the form refuses to save. */
+  set: (path: string, reason: string) => void;
+  /** Withdraw a flag — the field is answerable after all. */
+  clear: (path: string) => void;
+  locale: string;
+}
+
+const FieldFlagContext = createContext<FieldFlagApi | null>(null);
+
+export function FieldFlagProvider({
+  value,
+  children,
+}: {
+  value: FieldFlagApi;
+  children: React.ReactNode;
+}) {
+  return <FieldFlagContext.Provider value={value}>{children}</FieldFlagContext.Provider>;
+}
+
+/**
+ * The flag controls, for the handful of things that are not a `Field`.
+ *
+ * A building's units editor is a repeatable section rather than one input, and
+ * «لم نتمكن من جرد وحدات المبنى» is a real answer an officer needs to be able
+ * to give. Returns null outside a provider, which is how the citizen wizard —
+ * which offers no flagging — gets the section unchanged.
+ */
+export function useFieldFlags(): FieldFlagApi | null {
+  return useContext(FieldFlagContext);
+}
+
+/** The flags as the wire wants them: an array, in the order fields appear. */
+export function flagsToArray(flags: ReadonlyMap<string, string>): FieldFlag[] {
+  return [...flags].map(([path, reason]) => ({ path, reason }));
+}
+
+export function flagsFromArray(flags: readonly FieldFlag[]): Map<string, string> {
+  return new Map(flags.map((flag) => [flag.path, flag.reason]));
+}
 
 /**
  * One field, one job. The caption is the shared `Label`, so its typography is
  * the reference platform's; only the row layout that carries the required/
  * optional marker is added on top.
+ *
+ * `path` opts the field into «غير مؤكَّد». Given one — and rendered inside a
+ * `FieldFlagProvider` — the caption grows a control that lets the officer say
+ * they could not establish this value and why. Without it the field renders
+ * exactly as it did, which is what the citizen wizard still gets.
  */
 export function Field({
   label,
@@ -14,6 +76,7 @@ export function Field({
   error,
   required,
   htmlFor,
+  path,
   children,
 }: {
   label: string;
@@ -21,24 +84,99 @@ export function Field({
   error?: string;
   required?: boolean;
   htmlFor: string;
+  /** This field's dot-path — `personal.civilRecordNumber`, `properties.0.unitArea`. */
+  path?: string;
   children: React.ReactNode;
 }) {
+  const flagging = useContext(FieldFlagContext);
+  const reasonId = useId();
+
+  // A path the schema will not accept a flag on renders as an ordinary field,
+  // rather than offering a control whose every use would be rejected on save.
+  const flaggable = Boolean(flagging && path && isFlaggablePath(path));
+  const reason = flaggable && path ? flagging?.flags.get(path) : undefined;
+  const flagged = reason !== undefined;
+  const locale = flagging?.locale ?? 'ar';
+
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={htmlFor} className="flex items-baseline gap-1.5 text-xs font-medium text-foreground/90">
-        <span>{label}</span>
-        {required ? (
-          <span className="text-xs font-bold text-destructive" aria-label="حقل إلزامي">
-            *
-          </span>
-        ) : (
-          <span className="text-xs font-normal text-muted-foreground">(اختياري)</span>
-        )}
-      </Label>
+      <div className="flex items-baseline justify-between gap-2">
+        <Label
+          htmlFor={htmlFor}
+          className="flex items-baseline gap-1.5 text-xs font-medium text-foreground/90"
+        >
+          <span>{label}</span>
+          {required ? (
+            <span className="text-xs font-bold text-destructive" aria-label="حقل إلزامي">
+              *
+            </span>
+          ) : (
+            <span className="text-xs font-normal text-muted-foreground">
+              {locale === 'en' ? '(optional)' : '(اختياري)'}
+            </span>
+          )}
+        </Label>
+
+        {flaggable && path ? (
+          <button
+            type="button"
+            onClick={() => (flagged ? flagging?.clear(path) : flagging?.set(path, ''))}
+            aria-pressed={flagged}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+              flagged
+                ? 'bg-warning/15 text-warning ring-1 ring-warning/40'
+                : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
+            )}
+          >
+            {flagged ? (
+              <X className="size-3 shrink-0" aria-hidden />
+            ) : (
+              <FileQuestion className="size-3 shrink-0" aria-hidden />
+            )}
+            {flagged
+              ? locale === 'en'
+                ? 'Undo'
+                : 'تراجع'
+              : locale === 'en'
+                ? 'Unverified'
+                : 'غير مؤكَّد'}
+          </button>
+        ) : null}
+      </div>
 
       {hint ? <p className="text-xs text-muted-foreground leading-normal">{hint}</p> : null}
 
-      {children}
+      {/*
+        A flagged field's input is replaced rather than merely disabled.
+
+        The value is not kept — the record says this was never established, and
+        a greyed-out box still showing a half-typed number would contradict it
+        the moment anyone looked. What stands in its place is the question the
+        flag actually raises: why.
+      */}
+      {flagged && path ? (
+        <div className="space-y-1.5 rounded-lg border border-warning/40 bg-warning/5 p-2">
+          <Label htmlFor={reasonId} className="text-[11px] font-medium text-warning">
+            {locale === 'en'
+              ? 'Why is this missing? (required)'
+              : 'سبب عدم توفّر هذه المعلومة (إلزامي)'}
+          </Label>
+          <input
+            id={reasonId}
+            value={reason ?? ''}
+            onChange={(event) => flagging?.set(path, event.target.value)}
+            placeholder={
+              locale === 'en'
+                ? 'e.g. Title deed held by a relative in another town'
+                : 'مثال: سند الملكية عند أحد الأقارب خارج البلدة'
+            }
+            className="h-9 w-full rounded-md border border-warning/40 bg-background px-2.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-warning/40"
+          />
+        </div>
+      ) : (
+        children
+      )}
 
       {error ? (
         <p

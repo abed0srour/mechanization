@@ -1,6 +1,23 @@
 import { z } from 'zod';
-import { contactDetailsSchema, personalDetailsSchema } from './citizen.schema';
-import { propertyEntriesSchema, propertyEntrySchema } from './property.schema';
+import {
+  contactDetailsSchema,
+  partialContactDetailsSchema,
+  partialPersonalDetailsSchema,
+  personalDetailsSchema,
+} from './citizen.schema';
+import {
+  partialPropertyEntrySchema,
+  propertyEntriesSchema,
+  propertyEntrySchema,
+  PROPERTY_FIELD_MAP,
+} from './property.schema';
+import {
+  fieldFlagsSchema,
+  flaggedPaths,
+  issuePath,
+  withoutFlagged,
+  type FieldFlag,
+} from './field-flag.schema';
 import { uuid } from './primitives';
 
 /**
@@ -89,3 +106,201 @@ export const adminUpdateCitizenSchema = z
   .superRefine(assertTentOnlyForRefugees);
 
 export type AdminUpdateCitizen = z.infer<typeof adminUpdateCitizenSchema>;
+
+// ───────────────  Submissions carrying «غير مؤكَّد» flags  ───────────────
+
+/**
+ * The wire shape of a staff submission that may leave fields unestablished.
+ *
+ * The two schemas above are unchanged and are still the only statement of what
+ * a *complete* record looks like. What is new is who may decide that an
+ * incomplete one is nonetheless worth storing: a field officer, one field at a
+ * time, with a written reason attached to each.
+ *
+ * The mechanism is subtractive rather than a second, gentler rulebook. A
+ * submission is validated by the strict schemas, in full; it is accepted when
+ * **every complaint they raise lands on a field the officer flagged**. Nothing
+ * is relaxed, no rule is restated in a weaker form, and a rule added to
+ * `personalDetailsSchema` tomorrow applies to flagged submissions the same day.
+ * All a flag can do is excuse one named field — never a neighbouring one,
+ * never a whole section, and never one of `NON_FLAGGABLE_FIELDS`.
+ *
+ * The sections arrive as opaque records because they cannot be parsed by the
+ * strict schemas before the flags are known: which field is excused is what
+ * decides whether the parse should have failed at all.
+ */
+const rawSection = z.record(z.unknown());
+
+/**
+ * A card's fields, minus everything its نوع العقار does not have.
+ *
+ * The strict branch schemas already do this — `z.object` drops keys it does
+ * not declare — so an out-of-branch leftover (a `side` still sitting on a card
+ * switched from منزل to أرض) passes validation and is discarded. The partial
+ * shape has no branches and would therefore *validate* that leftover, and a
+ * long-irrelevant value could fail a card the strict pass had already cleared.
+ * Filtering to the branch's own fields first is what keeps the two agreeing.
+ */
+function branchFieldsOnly(card: Record<string, unknown>): Record<string, unknown> {
+  const branch = PROPERTY_FIELD_MAP[card.propertyType as keyof typeof PROPERTY_FIELD_MAP] ?? [];
+
+  const keep = new Set<string>([
+    'occupancyType',
+    'propertyType',
+    ...branch,
+    ...(card.occupancyType === 'TENANT' ? ['landlordName', 'landlordPhone'] : []),
+  ]);
+
+  return Object.fromEntries(Object.entries(card).filter(([key]) => keep.has(key)));
+}
+
+interface SubmissionInput {
+  personal: Record<string, unknown>;
+  contact: Record<string, unknown>;
+  properties: Array<Record<string, unknown>>;
+  flags: FieldFlag[];
+  clientSubmissionId?: string;
+}
+
+/** Every issue the strict schemas raise that no flag accounts for. */
+function unexcusedIssues(input: SubmissionInput, ctx: z.RefinementCtx): void {
+  const paths = flaggedPaths(input.flags);
+
+  const report = (prefix: string, result: z.SafeParseReturnType<unknown, unknown>) => {
+    if (result.success) return;
+    for (const issue of result.error.issues) {
+      if (paths.has(issuePath(prefix, issue.path))) continue;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [...prefix.split('.'), ...issue.path],
+        message: issue.message,
+      });
+    }
+  };
+
+  report(
+    'personal',
+    personalDetailsSchema.safeParse(withoutFlagged(input.personal, 'personal', paths)),
+  );
+  report('contact', contactDetailsSchema.safeParse(withoutFlagged(input.contact, 'contact', paths)));
+
+  input.properties.forEach((card, index) => {
+    const prefix = `properties.${index}`;
+    report(prefix, propertyEntrySchema.safeParse(withoutFlagged(card, prefix, paths)));
+  });
+
+  /*
+    خيمة is only for a لاجئ — but only answerable while صفة الإقامة is known.
+
+    Flagged, it is not: the officer has said they could not establish it, and
+    refusing a tent on the strength of a status nobody has recorded would turn
+    a flag on one field into a rejection of another. The rule re-applies the
+    moment someone fills the status in, because it lives in the strict schema
+    every later save runs through.
+  */
+  if (paths.has('personal.residentStatus')) return;
+
+  input.properties.forEach((card, index) => {
+    if (card.propertyType === 'TENT' && input.personal.residentStatus !== 'REFUGEE') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['properties', index, 'propertyType'],
+        message: 'الخيمة متاحة لصفة الإقامة «لاجئ» فقط',
+      });
+    }
+  });
+}
+
+/**
+ * Coerces and normalises what survived, dropping every flagged value.
+ *
+ * Only reachable once `unexcusedIssues` found nothing, which is what makes the
+ * `parse` calls here safe: every field still present has already been validated
+ * by the strict schema against the identical field rule, so the partial schemas
+ * cannot fail on it. Their job is the coercion the strict pass would have done
+ * — a phone to E.164, an area to a number — for a record it could not return
+ * because it had (correctly) refused it.
+ */
+function shapeSubmission(input: SubmissionInput) {
+  const paths = flaggedPaths(input.flags);
+
+  return {
+    personal: partialPersonalDetailsSchema.parse(withoutFlagged(input.personal, 'personal', paths)),
+    contact: partialContactDetailsSchema.parse(withoutFlagged(input.contact, 'contact', paths)),
+    properties: input.properties.map((card, index) => {
+      const id = typeof card.id === 'string' ? card.id : undefined;
+      return {
+        ...(id ? { id } : {}),
+        ...partialPropertyEntrySchema.parse(
+          branchFieldsOnly(withoutFlagged(card, `properties.${index}`, paths)),
+        ),
+      };
+    }),
+    flags: input.flags,
+    clientSubmissionId: input.clientSubmissionId,
+  };
+}
+
+/**
+ * `clientSubmissionId` — the browser's own name for this submission.
+ *
+ * A record filed offline is given an id before it is ever sent, and that id
+ * travels with every retry. It is what makes syncing safe to repeat: a queued
+ * record whose response was lost to the same bad connection that queued it is
+ * re-sent, recognised, and answered with the registration it already created
+ * rather than registering the person a second time.
+ */
+const submissionEnvelope = {
+  personal: rawSection,
+  contact: rawSection,
+  flags: fieldFlagsSchema,
+  clientSubmissionId: uuid.optional(),
+};
+
+export const adminCreateCitizenSubmissionSchema = z
+  .object({
+    ...submissionEnvelope,
+    properties: z
+      .array(rawSection)
+      .min(1, 'يجب تسجيل عقار واحد على الأقل')
+      .max(25, 'عدد العقارات كبير جداً — يرجى مراجعة البلدية'),
+  })
+  .superRefine(unexcusedIssues)
+  .transform(shapeSubmission);
+
+export type AdminCitizenSubmission = z.infer<typeof adminCreateCitizenSubmissionSchema>;
+
+export const adminUpdateCitizenSubmissionSchema = z
+  .object({
+    ...submissionEnvelope,
+    /**
+     * `passthrough` rather than the bare record the create path uses: the id
+     * is the one key on an editing card that has to be *checked* here, since
+     * everything else is checked later against the strict schema. The rest of
+     * the card still travels untouched, to be read by the same flag-aware pass.
+     */
+    properties: z
+      .array(z.object({ id: uuid.optional() }).passthrough())
+      .min(1, 'يجب تسجيل عقار واحد على الأقل')
+      .max(25, 'عدد العقارات كبير جداً — يرجى مراجعة البلدية'),
+  })
+  .superRefine(unexcusedIssues)
+  .transform(shapeSubmission);
+
+export type AdminCitizenUpdateSubmission = z.infer<typeof adminUpdateCitizenSubmissionSchema>;
+
+/**
+ * Where a filed record stands.
+ *
+ * `REQUIRES_REVIEW` is not a rejection and not a draft — the citizen is
+ * registered, billable and searchable from the moment it is stored. It says
+ * only that named parts of the record were never established, and that the
+ * reasons why are attached for whoever completes it.
+ */
+export const CITIZEN_RECORD_STATUS = ['PENDING', 'REQUIRES_REVIEW'] as const;
+export type CitizenRecordStatus = (typeof CITIZEN_RECORD_STATUS)[number];
+
+/** A record is «يتطلب مراجعة» exactly when something on it was left unestablished. */
+export function statusForFlags(flags: readonly FieldFlag[]): CitizenRecordStatus {
+  return flags.length > 0 ? 'REQUIRES_REVIEW' : 'PENDING';
+}

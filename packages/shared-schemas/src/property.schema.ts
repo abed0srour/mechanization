@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { landTypeSchema, PROPERTY_TYPE, unitTypeSchema, type PropertyType } from './enums';
+import {
+  landTypeSchema,
+  occupancyTypeSchema,
+  PROPERTY_TYPE,
+  propertyTypeSchema,
+  unitTypeSchema,
+  type PropertyType,
+} from './enums';
 import { arabicOrLatinName, lebanesePhone } from './primitives';
 
 /**
@@ -38,7 +45,7 @@ const occupancyBranch = z.discriminatedUnion(
   { errorMap: () => ({ message: 'نوع الإشغال مطلوب' }) },
 );
 
-const sharedRightsField = z
+export const sharedRightsField = z
   .array(z.string().trim().min(1, 'القيمة غير صالحة'))
   .max(20)
   .default([]);
@@ -51,12 +58,12 @@ const sharedRightsField = z
  * Arabic text so whichever code path actually triggers, the citizen sees the
  * same thing rather than either message falling back to Zod's English default.
  */
-const areaField = z.coerce
+export const areaField = z.coerce
   .number({ required_error: 'المساحة مطلوبة', invalid_type_error: 'المساحة يجب أن تكون رقماً' })
   .positive('المساحة يجب أن تكون أكبر من صفر')
   .max(1_000_000);
 
-const propertyNumberField = z
+export const propertyNumberField = z
   .string({ required_error: 'رقم العقار مطلوب' })
   .trim()
   .min(1, 'رقم العقار مطلوب')
@@ -67,7 +74,7 @@ const propertyNumberField = z
  * against anything (the cadastre has no neighbourhood layer), so this is a
  * plain free-text field rather than a lookup.
  */
-const neighborhoodField = z
+export const neighborhoodField = z
   .string({ required_error: 'الحي مطلوب' })
   .trim()
   .min(1, 'الحي مطلوب')
@@ -164,6 +171,64 @@ export const PROPERTY_FIELD_MAP = {
   LAND: ['neighborhood', 'propertyNumber', 'landType', 'unitArea'],
   TENT: ['neighborhood', 'propertyNumber', 'tentLocation'],
 } as const satisfies Record<string, readonly string[]>;
+
+/**
+ * Every field a card can carry, none of them required, with no branch rules.
+ *
+ * The strict `propertyEntrySchema` above stays the only authority on whether a
+ * card is acceptable. This one exists because a card carrying flags cannot be
+ * *shaped* by a schema that refuses it: once the strict pass has ruled that
+ * every complaint lands on a flagged field, something still has to coerce the
+ * area to a number and default the shared rights, and that is this.
+ *
+ * The field schemas are the identical constants the branches use, so a rule
+ * about what a value may look like is written once. What is restated is the
+ * list of names — and `CardFieldIsShaped` below is what stops that list from
+ * drifting: add a field to a branch without adding it here and the package
+ * fails to compile rather than silently dropping it on flagged records.
+ */
+export const partialPropertyEntrySchema = z
+  .object({
+    occupancyType: occupancyTypeSchema,
+    landlordName: arabicOrLatinName,
+    landlordPhone: lebanesePhone,
+    propertyType: propertyTypeSchema,
+    neighborhood: neighborhoodField,
+    propertyNumber: propertyNumberField,
+    buildingName: z.string().trim().min(1).max(120),
+    side: z.string().trim().max(60),
+    landType: landTypeSchema,
+    tentLocation: z.string().trim().min(3).max(200),
+    unitArea: areaField,
+    sharedRights: sharedRightsField,
+    units: buildingUnitsSchema,
+  })
+  .partial()
+  /**
+   * The two discriminators stay required: they are `NON_FLAGGABLE_FIELDS`, so
+   * no flag can excuse them and no shape derived from flags may make them
+   * optional. It is also what lets a card be handed to the domain entity —
+   * whose `occupancyType` and `propertyType` are not nullable — unguarded.
+   */
+  .required({ occupancyType: true, propertyType: true });
+
+export type PartialPropertyEntry = z.infer<typeof partialPropertyEntrySchema>;
+
+/** Every field name any branch of the strict card schema can require. */
+type CardField =
+  | (typeof PROPERTY_FIELD_MAP)[keyof typeof PROPERTY_FIELD_MAP][number]
+  | 'occupancyType'
+  | 'propertyType'
+  | 'landlordName'
+  | 'landlordPhone';
+
+/**
+ * `true` when the partial shape covers every branch field, and `never` — so a
+ * compile error right here — when it has fallen behind one.
+ */
+export type CardFieldIsShaped = CardField extends keyof PartialPropertyEntry ? true : never;
+const cardFieldsAreShaped: CardFieldIsShaped = true;
+void cardFieldsAreShaped;
 
 /** The per-unit fields a building's unit editor renders. */
 export const BUILDING_UNIT_FIELDS = [
