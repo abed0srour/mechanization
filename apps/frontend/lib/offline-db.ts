@@ -137,6 +137,12 @@ export async function listQueued(tenant: string): Promise<QueuedSubmission[]> {
   return rows.sort((a, b) => a.savedAt - b.savedAt);
 }
 
+/** One queued record by id — for an officer opening it to correct it. */
+export async function getQueued(id: string): Promise<QueuedSubmission | null> {
+  const result = await run<QueuedSubmission | undefined>('readonly', (store) => store.get(id));
+  return result ?? null;
+}
+
 /** Removes a record the server has accepted. */
 export async function dequeue(id: string): Promise<void> {
   await run('readwrite', (store) => store.delete(id));
@@ -148,13 +154,16 @@ export async function dequeue(id: string): Promise<void> {
  * Not `put` of a whole record held in memory: two tabs may be draining the
  * same queue, and the loser of that race must not resurrect a record the
  * winner has just deleted. A record that is gone by the time this reads it is
- * left gone.
+ * left gone — resolving `false` rather than silently doing nothing, so a
+ * caller correcting a record that was delivered a moment earlier can say so
+ * rather than claim a save that never happened.
  */
 async function update(
   id: string,
   patch: (existing: QueuedSubmission) => QueuedSubmission,
-): Promise<void> {
+): Promise<boolean> {
   const db = await open();
+  let found = false;
 
   await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(STORE, 'readwrite');
@@ -163,20 +172,25 @@ async function update(
 
     read.onsuccess = () => {
       const existing = read.result as QueuedSubmission | undefined;
-      if (existing) store.put(patch(existing));
+      if (existing) {
+        found = true;
+        store.put(patch(existing));
+      }
     };
 
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });
+
+  return found;
 }
 
 /** Records the outcome of one delivery attempt. */
 export function recordAttempt(
   id: string,
   outcome: { status: QueuedStatus; error: string | null },
-): Promise<void> {
+): Promise<boolean> {
   return update(id, (existing) => ({
     ...existing,
     status: outcome.status,
@@ -195,6 +209,32 @@ export function recordAttempt(
  * a previously refused registration valid without anyone editing it. It does
  * not count as an attempt, because nothing has been attempted yet.
  */
-export function retryLater(id: string): Promise<void> {
+export function retryLater(id: string): Promise<boolean> {
   return update(id, (existing) => ({ ...existing, status: 'pending', lastError: null }));
+}
+
+/**
+ * Replaces a queued record's payload — an officer correcting the field the
+ * server rejected, or one they caught before it was ever sent.
+ *
+ * Goes back to `pending` with its error cleared: whatever the reason was, the
+ * officer has just acted on it, and leaving the record in `blocked` next to a
+ * complaint that may no longer even apply would read as though the edit had
+ * not registered at all.
+ *
+ * `savedAt` and `attempts` are left untouched — they are the record's own
+ * history (when it was first filed, how many times it has been tried), not
+ * something a correction should erase.
+ */
+export function reviseQueued(
+  id: string,
+  patch: { payload: QueuedSubmission['payload']; displayName: string },
+): Promise<boolean> {
+  return update(id, (existing) => ({
+    ...existing,
+    payload: patch.payload,
+    displayName: patch.displayName,
+    status: 'pending',
+    lastError: null,
+  }));
 }

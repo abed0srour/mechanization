@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { CloudOff, Loader2, RefreshCw, TriangleAlert, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { CloudOff, Loader2, Pencil, RefreshCw, TriangleAlert, Trash2 } from 'lucide-react';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useState } from 'react';
 import { useOfflineQueue } from '@/lib/offline-sync';
@@ -99,7 +99,16 @@ export function OfflineQueueNotice({
  * are people who have been registered — and putting them anywhere else invites
  * the reading that the table below is complete when it is not.
  */
-export function OfflineQueuePanel({ tenant, locale = 'ar' }: { tenant: string; locale?: string }) {
+export function OfflineQueuePanel({
+  tenant,
+  base,
+  locale = 'ar',
+}: {
+  tenant: string;
+  /** `/{tenant}/{locale}/{adminPath}` — where the «تعديل» link leads. */
+  base: string;
+  locale?: string;
+}) {
   const queue = useOfflineQueue(tenant);
   const [discarding, setDiscarding] = useState<string | null>(null);
 
@@ -178,6 +187,30 @@ export function OfflineQueuePanel({ tenant, locale = 'ar' }: { tenant: string; l
                 {locale === 'en' ? 'Waiting to sync' : 'بانتظار الإرسال'}
               </span>
             )}
+
+            {/*
+              Shown on every record, not only a blocked one.
+
+              «إعادة المحاولة» resends the exact payload the server already
+              refused — correct when the *world* changed underneath it (a
+              duplicate identity document was deleted elsewhere), useless when
+              the record itself is what needs to change, which is the more
+              common shape of a rejection: a mistyped رقم العقار, a property
+              type this tenant does not enable. «تعديل» is what actually fixes
+              that. It is offered for a still-pending record too — an officer
+              who spots their own mistake before it was ever attempted should
+              not have to wait for a rejection to be allowed to correct it.
+            */}
+            <Link
+              href={`${base}/citizens/queue/${item.id}`}
+              className={cn(
+                buttonVariants({ variant: 'outline', size: 'sm' }),
+                'h-7 shrink-0 gap-1 px-2 text-xs',
+              )}
+            >
+              <Pencil className="size-3.5" aria-hidden />
+              {locale === 'en' ? 'Edit' : 'تعديل'}
+            </Link>
 
             {item.status === 'blocked' ? (
               <>
