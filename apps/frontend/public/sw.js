@@ -31,7 +31,7 @@
 */
 
 /** Bump to retire every cache this worker wrote. */
-const VERSION = 'v2';
+const VERSION = 'v3';
 
 const SHELL_CACHE = `mechanization-shell-${VERSION}`;
 const ASSET_CACHE = `mechanization-assets-${VERSION}`;
@@ -179,13 +179,13 @@ self.addEventListener('message', (event) => {
  * anyway; they render from an API this worker deliberately never caches.
  */
 function isShellRoute(pathname) {
-  return /\/citizens(\/new)?\/?$/.test(pathname);
+  return /\/citizens(\/new|\/queue\/[^/]+)?\/?$/.test(pathname);
 }
 
 /** Content-hashed and immutable: if it is in the cache it is correct. */
 async function cacheFirst(request) {
   const cache = await caches.open(ASSET_CACHE);
-  const hit = await cache.match(request);
+  const hit = await cache.match(request, { ignoreSearch: true });
   if (hit) return hit;
 
   const response = await fetch(request);
@@ -249,7 +249,7 @@ async function networkFirst(request, { fallback, store = true } = {}) {
       tree, so a strict match fails for a request that differs only in headers
       the cached copy would have served perfectly well.
     */
-    const hit = await cache.match(request, { ignoreVary: true });
+    const hit = await cache.match(request, { ignoreVary: true, ignoreSearch: true });
     if (hit) return hit;
     if (fallback) {
       // A callback rather than a fixed cache key: the offline page is not a
