@@ -8,6 +8,7 @@ import { AdminSidebar, SidebarNav } from '@/components/admin/admin-sidebar';
 import { CommandPalette } from '@/components/admin/command-palette';
 import { loadSession } from '@/lib/session';
 import type { Session } from '@/lib/api-client';
+import { useServiceWorker } from '@/lib/use-service-worker';
 import { cn } from '@/lib/utils';
 
 /**
@@ -40,6 +41,17 @@ export function AdminShell({
 }): React.JSX.Element {
   const pathname = usePathname();
   const base = `/${tenant}/${locale}/${adminPath}`;
+
+  /*
+   * Installs the app shell on this device.
+   *
+   * Mounted at the chrome rather than on the entry form, so simply having
+   * opened the portal once is enough to be covered later. An officer who only
+   * thinks about it when they are already out of signal is too late — that is
+   * the moment the shell is needed, not the moment it can be fetched.
+   */
+  useServiceWorker(base);
+
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [session, setSession] = React.useState<Session | null>(null);

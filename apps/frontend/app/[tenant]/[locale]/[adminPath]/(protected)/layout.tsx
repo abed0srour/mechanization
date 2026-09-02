@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { AdminShell } from '@/components/admin/admin-shell';
 import { QueryProvider } from '@/components/query-provider';
 import { StaffRouteGuard } from '@/components/admin/staff-route-guard';
@@ -5,6 +6,35 @@ import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+
+/**
+ * Points the browser at this municipality's own manifest.
+ *
+ * Declared on the protected layout rather than at the root because there is no
+ * root-level answer: the manifest's `start_url` has to carry the tenant and
+ * that tenant's obscure admin segment, both of which are route params here and
+ * nowhere above. The login page sits outside this layout and deliberately gets
+ * no manifest — offering to install the portal to someone who has not proved
+ * they work for the municipality tells them it exists.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ tenant: string; locale: string; adminPath: string }>;
+}): Promise<Metadata> {
+  const { tenant, locale, adminPath } = await params;
+
+  return {
+    manifest: `/${tenant}/${locale}/${adminPath}/manifest.webmanifest`,
+    appleWebApp: {
+      // iOS reads this rather than the manifest's `display`, and without it the
+      // home-screen icon opens a Safari tab — which is the thing being
+      // discarded in the first place.
+      capable: true,
+      statusBarStyle: 'default',
+    },
+  };
+}
 
 /**
  * The municipality's display name, for the header breadcrumb and the drawer.
