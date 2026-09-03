@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import type { PropertyDraft, UnitDraft } from '@/components/citizen/property-card';
 import { LoadingState } from '@/components/ui/states';
-import { flagsFromArray, flagsToArray } from '@/components/ui/field';
+import { flagsFromArray, flagsToArray, unverifiedFromArray } from '@/components/ui/field';
 import { ShellLink, shellNavigate } from './shell-nav';
 import { OfflineQueueNotice } from './offline-queue';
 import { offlineStorageAvailable } from '@/lib/offline-db';
@@ -31,7 +31,7 @@ import {
 import { useToast } from '@/components/ui/toast';
 import {
   CitizenForm,
-  EMPTY_CITIZEN,
+  emptyCitizen,
   toPayloadProperty,
   type CitizenFormValues,
 } from './citizen-form';
@@ -67,6 +67,11 @@ function toDraft(property: Record<string, unknown>): PropertyDraft {
     tentLocation: text(property.tentLocation),
     unitArea: text(property.unitArea),
     sharedRights: (property.sharedRights as string[] | null) ?? [],
+    // Not routed through `text()`: this is an enum the choice control compares
+    // by identity, and null must stay absent rather than become the empty
+    // string — «not recorded» is a state the control renders, and one that
+    // means something different from any of its four options.
+    unitStatus: (property.unitStatus ?? undefined) as PropertyDraft['unitStatus'],
     // Only a building carries units; leaving an empty array on the others
     // would make `PropertyCard` render a units editor the schema rejects.
     ...(units.length > 0
@@ -79,6 +84,8 @@ function toDraft(property: Record<string, unknown>): PropertyDraft {
               unitArea: text((unit as Record<string, unknown>).unitArea),
               sharedRights:
                 ((unit as Record<string, unknown>).sharedRights as string[] | null) ?? [],
+              unitStatus: ((unit as Record<string, unknown>).unitStatus ??
+                undefined) as UnitDraft['unitStatus'],
             }),
           ),
         }
@@ -210,8 +217,11 @@ export function CitizenEditor({
             properties:
               queued.payload.properties.length > 0
                 ? queued.payload.properties.map(toDraft)
-                : EMPTY_CITIZEN.properties,
+                : emptyCitizen().properties,
             flags: flagsFromArray(queued.payload.flags),
+            // A queued record has never reached the server, so nothing has had
+            // the cadastre to check it against yet.
+            unverified: new Map(),
           });
 
           // Shown as though it were the result of this visit's own attempt —
@@ -222,7 +232,7 @@ export function CitizenEditor({
         }
 
         if (!form) {
-          setInitial(EMPTY_CITIZEN);
+          setInitial(emptyCitizen());
           return;
         }
 
@@ -232,6 +242,17 @@ export function CitizenEditor({
           // finish sees which blanks were deliberate and what was said about
           // each — and clears one simply by filling the field in.
           flags: flagsFromArray(form.flags ?? []),
+          /*
+            And, separately, the fields the server could not confirm against
+            its cadastre.
+
+            Kept apart from `flags` deliberately: these name fields that *have*
+            a value. Folding them in would hide that value behind a reason box
+            and then send it back as an officer's flag, which the server honours
+            by blanking the field — the record would lose its رقم العقار as a
+            side effect of someone opening it to check.
+          */
+          unverified: unverifiedFromArray(form.flags ?? []),
           personal: {
             ...form.personal,
             /**
@@ -253,7 +274,7 @@ export function CitizenEditor({
             familySize: text(form.contact.familySize) ?? '',
           },
           properties:
-            form.properties.length > 0 ? form.properties.map(toDraft) : EMPTY_CITIZEN.properties,
+            form.properties.length > 0 ? form.properties.map(toDraft) : emptyCitizen().properties,
         });
       } catch (caught) {
         if (cancelled) return;
@@ -273,7 +294,7 @@ export function CitizenEditor({
             requiredDocuments: [],
             branding: {},
           });
-          setInitial(EMPTY_CITIZEN);
+          setInitial(emptyCitizen());
           return;
         }
         setLoadError(
@@ -350,10 +371,9 @@ export function CitizenEditor({
 
         The id is minted here, before anything is sent, and travels with every
         later retry as `clientSubmissionId` — which is what makes a lost
-        response harmless. The form has already validated this payload against
-        the very schema the server will use, so a record accepted here is one
-        the server will accept too; that is the whole reason queueing is safe
-        to do silently.
+        response harmless. The form validates against the shared schema, though
+        server-only invariants (duplicate identity document, tenant property
+        type policy) can still hold it for review or rejection upon sync.
       */
       if (willQueue) {
         try {
@@ -523,6 +543,7 @@ export function CitizenEditor({
           pending={queue.pending}
           blocked={queue.blocked}
           syncing={queue.syncing}
+          authRequired={queue.authRequired}
           onSync={queue.sync}
           locale={locale}
           href={`${base}/citizens`}
@@ -531,6 +552,7 @@ export function CitizenEditor({
 
       <CitizenForm
         tenant={tenant}
+        token={token}
         config={config}
         mode={editing || isQueuedEdit ? 'edit' : 'create'}
         initial={initial}

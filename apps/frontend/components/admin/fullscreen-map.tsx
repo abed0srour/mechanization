@@ -16,6 +16,7 @@ import {
   Printer,
   Ruler,
   Search,
+  SlidersHorizontal,
   Trash2,
   Undo2,
   X,
@@ -115,7 +116,18 @@ function zoneFillOpacity(activeZoneId: string | null | undefined): number | mapb
  * Classifies a parcel's primary property usage category.
  */
 function getParcelUsageCategory(parcel: RegisteredParcel): 'RESIDENTIAL' | 'COMMERCIAL' | 'INDUSTRIAL' {
-  const allTypes = parcel.registrants.map((r) => `${r.propertyType} ${r.occupancyType}`.toUpperCase());
+  /*
+    Every structure on the parcel, not only each registrant's first.
+
+    `propertyType`/`occupancyType` on the registrant are that citizen's opening
+    card and are already the first entry of `structures`, so reading both would
+    weigh it twice. The fallback covers a response predating `structures`.
+  */
+  const allTypes = parcel.registrants.flatMap((r) =>
+    r.structures && r.structures.length > 0
+      ? r.structures.map((s) => `${s.propertyType} ${s.occupancyType}`.toUpperCase())
+      : [`${r.propertyType} ${r.occupancyType}`.toUpperCase()],
+  );
   if (allTypes.some((t) => t.includes('COMMERCIAL') || t.includes('STORE') || t.includes('SHOP') || t.includes('OFFICE'))) {
     return 'COMMERCIAL';
   }
@@ -126,19 +138,66 @@ function getParcelUsageCategory(parcel: RegisteredParcel): 'RESIDENTIAL' | 'COMM
 }
 
 /**
- * Runs a layer-mutating callback once the map's current style is loaded.
+ * Whether each map's *style spec* has finished parsing — the only condition
+ * `addSource`/`addLayer`/`getSource` actually require.
  *
- * If the style is already loaded (the normal case once the map has settled),
- * executes synchronously. If a basemap switch is currently streaming in,
- * waits for the corresponding `style.load` rather than throwing Mapbox's
- * "Style is not done loading" error.
+ * `map.isStyleLoaded()` cannot answer that question. It is Mapbox's
+ * `Style.loaded()`, which also returns false while **any** source still has
+ * tiles in flight — which on this screen is most of the time: a megabyte of
+ * cadastre GeoJSON streams in, then the sector overlay, then a flyTo to zoom
+ * 17 pulls a fresh round of basemap tiles.
+ */
+const styleSpecLoaded = new WeakMap<mapboxgl.Map, boolean>();
+
+/**
+ * Wires a map so `attachWhenReady` can tell "the style is still parsing" apart
+ * from "tiles are still downloading". Persistent rather than `once`, because
+ * `style.load` fires again for every `setStyle` (i.e. every basemap switch).
+ */
+function trackStyleSpec(map: mapboxgl.Map): void {
+  styleSpecLoaded.set(map, false);
+  map.on('style.load', () => styleSpecLoaded.set(map, true));
+}
+
+/** Call immediately before `setStyle` — the old style is gone from that moment. */
+function markStyleSwapping(map: mapboxgl.Map): void {
+  styleSpecLoaded.set(map, false);
+}
+
+/**
+ * Runs a layer-mutating callback once the map's style spec is parsed.
+ *
+ * Deferring to `style.load` is only correct while the style really is loading:
+ * that event fires once per style, so anything queued on it *after* it has
+ * already fired is lost for good. Testing `isStyleLoaded()` did exactly that,
+ * and it is why arriving from a citizen's «عرض على الخريطة» landed on a map
+ * with parcel numbers drawn and not one registered dot — the parcels response
+ * came back mid-flight, tiles were loading, so the `setData` that fills the
+ * dot source was queued on an event that never came again.
  */
 function attachWhenReady(map: mapboxgl.Map, fn: () => void): void {
-  if (map.isStyleLoaded()) {
+  if (styleSpecLoaded.get(map)) {
     fn();
   } else {
     map.once('style.load', fn);
   }
+}
+
+/**
+ * How far to lift a flown-to parcel so the sheet about to open does not cover
+ * it.
+ *
+ * Below `sm` that sheet is a bottom drawer over as much as 75dvh of the map,
+ * so a parcel centred in the container lands behind it and the officer flies
+ * to a pin they cannot see. Centre it in the strip that stays visible instead.
+ * From `sm` up the sheet is a side panel and the vertical centre is already
+ * right, so the offset is zero.
+ */
+function sheetOffset(map: mapboxgl.Map): [number, number] {
+  if (window.matchMedia('(min-width: 640px)').matches) return [0, 0];
+  const height = map.getContainer().clientHeight;
+  const visible = height * 0.25;
+  return [0, -(height / 2 - visible / 2)];
 }
 
 /**
@@ -261,6 +320,12 @@ export function FullscreenMap({
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'NO_BILLS'>('ALL');
   const [propertyTypeFilter, setPropertyTypeFilter] = useState<'ALL' | 'RESIDENTIAL' | 'COMMERCIAL' | 'INDUSTRIAL'>('ALL');
   const [financeMenuOpen, setFinanceMenuOpen] = useState(false);
+  /**
+   * Phone only: the tool cluster is folded behind one button, because five
+   * controls plus a search field cannot share a 360px strip without the field
+   * shrinking to nothing. Ignored from `sm` up, where the row always shows.
+   */
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   // GIS Measurement Tools
   const [measureMode, setMeasureMode] = useState<'none' | 'distance' | 'area'>('none');
@@ -448,6 +513,8 @@ export function FullscreenMap({
       preserveDrawingBuffer: true,
     });
 
+    trackStyleSpec(map);
+
     map.addControl(new mapboxgl.NavigationControl(), 'top-left');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 
@@ -482,6 +549,7 @@ export function FullscreenMap({
     appliedBasemapRef.current = basemap;
 
     setCadastreReady(false);
+    markStyleSwapping(map);
     map.setStyle(styleFor(basemap));
     map.once('style.load', () => {
       attachCadastreSafely(map);
@@ -578,10 +646,13 @@ export function FullscreenMap({
   const openParcel = useCallback((parcel: RegisteredParcel) => {
     setSelected(parcel);
     setMatchesOpen(false);
-    mapRef.current?.flyTo({
+    const map = mapRef.current;
+    if (!map) return;
+    map.flyTo({
       center: [parcel.longitude, parcel.latitude],
       zoom: 17,
       duration: 600,
+      offset: sheetOffset(map),
     });
   }, []);
 
@@ -846,10 +917,25 @@ export function FullscreenMap({
     const map = mapRef.current;
     if (!map) return;
 
-    const onClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+    /**
+     * A fingertip is not a cursor. A dot renders 4.5–10px wide, and a
+     * layer-scoped `click` is an exact hit test, which made opening a parcel
+     * on a phone a game of luck. Query a small box around the tap instead,
+     * widened on coarse pointers to roughly a fingertip.
+     */
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
       if (measureModeRef.current !== 'none') return;
-      const feature = e.features?.[0];
-      const propertyNumber = feature?.properties?.propertyNumber;
+      if (!map.getLayer(LAYER.registeredDots)) return;
+
+      const slop = window.matchMedia?.('(pointer: coarse)').matches ? 14 : 4;
+      const box: [[number, number], [number, number]] = [
+        [e.point.x - slop, e.point.y - slop],
+        [e.point.x + slop, e.point.y + slop],
+      ];
+
+      const propertyNumber = map.queryRenderedFeatures(box, {
+        layers: [LAYER.registeredDots],
+      })[0]?.properties?.propertyNumber;
       if (!propertyNumber) return;
       const matched = parcelsRef.current.find((p) => p.propertyNumber === propertyNumber);
       if (matched) openParcel(matched);
@@ -862,12 +948,12 @@ export function FullscreenMap({
       if (measureModeRef.current === 'none') map.getCanvas().style.cursor = '';
     };
 
-    map.on('click', LAYER.registeredDots, onClick);
+    map.on('click', onClick);
     map.on('mouseenter', LAYER.registeredDots, enter);
     map.on('mouseleave', LAYER.registeredDots, leave);
 
     return () => {
-      map.off('click', LAYER.registeredDots, onClick);
+      map.off('click', onClick);
       map.off('mouseenter', LAYER.registeredDots, enter);
       map.off('mouseleave', LAYER.registeredDots, leave);
     };
@@ -1054,110 +1140,148 @@ export function FullscreenMap({
         <p className="text-sm text-muted-foreground">جارٍ تحضير الخريطة…</p>
       </div>
 
-      {/* Top Map Toolbar: Search + Controls */}
-      <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 flex-nowrap items-center justify-center gap-2 max-w-[calc(100%-1.5rem)]">
-        {/* Search by رقم العقار */}
-        <div className="relative w-[13rem] sm:w-[15rem] md:w-[17rem] shrink min-w-0">
-          <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/95 p-1 shadow-md backdrop-blur">
-            <Search className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <Input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setMatchesOpen(true);
-                if (searchStatus === 'not-found') setSearchStatus('idle');
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void runSearch();
-                if (e.key === 'Escape') clearSearch();
-              }}
-              placeholder={locale === 'en' ? 'Search parcel number' : 'ابحث برقم العقار'}
-              aria-label={locale === 'en' ? 'Search parcel number' : 'ابحث برقم العقار'}
-              className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-            {query ? (
+      {/*
+        Top Map Toolbar: Search + Controls.
+
+        Two rows on a phone — a full-width search field, then the tool cluster
+        when it is asked for — collapsing to the single centred row from `sm`
+        up via `sm:contents`, which dissolves the phone-only row wrapper so its
+        children negotiate width directly with the toolbar again.
+      */}
+      <div className="absolute inset-x-2 top-2 z-20 flex flex-col gap-2 sm:inset-x-auto sm:left-1/2 sm:top-3 sm:w-auto sm:max-w-[calc(100%-1.5rem)] sm:-translate-x-1/2 sm:flex-row sm:flex-nowrap sm:items-center sm:justify-center sm:gap-2">
+        <div className="flex items-center gap-2 sm:contents">
+          {/* Search by رقم العقار */}
+          <div className="relative min-w-0 flex-1 shrink sm:w-[15rem] sm:flex-none md:w-[17rem]">
+            <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/95 p-1 shadow-md backdrop-blur">
+              <Search className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <Input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setMatchesOpen(true);
+                  if (searchStatus === 'not-found') setSearchStatus('idle');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void runSearch();
+                  if (e.key === 'Escape') clearSearch();
+                }}
+                placeholder={locale === 'en' ? 'Search parcel number' : 'ابحث برقم العقار'}
+                aria-label={locale === 'en' ? 'Search parcel number' : 'ابحث برقم العقار'}
+                className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:h-8"
+              />
+              {query ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={clearSearch}
+                  aria-label={locale === 'en' ? 'Clear search' : 'مسح البحث'}
+                  className="size-8 shrink-0 cursor-pointer sm:size-7"
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
+              ) : null}
               <Button
-                variant="ghost"
-                size="icon"
-                onClick={clearSearch}
-                aria-label={locale === 'en' ? 'Clear search' : 'مسح البحث'}
-                className="size-7 shrink-0 cursor-pointer"
+                size="sm"
+                onClick={() => void runSearch()}
+                disabled={searchStatus === 'searching' || !query.trim()}
+                className="h-8 shrink-0 px-2.5 text-xs cursor-pointer sm:h-7"
               >
-                <X className="size-3.5" aria-hidden />
+                {searchStatus === 'searching' ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  locale === 'en' ? 'Search' : 'بحث'
+                )}
               </Button>
+            </div>
+
+            {/* Typeahead match list */}
+            {matchesOpen && localMatches.length > 0 ? (
+              <ul className="absolute left-0 right-0 top-full mt-1.5 overflow-hidden rounded-xl border bg-card/95 shadow-lg backdrop-blur z-50">
+                {localMatches.map((parcel) => (
+                  <li key={parcel.propertyNumber}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuery(parcel.propertyNumber);
+                        setMatchesOpen(false);
+                        setSearchStatus('idle');
+                        openParcel(parcel);
+                      }}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm transition-colors hover:bg-accent cursor-pointer"
+                    >
+                      <span className="font-medium">
+                        {locale === 'en' ? `Parcel #${parcel.propertyNumber}` : `العقار رقم ${parcel.propertyNumber}`}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {locale === 'en'
+                          ? `${parcel.registrants.length} registered`
+                          : `${parcel.registrants.length} مسجّل`}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             ) : null}
-            <Button
-              size="sm"
-              onClick={() => void runSearch()}
-              disabled={searchStatus === 'searching' || !query.trim()}
-              className="h-7 px-2.5 text-xs shrink-0 cursor-pointer"
-            >
-              {searchStatus === 'searching' ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              ) : (
-                locale === 'en' ? 'Search' : 'بحث'
-              )}
-            </Button>
+
+            {searchStatus === 'not-found' ? (
+              <div className="absolute left-0 right-0 top-full mt-1.5 rounded-xl border bg-card/95 px-3 py-2 shadow-lg backdrop-blur z-50">
+                <p className="text-xs text-destructive">
+                  {locale === 'en' ? 'No parcel found with this number' : 'لا يوجد عقار بهذا الرقم'}
+                </p>
+                {suggestions.length > 0 ? (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">
+                      {locale === 'en' ? 'Did you mean:' : 'هل تقصد'}
+                    </span>
+                    {suggestions.map((suggestion) => (
+                      <Button
+                        key={suggestion}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runSearch(suggestion)}
+                        className="h-6 px-2 text-xs cursor-pointer"
+                      >
+                        {suggestion}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
-          {/* Typeahead match list */}
-          {matchesOpen && localMatches.length > 0 ? (
-            <ul className="absolute left-0 right-0 top-full mt-1.5 overflow-hidden rounded-xl border bg-card/95 shadow-lg backdrop-blur z-50">
-              {localMatches.map((parcel) => (
-                <li key={parcel.propertyNumber}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuery(parcel.propertyNumber);
-                      setMatchesOpen(false);
-                      setSearchStatus('idle');
-                      openParcel(parcel);
-                    }}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-start text-sm transition-colors hover:bg-accent cursor-pointer"
-                  >
-                    <span className="font-medium">
-                      {locale === 'en' ? `Parcel #${parcel.propertyNumber}` : `العقار رقم ${parcel.propertyNumber}`}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {locale === 'en'
-                        ? `${parcel.registrants.length} registered`
-                        : `${parcel.registrants.length} مسجّل`}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {searchStatus === 'not-found' ? (
-            <div className="absolute left-0 right-0 top-full mt-1.5 rounded-xl border bg-card/95 px-3 py-2 shadow-lg backdrop-blur z-50">
-              <p className="text-xs text-destructive">
-                {locale === 'en' ? 'No parcel found with this number' : 'لا يوجد عقار بهذا الرقم'}
-              </p>
-              {suggestions.length > 0 ? (
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">
-                    {locale === 'en' ? 'Did you mean:' : 'هل تقصد'}
-                  </span>
-                  {suggestions.map((suggestion) => (
-                    <Button
-                      key={suggestion}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void runSearch(suggestion)}
-                      className="h-6 px-2 text-xs cursor-pointer"
-                    >
-                      {suggestion}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setToolsOpen((open) => !open);
+              setFinanceMenuOpen(false);
+              setMeasureMenuOpen(false);
+            }}
+            aria-expanded={toolsOpen}
+            aria-label={locale === 'en' ? 'Map tools' : 'أدوات الخريطة'}
+            className={cn(
+              'size-10 shrink-0 rounded-xl border border-border/80 bg-card/95 shadow-md backdrop-blur sm:hidden',
+              toolsOpen ? 'text-primary' : 'text-muted-foreground',
+            )}
+          >
+            <SlidersHorizontal className="size-4" aria-hidden />
+          </Button>
         </div>
 
-        {/* Toolbar Controls */}
-        <div className="flex items-center shrink-0 gap-1 rounded-xl border border-border/80 bg-card/95 p-1 shadow-md backdrop-blur">
+        {/*
+          Toolbar Controls. `relative` sits here rather than on each button so
+          the two dropdowns can span the whole toolbar on a phone instead of
+          spilling off whichever edge their button happens to sit near.
+        */}
+        <div
+          className={cn(
+            'relative flex-wrap items-center gap-1 rounded-xl border border-border/80 bg-card/95 p-1 shadow-md backdrop-blur',
+            'sm:flex sm:flex-nowrap sm:shrink-0',
+            toolsOpen ? 'flex' : 'hidden',
+          )}
+        >
           {/* Toggle Points Button */}
           <Button
             type="button"
@@ -1170,7 +1294,7 @@ export function FullscreenMap({
                 : (locale === 'en' ? 'Show Registered Points' : 'إظهار نقاط العقارات')
             }
             className={cn(
-              'h-8 shrink-0 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all',
+              'h-9 shrink-0 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all sm:h-8',
               registeredVisible
                 ? 'bg-primary/10 text-primary hover:bg-primary/20'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -1185,7 +1309,7 @@ export function FullscreenMap({
           </Button>
 
           {/* Color & Filter Dropdown Menu */}
-          <div className="relative">
+          <div className="static sm:relative">
             <Button
               type="button"
               variant="ghost"
@@ -1196,7 +1320,7 @@ export function FullscreenMap({
               }}
               title={locale === 'en' ? 'Point Color & Filter Mode' : 'وضع تلوين وتصفية النقاط'}
               className={cn(
-                'h-8 shrink-0 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all',
+                'h-9 shrink-0 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all sm:h-8',
                 colorMode !== 'default'
                   ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 border border-amber-500/30'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -1216,7 +1340,7 @@ export function FullscreenMap({
             </Button>
 
             {financeMenuOpen ? (
-              <div className="absolute end-0 top-full mt-1.5 z-50 w-60 rounded-xl border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-xl backdrop-blur-md outline-hidden animate-in fade-in-0 zoom-in-95">
+              <div className="absolute inset-x-0 top-full mt-1.5 z-50 w-auto rounded-xl sm:inset-x-auto sm:end-0 sm:w-60 border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-xl backdrop-blur-md outline-hidden animate-in fade-in-0 zoom-in-95">
                 <div className="px-2 py-1 text-[11px] font-bold text-muted-foreground border-b border-border/40 mb-1">
                   {locale === 'en' ? 'Point Color Mode' : 'وضع تلوين وتصنيف النقاط'}
                 </div>
@@ -1344,7 +1468,7 @@ export function FullscreenMap({
           </div>
 
           {/* GIS Measurement Tools */}
-          <div className="relative">
+          <div className="static sm:relative">
             <Button
               type="button"
               variant="ghost"
@@ -1355,7 +1479,7 @@ export function FullscreenMap({
               }}
               title={locale === 'en' ? 'GIS Measurement Tools (Distance & Area)' : 'أدوات القياس (مسافات ومساحات)'}
               className={cn(
-                'h-8 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all',
+                'h-9 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all sm:h-8',
                 measureMode !== 'none'
                   ? 'bg-primary/20 text-primary font-bold border border-primary/30'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -1373,7 +1497,7 @@ export function FullscreenMap({
             </Button>
 
             {measureMenuOpen ? (
-              <div className="absolute end-0 top-full mt-1.5 z-50 w-52 rounded-xl border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-xl backdrop-blur-md outline-hidden animate-in fade-in-0 zoom-in-95">
+              <div className="absolute inset-x-0 top-full mt-1.5 z-50 w-auto rounded-xl sm:inset-x-auto sm:end-0 sm:w-52 border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-xl backdrop-blur-md outline-hidden animate-in fade-in-0 zoom-in-95">
                 <div className="px-2 py-1 text-[11px] font-bold text-muted-foreground border-b border-border/40 mb-1">
                   {locale === 'en' ? 'Measurement Mode' : 'نوع القياس'}
                 </div>
@@ -1440,7 +1564,7 @@ export function FullscreenMap({
             size="sm"
             onClick={handleExportMap}
             title={locale === 'en' ? 'Export & Print Map View' : 'طباعة وتصدير المخطط'}
-            className="h-8 gap-1.5 px-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer rounded-lg transition-all"
+            className="h-9 gap-1.5 px-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer rounded-lg transition-all sm:h-8"
           >
             <Printer className="size-3.5" />
             <span className="hidden lg:inline">{locale === 'en' ? 'Export' : 'طباعة'}</span>
@@ -1453,7 +1577,7 @@ export function FullscreenMap({
             size="icon"
             onClick={handleResetView}
             title={locale === 'en' ? 'Reset to full municipality view' : 'إعادة التمركز للبلدية'}
-            className="size-8 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer rounded-lg transition-all"
+            className="size-9 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer rounded-lg transition-all sm:size-8"
           >
             <Crosshair className="size-3.5" />
           </Button>
@@ -1462,7 +1586,7 @@ export function FullscreenMap({
 
       {/* Floating Measurement HUD */}
       {measureMode !== 'none' ? (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-border/80 bg-card/95 px-4 py-2.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 slide-in-from-bottom-2">
+        <div className="absolute inset-x-2 bottom-[4.5rem] z-20 flex flex-wrap items-center justify-center gap-3 rounded-2xl sm:inset-x-auto sm:bottom-16 sm:left-1/2 sm:-translate-x-1/2 sm:justify-start border border-border/80 bg-card/95 px-4 py-2.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 slide-in-from-bottom-2">
           <div className="flex items-center gap-2">
             <span className="flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
               <Ruler className="size-4" />
@@ -1488,7 +1612,7 @@ export function FullscreenMap({
               size="sm"
               onClick={() => setMeasurePoints((pts) => pts.slice(0, -1))}
               disabled={measurePoints.length === 0}
-              className="h-7 px-2 text-xs cursor-pointer gap-1"
+              className="h-8 px-2 text-xs cursor-pointer gap-1 sm:h-7"
               title={locale === 'en' ? 'Undo last point' : 'تراجع عن آخر نقطة'}
             >
               <Undo2 className="size-3" />
@@ -1501,7 +1625,7 @@ export function FullscreenMap({
               size="sm"
               onClick={() => setMeasurePoints([])}
               disabled={measurePoints.length === 0}
-              className="h-7 px-2 text-xs cursor-pointer gap-1 text-destructive hover:text-destructive"
+              className="h-8 px-2 text-xs cursor-pointer gap-1 text-destructive hover:text-destructive sm:h-7"
               title={locale === 'en' ? 'Clear points' : 'مسح القياس'}
             >
               <Trash2 className="size-3" />
@@ -1512,7 +1636,7 @@ export function FullscreenMap({
               type="button"
               size="sm"
               onClick={() => setMeasureMode('none')}
-              className="h-7 px-3 text-xs font-semibold cursor-pointer"
+              className="h-8 px-3 text-xs font-semibold cursor-pointer sm:h-7"
             >
               {locale === 'en' ? 'Done' : 'إنهاء'}
             </Button>
@@ -1570,16 +1694,39 @@ export function FullscreenMap({
         }
 
         @media (max-width: 639px) {
+          /* Clears the parcel sheet, which tops out at 75dvh. */
           [data-sheet-open] .mapboxgl-ctrl-bottom-left,
           [data-sheet-open] .mapboxgl-ctrl-bottom-right {
-            bottom: calc(68dvh + 0.5rem);
+            bottom: calc(75dvh + 0.5rem);
+            /* Undoes the basemap-switcher clearance below, which the sheet
+               has already lifted these well past. */
+            margin-bottom: 0;
             transition: bottom 300ms ease;
+          }
+
+          /* The zoom/compass stack sits exactly where the search row now is.
+             Pinch already zooms on touch and «إعادة التمركز» in the toolbar is
+             the compass reset, so nothing is lost by dropping it. */
+          .mapboxgl-ctrl-top-left {
+            display: none;
+          }
+
+          /* Above the basemap switcher, centred at the same height. */
+          .mapboxgl-ctrl-bottom-left {
+            margin-bottom: 3rem;
           }
         }
       `}</style>
 
       {/* Top Right Corner Widgets */}
-      <div className="absolute right-3 top-3 z-20 flex flex-col gap-1.5 w-52">
+      <div
+        className={cn(
+          'absolute right-2 top-[3.5rem] z-20 w-44 flex-col gap-1.5',
+          'sm:right-3 sm:top-3 sm:w-52',
+          // The phone tool cluster drops down over exactly this corner.
+          toolsOpen ? 'hidden sm:flex' : 'flex',
+        )}
+      >
         <ZoneLegend
           zones={zones}
           visible={zonesVisible}

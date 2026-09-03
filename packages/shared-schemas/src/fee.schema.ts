@@ -85,11 +85,88 @@ export const FEE_TARGET_CATEGORY = [
   'LAND',
   'TENT',
   'APARTMENT',
+  'INDEPENDENT_HOUSE',
   'CLINIC',
+  'OFFICE',
   'SHOP',
+  'WAREHOUSE',
 ] as const;
 export const feeTargetCategorySchema = z.enum(FEE_TARGET_CATEGORY);
 export type FeeTargetCategory = (typeof FEE_TARGET_CATEGORY)[number];
+
+/**
+ * What the notice's amount is *per*.
+ *
+ * The register has always been able to say that a citizen owns six shops; the
+ * biller could not, and charged the same for six as for one. `amount` was the
+ * whole invoice, so the only question asked of a citizen's holdings was a
+ * boolean — do they have at least one of these — and a rate schedule that
+ * distinguishes a kiosk from a warehouse had no way to express itself.
+ *
+ * `FLAT` is that original behaviour, unchanged and still the default: one
+ * notice, one amount, one invoice per citizen. The other two make `amount` a
+ * *rate* and let the register decide the total:
+ *
+ *  - `PER_UNIT` — the rate times how many matching units the citizen holds.
+ *  - `PER_AREA` — the rate times their total area in square metres.
+ *
+ * Which of the three is right is a municipal decision with a legal basis
+ * behind it, not an engineering one, which is why none of them is imposed and
+ * why every notice written before this existed keeps billing exactly as it did.
+ */
+export const FEE_BASIS = ['FLAT', 'PER_UNIT', 'PER_AREA'] as const;
+export const feeBasisSchema = z.enum(FEE_BASIS).default('FLAT');
+export type FeeBasis = (typeof FEE_BASIS)[number];
+
+/**
+ * How one citizen's invoice was arrived at.
+ *
+ * Stored on the payment rather than recomputed on demand, because the register
+ * moves: a citizen who sells a shop the week after being billed would, on a
+ * recomputed breakdown, see an invoice whose lines no longer add up to the
+ * amount they are being asked to pay. What a bill says about itself has to
+ * stay true to the moment it was raised — that is the whole difference between
+ * a receipt and a report.
+ *
+ * It is also the answer to the only question that matters at the counter,
+ * which nobody could answer before: «ليش عليّ هالمبلغ؟»
+ */
+export const feeAssessmentLineSchema = z.object({
+  /** رقم العقار the unit sits on, when it has one. */
+  propertyNumber: z.string().nullable(),
+  propertyType: z.string(),
+  unitType: z.string().nullable(),
+  /** Square metres, when established. Null under a PER_UNIT basis. */
+  unitArea: z.number().nullable(),
+});
+
+export const feeAssessmentSchema = z.object({
+  basis: z.enum(FEE_BASIS),
+  /** The rate `amount` held on the notice, before multiplication. */
+  rate: z.number(),
+  /** Units counted, under PER_UNIT. */
+  unitCount: z.number(),
+  /** Square metres summed, under PER_AREA. */
+  totalArea: z.number(),
+  /**
+   * Units the citizen holds that this notice did not charge for, because they
+   * were recorded شاغرة or قيد الإنجاز and the notice exempts those.
+   *
+   * Stored so the exemption is *visible on the bill itself*. An invoice that
+   * silently omits three flats reads as an invoice for a smaller building, and
+   * neither the resident who thinks they were charged for them nor the clerk
+   * checking the round can tell the difference. «٦ محل × ١٠٠٬٠٠٠ (٣ وحدات
+   * معفاة)» is a sentence both of them can argue with.
+   *
+   * Defaulted for every assessment stored before the exemption existed, where
+   * nothing was ever excluded.
+   */
+  excludedUnitCount: z.number().default(0),
+  lines: z.array(feeAssessmentLineSchema),
+});
+
+export type FeeAssessmentLine = z.infer<typeof feeAssessmentLineSchema>;
+export type FeeAssessment = z.infer<typeof feeAssessmentSchema>;
 
 /** LBP, whole pounds. The ceiling is a typo guard, not a policy limit. */
 const lbpAmount = z.coerce
@@ -114,6 +191,24 @@ export const createFeeNoticeSchema = z
       .min(3, 'اسم الرسم قصير جداً')
       .max(120, 'اسم الرسم طويل جداً'),
     amount: lbpAmount,
+    /** What `amount` is per — see `FEE_BASIS`. Absent means the original flat charge. */
+    basis: feeBasisSchema,
+    /**
+     * Whether a unit recorded شاغرة or قيد الإنجاز is charged like any other.
+     *
+     * `true` — the default, and therefore what every notice already issued
+     * keeps doing — is the old behaviour: the register's `unitStatus` column
+     * exists but the biller does not read it, so nothing anyone types into a
+     * property card can move a bill. Turning it off is what §11 says it is: a
+     * council decision resting on a by-law about إعفاء الوحدات الشاغرة, taken
+     * deliberately and once, not a checkbox a clerk reaches by accident on a
+     * Tuesday afternoon.
+     *
+     * Meaningless under FLAT, where the amount does not depend on holdings at
+     * all, and ignored there rather than refused — a notice that switches from
+     * PER_UNIT to FLAT and back should not lose the setting in between.
+     */
+    chargesUnoccupied: z.boolean().default(true),
     frequency: feeFrequencySchema,
     targetType: feeTargetTypeSchema,
     targetCategory: feeTargetCategorySchema.optional(),

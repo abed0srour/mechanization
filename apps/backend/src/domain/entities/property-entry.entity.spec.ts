@@ -46,6 +46,199 @@ describe('PropertyEntry — occupancy rules', () => {
     expect(entry.props.landlordPhone).toBeNull();
     expect(entry.requiredProofDocument).toBe('OWNERSHIP_PROOF');
   });
+
+  /**
+   * شاغل بتسامح — the third occupancy, and the one asymmetry in the block.
+   */
+  describe('a free occupant', () => {
+    const freeOccupant = (overrides: Partial<PropertyEntryProps> = {}) =>
+      building({ occupancyType: 'FREE_OCCUPANT', landlordName: 'أبو خالد', ...overrides });
+
+    it('must still name the owner', () => {
+      expect(() =>
+        PropertyEntry.create(building({ occupancyType: 'FREE_OCCUPANT' })),
+      ).toThrow(ValidationError);
+    });
+
+    it('does not have to produce a phone number for them', () => {
+      /*
+        The whole reason this is a separate branch and not a relabelled TENANT.
+        The owner here is routinely a relative abroad or dead; demanding a
+        number yields an invented one, not a real one.
+      */
+      const entry = PropertyEntry.create(freeOccupant());
+
+      expect(entry.props.landlordName).toBe('أبو خالد');
+      expect(entry.props.landlordPhone).toBeNull();
+    });
+
+    it('has no proof document to attach', () => {
+      // No بدل means no عقد إيجار, and the سند الملكية names someone else.
+      // Null is the honest answer; §7's rule gains a third case rather than
+      // forcing this occupancy into one of the two that do not fit.
+      expect(PropertyEntry.create(freeOccupant()).requiredProofDocument).toBeNull();
+    });
+  });
+});
+
+/**
+ * The unit taxonomy, and the value that was unreachable.
+ *
+ * `INDEPENDENT_HOUSE` existed in the enum, in the database and in the list of
+ * categories a fee may target, and nothing could produce a row carrying it:
+ * `normalise` hardcoded every card's `unitType` to null and the HOUSE branch
+ * refused one outright. A notice aimed at «منازل مستقلة» therefore matched
+ * nothing and reported that no citizen held the category.
+ */
+describe('PropertyEntry — unit taxonomy', () => {
+  const house = (overrides: Partial<PropertyEntryProps> = {}): PropertyEntryProps => ({
+    occupancyType: 'OWNER',
+    propertyType: 'HOUSE',
+    neighborhood: 'الزهراء',
+    propertyNumber: 'H-1',
+    buildingName: 'دار المراد',
+    unitArea: 140,
+    ...overrides,
+  });
+
+  it('types a standalone house as an independent house', () => {
+    // Derived rather than asked: there is nothing else a منزل could be, so the
+    // form has no dropdown for it and this is where the value comes from.
+    expect(PropertyEntry.create(house()).props.unitType).toBe('INDEPENDENT_HOUSE');
+  });
+
+  it('accepts the derived type arriving from a caller that already set it', () => {
+    expect(
+      PropertyEntry.create(house({ unitType: 'INDEPENDENT_HOUSE' })).props.unitType,
+    ).toBe('INDEPENDENT_HOUSE');
+  });
+
+  it('still refuses a house that claims to be something else', () => {
+    // A منزل is not a مستودع; a card saying so has confused the two shapes.
+    expect(() => PropertyEntry.create(house({ unitType: 'WAREHOUSE' }))).toThrow(
+      /independent house/,
+    );
+  });
+
+  it('leaves land and tents with no unit type at all', () => {
+    // Neither is a dwelling, and `UNIT_TYPE` has no value that describes them.
+    const land = PropertyEntry.create({
+      occupancyType: 'OWNER',
+      propertyType: 'LAND',
+      neighborhood: 'الزهراء',
+      propertyNumber: 'L-1',
+      landType: 'AGRICULTURAL',
+      unitArea: 800,
+    });
+
+    expect(land.props.unitType).toBeNull();
+  });
+
+  it('keeps a building’s own inline type empty', () => {
+    // A مبنى reads its types from `units`; the inline column describes the
+    // single unit that a HOUSE is, and would be a phantom on a building.
+    expect(PropertyEntry.create(building()).props.unitType).toBeNull();
+  });
+
+  it('accepts every widened unit type inside a building', () => {
+    // مكتب and مستودع were added to the taxonomy when fees became per-unit and
+    // this layer never learned about them.
+    const entry = PropertyEntry.create(
+      building({
+        units: [
+          { unitType: 'OFFICE', floor: '1', unitArea: 60 },
+          { unitType: 'WAREHOUSE', floor: '0', unitArea: 300 },
+        ],
+      }),
+    );
+
+    expect(entry.props.units?.map((unit) => unit.unitType)).toEqual(['OFFICE', 'WAREHOUSE']);
+  });
+});
+
+/**
+ * حالة الوحدة — asked of an owner and stripped from everyone else.
+ *
+ * The rule is enforced here rather than only in the form because it decides
+ * money: a «شاغرة» left on a tenant's card by an occupancy switch would claim
+ * the person filing it does not live there, and could exempt them from a fee
+ * they owe.
+ */
+describe('PropertyEntry — unit status', () => {
+  const house = (overrides: Partial<PropertyEntryProps> = {}): PropertyEntryProps => ({
+    occupancyType: 'OWNER',
+    propertyType: 'HOUSE',
+    neighborhood: 'الزهراء',
+    propertyNumber: 'H-1',
+    buildingName: 'دار المراد',
+    unitArea: 140,
+    ...overrides,
+  });
+
+  it('keeps an owner-stated status on a house', () => {
+    expect(PropertyEntry.create(house({ unitStatus: 'VACANT' })).props.unitStatus).toBe('VACANT');
+  });
+
+  it('strips it from a tenant card', () => {
+    const entry = PropertyEntry.create(
+      house({
+        occupancyType: 'TENANT',
+        landlordName: 'سمير مراد',
+        landlordPhone: '+96176555666',
+        unitStatus: 'VACANT',
+      }),
+    );
+
+    expect(entry.props.unitStatus).toBeNull();
+  });
+
+  it('strips it from a free occupant card too', () => {
+    const entry = PropertyEntry.create(
+      house({ occupancyType: 'FREE_OCCUPANT', landlordName: 'أبو خالد', unitStatus: 'VACANT' }),
+    );
+
+    expect(entry.props.unitStatus).toBeNull();
+  });
+
+  it('never puts one on land or a tent', () => {
+    // Nothing asks the question there, so a value arriving on such a card came
+    // from a card that used to be something else.
+    const land = PropertyEntry.create({
+      occupancyType: 'OWNER',
+      propertyType: 'LAND',
+      neighborhood: 'الزهراء',
+      propertyNumber: 'L-1',
+      landType: 'AGRICULTURAL',
+      unitArea: 800,
+      unitStatus: 'VACANT',
+    });
+
+    expect(land.props.unitStatus).toBeNull();
+  });
+
+  it('keeps each building unit its own status, and only for an owner', () => {
+    const owned = PropertyEntry.create(
+      building({
+        units: [
+          { unitType: 'APARTMENT', floor: '1', unitArea: 120, unitStatus: 'RENTED' },
+          { unitType: 'APARTMENT', floor: '2', unitArea: 120, unitStatus: 'VACANT' },
+        ],
+      }),
+    );
+
+    expect(owned.props.units?.map((unit) => unit.unitStatus)).toEqual(['RENTED', 'VACANT']);
+
+    const rented = PropertyEntry.create(
+      building({
+        occupancyType: 'TENANT',
+        landlordName: 'سمير مراد',
+        landlordPhone: '+96176555666',
+        units: [{ unitType: 'APARTMENT', floor: '1', unitArea: 120, unitStatus: 'VACANT' }],
+      }),
+    );
+
+    expect(rented.props.units?.[0]?.unitStatus).toBeNull();
+  });
 });
 
 describe('PropertyEntry — taxonomy rules', () => {
@@ -120,8 +313,11 @@ describe('PropertyEntry — taxonomy rules', () => {
     };
 
     expect(() => PropertyEntry.create({ ...house, floor: '2' })).toThrow(/cannot have a floor/);
+    // A house still cannot be a shop. What changed is that it *does* now carry
+    // one unit type of its own — INDEPENDENT_HOUSE, derived — where before the
+    // rule was "no unit type at all" and left that value unreachable.
     expect(() => PropertyEntry.create({ ...house, unitType: 'SHOP' })).toThrow(
-      /cannot have a unit type/,
+      /only be an independent house/,
     );
     expect(() => PropertyEntry.create(house)).not.toThrow();
   });

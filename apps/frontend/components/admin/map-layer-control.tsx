@@ -48,13 +48,41 @@ export function MapLayerControl({
     }
   };
 
+  /**
+   * The same three options at phone width, where the full labels put a 240px
+   * control on a 360px screen and push it into the scale bar. Shortened rather
+   * than reduced to icons: «قمر / فاتحة / داكنة» still names the choice, and
+   * three unlabelled squares would not.
+   */
+  const getShortLabel = (id: BasemapId) => {
+    if (locale === 'en') {
+      switch (id) {
+        case 'satellite':
+          return 'Sat';
+        case 'light':
+          return 'Light';
+        case 'dark':
+          return 'Dark';
+      }
+    }
+    switch (id) {
+      case 'satellite':
+        return 'قمر';
+      case 'light':
+        return 'فاتحة';
+      case 'dark':
+        return 'داكنة';
+    }
+  };
+
   return (
     <div
       className={cn(
-        'pointer-events-auto absolute bottom-6 left-1/2 z-20 -translate-x-1/2',
-        'flex items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-lg backdrop-blur',
+        'pointer-events-auto absolute bottom-4 left-1/2 z-20 -translate-x-1/2 sm:bottom-6',
+        'flex max-w-[calc(100vw-1rem)] items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-lg backdrop-blur',
         'transition-[bottom] duration-300',
-        'group-data-[sheet-open]/map:bottom-[calc(68dvh_+_1.5rem)] sm:group-data-[sheet-open]/map:bottom-6',
+        // Clears the parcel sheet, which tops out at 75dvh on a phone.
+        'group-data-[sheet-open]/map:bottom-[calc(75dvh_+_0.75rem)] sm:group-data-[sheet-open]/map:bottom-6',
       )}
       role="group"
       aria-label={locale === 'en' ? 'Map style' : 'نمط الخريطة'}
@@ -70,9 +98,13 @@ export function MapLayerControl({
             size="sm"
             onClick={() => onChange(basemap.id)}
             aria-pressed={active}
-            className={cn('rounded-md', active ? 'shadow-sm' : 'text-muted-foreground')}
+            className={cn(
+              'h-9 rounded-md px-2.5 text-xs sm:h-8 sm:px-3 sm:text-sm',
+              active ? 'shadow-sm' : 'text-muted-foreground',
+            )}
           >
-            {getLabel(basemap.id)}
+            <span className="sm:hidden">{getShortLabel(basemap.id)}</span>
+            <span className="hidden sm:inline">{getLabel(basemap.id)}</span>
           </Button>
         );
       })}

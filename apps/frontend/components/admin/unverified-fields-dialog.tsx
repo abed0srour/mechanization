@@ -8,7 +8,7 @@ import {
   Sparkles,
   TriangleAlert,
 } from 'lucide-react';
-import { getLabels, isFlaggablePath, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
+import { getLabels, isFlaggablePath } from '@mechanization/shared-schemas';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -22,7 +22,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import type { CitizenFormValues } from './citizen-form';
+import { askableFields, type AskableField, type CitizenFormValues } from './citizen-form';
 
 interface FlaggableFieldItem {
   path: string;
@@ -33,80 +33,41 @@ interface FlaggableFieldItem {
 }
 
 /**
- * Computes all available flaggable paths for the current form values.
+ * The fields this dialog may offer, in the order the form asks them.
+ *
+ * Read straight off `askableFields` — the form's own list — rather than
+ * rebuilt here. The two used to be separate copies of the same branch rules,
+ * and a dialog that offered a field the form no longer asked about produced
+ * the worst kind of bug: the officer ticked it, confirmed, and the form's
+ * prune quietly dropped it, so the count they had just set was not the count
+ * they got back. Whatever the form is asking is exactly what can be flagged.
+ *
+ * `isFlaggablePath` still filters, because the form asks about the name and
+ * the schema will never accept a flag on it.
  */
 function getFlaggableFields(values: CitizenFormValues, locale: string): FlaggableFieldItem[] {
   const labels = getLabels(locale);
-  const items: FlaggableFieldItem[] = [];
 
-  const addField = (
-    path: string,
-    fieldKey: string,
-    sectionId: 'personal' | 'contact' | 'properties',
-    sectionTitle: string,
-    propertyIndex?: number,
-  ) => {
-    if (!isFlaggablePath(path)) return;
-    const label = labels.citizenField[fieldKey] ?? fieldKey;
-    items.push({ path, label, sectionId, sectionTitle, propertyIndex });
+  const sectionTitle = (entry: AskableField): string => {
+    if (entry.section === 'personal') {
+      return locale === 'en' ? 'Personal Information' : 'البيانات الشخصية';
+    }
+    if (entry.section === 'contact') {
+      return locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة';
+    }
+    const card = (entry.propertyIndex ?? 0) + 1;
+    return locale === 'en' ? `Property ${card}` : `العقار ${card}`;
   };
 
-  // 1. Personal section
-  const personalTitle = locale === 'en' ? 'Personal Information' : 'البيانات الشخصية';
-  addField('personal.middleName', 'middleName', 'personal', personalTitle);
-  addField('personal.gender', 'gender', 'personal', personalTitle);
-  addField('personal.bloodType', 'bloodType', 'personal', personalTitle);
-  addField('personal.residentStatus', 'residentStatus', 'personal', personalTitle);
-
-  if (values.personal.isLebanese !== false) {
-    addField('personal.identityDocType', 'identityDocType', 'personal', personalTitle);
-    addField('personal.identityDocNumber', 'identityDocNumber', 'personal', personalTitle);
-    addField('personal.civilRecordNumber', 'civilRecordNumber', 'personal', personalTitle);
-  } else {
-    addField('personal.nationality', 'nationality', 'personal', personalTitle);
-    addField('personal.identityDocNumber', 'identityDocNumber', 'personal', personalTitle);
-    addField('personal.residencyNumber', 'residencyNumber', 'personal', personalTitle);
-  }
-
-  // 2. Contact section
-  const contactTitle = locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة';
-  addField('contact.phone', 'phone', 'contact', contactTitle);
-  if (values.contact.whatsappSameAsPhone === false) {
-    addField('contact.whatsapp', 'whatsapp', 'contact', contactTitle);
-  }
-  addField('contact.maritalStatus', 'maritalStatus', 'contact', contactTitle);
-  addField('contact.familySize', 'familySize', 'contact', contactTitle);
-
-  // 3. Properties
-  values.properties.forEach((property, index) => {
-    const cardTitle =
-      locale === 'en' ? `Property ${index + 1}` : `العقار ${index + 1}`;
-    const branch =
-      PROPERTY_FIELD_MAP[property.propertyType as keyof typeof PROPERTY_FIELD_MAP] ?? [];
-
-    for (const field of branch) {
-      addField(`properties.${index}.${field}`, field, 'properties', cardTitle, index);
-    }
-
-    if (property.occupancyType === 'TENANT') {
-      addField(
-        `properties.${index}.landlordName`,
-        'landlordName',
-        'properties',
-        cardTitle,
-        index,
-      );
-      addField(
-        `properties.${index}.landlordPhone`,
-        'landlordPhone',
-        'properties',
-        cardTitle,
-        index,
-      );
-    }
-  });
-
-  return items;
+  return askableFields(values)
+    .filter((entry) => isFlaggablePath(entry.path))
+    .map((entry) => ({
+      path: entry.path,
+      label: labels.citizenField[entry.field] ?? entry.field,
+      sectionId: entry.section,
+      sectionTitle: sectionTitle(entry),
+      propertyIndex: entry.propertyIndex,
+    }));
 }
 
 export function UnverifiedFieldsDialog({
@@ -191,29 +152,77 @@ export function UnverifiedFieldsDialog({
   };
 
   const applyAbsentParentsPreset = () => {
-    const defaultReason =
-      locale === 'en'
-        ? 'Parents absent during field survey — basic data gathered from children'
-        : 'الأهل غير متواجدين أثناء المسح الميداني — أُخذت البيانات الأساسية من الأبناء';
-
+    const askablePathSet = new Set(allFlaggableFields.map((f) => f.path));
     const next = new Map(draftFlags);
 
-    // Flag empty optional/conditional fields that kids typically don't have
-    if (!values.personal.civilRecordNumber) next.set('personal.civilRecordNumber', defaultReason);
-    if (!values.personal.identityDocNumber) next.set('personal.identityDocNumber', defaultReason);
-    if (!values.personal.bloodType) next.set('personal.bloodType', defaultReason);
-    if (!values.personal.residentStatus) next.set('personal.residentStatus', defaultReason);
-    if (!values.personal.gender) next.set('personal.gender', defaultReason);
-
-    if (!values.contact.maritalStatus) next.set('contact.maritalStatus', defaultReason);
+    // Specific, contextual reasons per field — NEVER flag identityDocNumber, civilRecordNumber, or gender!
+    const candidateFields: Array<{ path: string; empty: boolean; reason: string }> = [
+      {
+        path: 'personal.bloodType',
+        empty: !values.personal.bloodType,
+        reason:
+          locale === 'en'
+            ? 'Blood type unknown — parents absent during field survey'
+            : 'فصيلة الدم غير معلومة — الأهل غير متواجدين أثناء المسح',
+      },
+      {
+        path: 'personal.residentStatus',
+        empty: !values.personal.residentStatus,
+        reason:
+          locale === 'en'
+            ? 'Residency status unconfirmed — parents absent'
+            : 'صفة الإقامة غير مؤكدة — الأهل غير متواجدين',
+      },
+      {
+        path: 'contact.maritalStatus',
+        empty: !values.contact.maritalStatus,
+        reason:
+          locale === 'en'
+            ? 'Marital status unconfirmed — parents absent'
+            : 'الحالة الاجتماعية غير مؤكدة — الأهل غير متواجدين',
+      },
+    ];
 
     values.properties.forEach((prop, idx) => {
-      if (!prop.propertyNumber) next.set(`properties.${idx}.propertyNumber`, defaultReason);
-      if (!prop.unitArea) next.set(`properties.${idx}.unitArea`, defaultReason);
-      if (prop.occupancyType === 'TENANT' && !prop.landlordPhone) {
-        next.set(`properties.${idx}.landlordPhone`, defaultReason);
+      candidateFields.push({
+        path: `properties.${idx}.propertyNumber`,
+        empty: !prop.propertyNumber,
+        reason:
+          locale === 'en'
+            ? 'Deed/parcel number unavailable with children — parents absent'
+            : 'سند الملكية أو رقم العقار غير متوفر لدى الأبناء — الأهل غير متواجدين',
+      });
+
+      if (prop.occupancyType === 'TENANT') {
+        candidateFields.push(
+          {
+            path: `properties.${idx}.landlordName`,
+            empty: !prop.landlordName,
+            reason:
+              locale === 'en'
+                ? 'Landlord name unconfirmed by children'
+                : 'اسم المالك غير مؤكد لدى الأبناء',
+          },
+          {
+            path: `properties.${idx}.landlordPhone`,
+            empty: !prop.landlordPhone,
+            reason:
+              locale === 'en'
+                ? 'Landlord contact info held by absent parents'
+                : 'رقم هاتف المالك مع الأهل الغائبين',
+          },
+        );
       }
     });
+
+    for (const item of candidateFields) {
+      // Must be currently askable in this form's branch and currently empty
+      if (askablePathSet.has(item.path) && item.empty) {
+        if (!next.has(item.path)) {
+          next.set(item.path, item.reason);
+        }
+      }
+    }
 
     setDraftFlags(next);
     setValidationError(null);

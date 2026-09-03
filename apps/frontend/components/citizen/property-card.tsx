@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
+  DoorOpen,
   FileQuestion,
+  HardHat,
+  House,
+  KeyRound,
   Loader2,
   MapPin,
   Plus,
@@ -13,8 +17,23 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { getLabels, isFlaggablePath, PROPERTY_FIELD_MAP } from '@mechanization/shared-schemas';
-import type { LandType, OccupancyType, PropertyType, UnitType } from '@mechanization/shared-schemas';
+import {
+  getLabels,
+  isFlaggablePath,
+  isUnoccupied,
+  LAND_TYPE,
+  OCCUPANCY_TYPE,
+  PROPERTY_FIELD_MAP,
+  UNIT_STATUS,
+  UNIT_TYPE,
+} from '@mechanization/shared-schemas';
+import type {
+  LandType,
+  OccupancyType,
+  PropertyType,
+  UnitStatus,
+  UnitType,
+} from '@mechanization/shared-schemas';
 import { checkPropertyNumber, type PropertyNumberCheck } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +56,8 @@ export interface UnitDraft {
   side?: string;
   unitArea?: string;
   sharedRights?: string[];
+  /** حالة الوحدة. Undefined is "not recorded", which is not «مشغولة». */
+  unitStatus?: UnitStatus;
 }
 
 export interface PropertyDraft {
@@ -53,10 +74,25 @@ export interface PropertyDraft {
   tentLocation?: string;
   unitArea?: string;
   sharedRights?: string[];
+  /** منزل only — a مبنى states this per unit inside `units`. */
+  unitStatus?: UnitStatus;
   units?: UnitDraft[];
 }
 
 const CHECK_DEBOUNCE_MS = 500;
+
+/**
+ * The unit types a مبنى can actually contain.
+ *
+ * Derived from `UNIT_TYPE` rather than retyped, which is the whole point: this
+ * list said شقة / عيادة / محل for as long as it was a literal, and went on
+ * saying it after the taxonomy gained مكتب and مستودع — so a municipality whose
+ * schedule of fees charges a warehouse differently from a shop had no way to
+ * record one, and two values sat in the database and in the fee-target list
+ * reachable from nothing. Subtracting from the enum keeps this correct the next
+ * time it widens.
+ */
+const BUILDING_UNIT_TYPES = UNIT_TYPE.filter((type) => type !== 'INDEPENDENT_HOUSE');
 
 /**
  * This card's dot-path for one of its fields — `properties.2.propertyNumber`.
@@ -78,6 +114,8 @@ export function PropertyCard({
   collapsed,
   onToggleCollapse,
   onChange,
+  onAddOnSameParcel,
+  onViewParcel,
   onRemove,
   canRemove,
   errors = {},
@@ -90,6 +128,15 @@ export function PropertyCard({
   collapsed: boolean;
   onToggleCollapse: () => void;
   onChange: (next: PropertyDraft) => void;
+  /**
+   * Start another structure on this same رقم العقار.
+   *
+   * Absent in the citizen-facing wizard, where someone is registering their own
+   * home rather than inventorying a plot.
+   */
+  onAddOnSameParcel?: () => void;
+  /** Show who else is registered on this parcel. Admin form only. */
+  onViewParcel?: (propertyNumber: string) => void;
   onRemove: () => void;
   canRemove: boolean;
   errors?: Record<string, string>;
@@ -106,6 +153,19 @@ export function PropertyCard({
 
   const isBuilding = draft.propertyType === 'BUILDING';
   const units = draft.units ?? [];
+
+  const isTenant = draft.occupancyType === 'TENANT';
+  const isNonOwner = isTenant || draft.occupancyType === 'FREE_OCCUPANT';
+  /*
+    Only an owner is asked whether a unit is empty.
+
+    A مستأجر or a شاغل بتسامح *is* the شاغل of the unit they are filing, so the
+    question contradicts the card it would sit on — and a «شاغرة» left behind
+    on one after the occupancy was changed could exempt someone from a fee they
+    owe. `PropertyEntry.normalise` strips it server-side for the same reason;
+    this is the half that stops it being asked in the first place.
+  */
+  const asksUnitStatus = draft.occupancyType === 'OWNER';
 
   return (
     <Card>
@@ -170,9 +230,34 @@ export function PropertyCard({
               index={index}
               value={draft.propertyNumber ?? ''}
               onChange={(propertyNumber) => set({ propertyNumber })}
+              onViewParcel={onViewParcel}
               locale={locale}
             />
           </div>
+
+          {/*
+            One deed, several structures.
+
+            Offered right under رقم العقار because that is where the clerk is
+            looking when they realise the plot holds more than one thing — and
+            because the number is what the new card inherits. A parcel with a
+            building, the house behind it and a shop on the street is three
+            cards: they are typed, inspected and taxed as different things, but
+            they are not three different pieces of land, and nobody should be
+            retyping the number that says so.
+          */}
+          {onAddOnSameParcel && draft.propertyNumber ? (
+            <button
+              type="button"
+              onClick={onAddOnSameParcel}
+              className="inline-flex items-center gap-1.5 self-start rounded-md border border-dashed border-primary/50 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+            >
+              <Plus className="size-3.5 shrink-0" aria-hidden />
+              {locale === 'en'
+                ? `Add another building or shop on parcel ${draft.propertyNumber}`
+                : `إضافة مبنى أو محل آخر على العقار ${draft.propertyNumber}`}
+            </button>
+          ) : null}
 
           <div className="grid gap-3.5 sm:grid-cols-2">
             <Field
@@ -189,7 +274,7 @@ export function PropertyCard({
                   <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['OWNER', 'TENANT'] as const).map((option) => (
+                  {OCCUPANCY_TYPE.map((option) => (
                     <SelectItem key={option} value={option}>
                       {labels.occupancyType[option]}
                     </SelectItem>
@@ -222,7 +307,16 @@ export function PropertyCard({
             </Field>
           </div>
 
-          {draft.occupancyType === 'TENANT' ? (
+          {/*
+            The landlord block belongs to both non-owner occupancies.
+
+            A شاغل بتسامح is not the owner either, and the municipality needs
+            the same name from them — but only the *name*. Their owner is
+            typically a relative abroad or deceased, and a required phone there
+            yields an invented number rather than a real one, so the field is
+            offered and not demanded. See `occupancyBranch`.
+          */}
+          {isNonOwner ? (
             <div className="grid gap-3.5 sm:grid-cols-2">
               <Field
                 label={locale === 'en' ? 'Landlord Name' : 'اسم المالك'}
@@ -243,8 +337,8 @@ export function PropertyCard({
                 label={locale === 'en' ? 'Landlord Phone' : 'رقم هاتف المالك'}
                 htmlFor={`lp-${index}`}
 
-                path={flagPath(index, 'landlordPhone')}
-                required
+                path={isTenant ? flagPath(index, 'landlordPhone') : undefined}
+                required={isTenant}
                 error={errors.landlordPhone}
               >
                 <Input
@@ -302,7 +396,7 @@ export function PropertyCard({
                     <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {(['AGRICULTURAL', 'INDUSTRIAL'] as const).map((o) => (
+                    {LAND_TYPE.map((o) => (
                       <SelectItem key={o} value={o}>
                         {labels.landType[o]}
                       </SelectItem>
@@ -367,6 +461,22 @@ export function PropertyCard({
             ) : null}
           </div>
 
+          {/*
+            Only a منزل asks this on the card itself — it is the one type whose
+            single unit is the whole card. A مبنى asks per unit below; أرض and
+            خيمة are never asked, because «is this plot vacant» has no answer
+            worth storing and the question would land on every tent
+            registration in a settlement.
+          */}
+          {asksUnitStatus && draft.propertyType === 'HOUSE' ? (
+            <UnitStatusChoice
+              idPrefix={`us-${index}`}
+              value={draft.unitStatus}
+              onChange={(unitStatus) => set({ unitStatus })}
+              locale={locale}
+            />
+          ) : null}
+
           {visible.includes('sharedRights') ? (
             <SharedRightsField
               idPrefix={`sr-${index}`}
@@ -381,6 +491,7 @@ export function PropertyCard({
             <UnitsEditor
               index={index}
               units={units}
+              asksUnitStatus={asksUnitStatus}
               errors={scopeErrors(errors, 'units')}
               onChange={(next) => set({ units: next })}
               locale={locale}
@@ -438,6 +549,7 @@ function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): P
     keep.side = draft.side;
     keep.unitArea = draft.unitArea;
     keep.sharedRights = draft.sharedRights;
+    keep.unitStatus = draft.unitStatus;
   }
   if (propertyType === 'LAND') {
     keep.landType = draft.landType;
@@ -448,6 +560,26 @@ function changePropertyType(draft: PropertyDraft, propertyType: PropertyType): P
   }
 
   return keep;
+}
+
+/**
+ * «٣ وحدات شاغرة» on a folded card, or nothing.
+ *
+ * Only the unoccupied count, and only when there is one. A summary reading
+ * «١٠ وحدات — ٧ مشغولة — ٣ شاغرة» is a table, not a line; what a clerk
+ * scanning collapsed cards is looking for is the exception, and the exception
+ * here is the units that may be exempt from a fee.
+ */
+function vacancyNote(draft: PropertyDraft, locale: string): string | null {
+  const statuses =
+    draft.propertyType === 'BUILDING'
+      ? (draft.units ?? []).map((unit) => unit.unitStatus)
+      : [draft.unitStatus];
+
+  const empty = statuses.filter((status) => isUnoccupied(status)).length;
+  if (empty === 0) return null;
+
+  return locale === 'en' ? `${empty} unoccupied` : `${empty} غير مشغولة`;
 }
 
 function summarise(draft: PropertyDraft, locale: string = 'ar'): string {
@@ -462,9 +594,98 @@ function summarise(draft: PropertyDraft, locale: string = 'ar'): string {
     draft.propertyType === 'BUILDING' && draft.units?.length
       ? (locale === 'en' ? `${draft.units.length} units` : `${draft.units.length} وحدة`)
       : null,
+    vacancyNote(draft, locale),
   ];
   return parts.filter(Boolean).join(' — ');
 }
+
+/**
+ * حالة الوحدة, as four things to tap rather than a list to open.
+ *
+ * A `Select` would match the controls around it and be the wrong choice here.
+ * Every other dropdown on this card holds a value the clerk arrives already
+ * knowing — نوع العقار, نوع الأرض — and picks once. This one is set repeatedly,
+ * unit by unit, by someone walking a building with a phone in one hand; four
+ * labelled targets they can hit without reading a menu is the difference
+ * between a field that gets filled in and a field that gets skipped.
+ *
+ * It is also the safer shape for the specific confusion this feature invites.
+ * «شاغر» and «شاغل» are one dot apart, and the occupancy dropdown carrying the
+ * second is a few centimetres up the same card. Laying these out flat, with an
+ * icon each and the two unoccupied states tinted differently, means the choice
+ * is legible at a glance instead of resolved by reading two Arabic words very
+ * carefully.
+ *
+ * Tapping the selected option clears it, because the field is genuinely
+ * optional and there is no «غير معروف» to pick: an officer who ticked وحدة
+ * مؤجرة by accident has to be able to get back to having said nothing, which
+ * is a different claim from any of the four.
+ */
+function UnitStatusChoice({
+  idPrefix,
+  value,
+  onChange,
+  locale = 'ar',
+}: {
+  idPrefix: string;
+  value: UnitStatus | undefined;
+  onChange: (next: UnitStatus | undefined) => void;
+  locale?: string;
+}) {
+  const labels = getLabels(locale);
+  const isEnglish = locale === 'en';
+
+  return (
+    <Field
+      label={isEnglish ? 'Unit Status' : 'حالة الوحدة'}
+      htmlFor={idPrefix}
+      hint={
+        isEnglish
+          ? 'Optional. Leave blank if not established — a blank unit is treated as occupied.'
+          : 'اختياري. اتركه فارغاً إذا لم يُتحقَّق منه — الوحدة غير المحدَّدة تُعامَل كمشغولة.'
+      }
+    >
+      <div id={idPrefix} className="flex flex-wrap gap-2 pt-1">
+        {UNIT_STATUS.map((option) => {
+          const Icon = UNIT_STATUS_ICON[option];
+          const selected = value === option;
+          // The two states that can exempt a unit from a fee are tinted apart
+          // from the two that cannot, so what a tap costs is visible before it
+          // is made.
+          const exempting = isUnoccupied(option);
+
+          return (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(selected ? undefined : option)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors select-none',
+                selected
+                  ? exempting
+                    ? 'border-warning/60 bg-warning/15 text-warning'
+                    : 'border-primary/60 bg-primary/10 text-primary'
+                  : 'border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+              )}
+            >
+              <Icon className="size-3.5 shrink-0" aria-hidden />
+              <span className="whitespace-nowrap">{labels.unitStatus[option]}</span>
+            </button>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
+/** One glyph per status, so the four are told apart before they are read. */
+const UNIT_STATUS_ICON: Record<UnitStatus, typeof House> = {
+  OWNER_OCCUPIED: House,
+  RENTED: KeyRound,
+  VACANT: DoorOpen,
+  UNDER_CONSTRUCTION: HardHat,
+};
 
 function SharedRightsField({
   idPrefix,
@@ -540,12 +761,15 @@ function SharedRightsField({
 function UnitsEditor({
   index,
   units,
+  asksUnitStatus,
   errors,
   onChange,
   locale = 'ar',
 }: {
   index: number;
   units: UnitDraft[];
+  /** False on a tenant's or free occupant's card — see `asksUnitStatus`. */
+  asksUnitStatus: boolean;
   errors: Record<string, string>;
   onChange: (next: UnitDraft[]) => void;
   locale?: string;
@@ -580,9 +804,26 @@ function UnitsEditor({
     });
 
   const addUnit = () => {
-    onChange([...units, { unitType: units.at(-1)?.unitType }]);
+    // Inherits the previous unit's type *and* status: a floor of eight
+    // identical rented flats is the ordinary case, and re-answering both
+    // questions eight times is how the second one stops being answered.
+    const previous = units.at(-1);
+    onChange([...units, { unitType: previous?.unitType, unitStatus: previous?.unitStatus }]);
     setCollapsed(new Set(units.map((_, i) => i)));
   };
+
+  /**
+   * One status onto every unit at once.
+   *
+   * The control that decides whether this field is used at all. A landlord
+   * filing a twenty-flat building is answering the same question twenty times,
+   * and a form that demands that gets one of two things: a blank column, or a
+   * column filled in by pattern rather than by looking. Setting the common case
+   * in one tap leaves the officer with the handful of units that differ, which
+   * is the number of real decisions there actually were.
+   */
+  const setAllStatuses = (unitStatus: UnitStatus) =>
+    onChange(units.map((unit) => ({ ...unit, unitStatus })));
 
   const removeUnit = (unitIndex: number) => {
     onChange(units.filter((_, i) => i !== unitIndex));
@@ -662,6 +903,30 @@ function UnitsEditor({
         </div>
       ) : null}
 
+      {flagged || !asksUnitStatus || units.length < 2 ? null : (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-2.5">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {locale === 'en'
+              ? `Set all ${units.length} units to:`
+              : `تعيين حالة الوحدات الـ${units.length} جميعاً:`}
+          </span>
+          {UNIT_STATUS.map((option) => {
+            const Icon = UNIT_STATUS_ICON[option];
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setAllStatuses(option)}
+                className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Icon className="size-3 shrink-0" aria-hidden />
+                {labels.unitStatus[option]}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {flagged ? null : units.map((unit, unitIndex) => {
         const unitCollapsed = collapsed.has(unitIndex);
         const unitErrors = scopeErrors(errors, String(unitIndex));
@@ -726,8 +991,17 @@ function UnitsEditor({
                       <SelectTrigger id={`ut-${index}-${unitIndex}`}>
                         <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
                       </SelectTrigger>
+                      {/*
+                        `INDEPENDENT_HOUSE` is the one exclusion, and not an
+                        oversight: a منزل مستقل is not a unit inside a building,
+                        it is what a whole منزل card is. `PropertyEntry` derives
+                        it there, so offering it here would invite someone to
+                        file a house as a flat on the third floor — and produce
+                        a row that a fee aimed at «منازل مستقلة» would then
+                        charge twice over.
+                      */}
                       <SelectContent>
-                        {(['APARTMENT', 'CLINIC', 'SHOP'] as const).map((o) => (
+                        {BUILDING_UNIT_TYPES.map((o) => (
                           <SelectItem key={o} value={o}>
                             {labels.unitType[o]}
                           </SelectItem>
@@ -786,6 +1060,15 @@ function UnitsEditor({
                   onChange={(sharedRights) => setUnit(unitIndex, { sharedRights })}
                   locale={locale}
                 />
+
+                {asksUnitStatus ? (
+                  <UnitStatusChoice
+                    idPrefix={`us-${index}-${unitIndex}`}
+                    value={unit.unitStatus}
+                    onChange={(unitStatus) => setUnit(unitIndex, { unitStatus })}
+                    locale={locale}
+                  />
+                ) : null}
               </>
             )}
           </div>
@@ -808,6 +1091,10 @@ function summariseUnit(unit: UnitDraft, locale: string = 'ar'): string {
     unit.unitType ? labels.unitType[unit.unitType] : (locale === 'en' ? 'Unspecified type' : 'لم يُحدَّد النوع'),
     unit.floor ? (locale === 'en' ? `Floor ${unit.floor}` : `طابق ${unit.floor}`) : null,
     unit.unitArea ? `${unit.unitArea} ${locale === 'en' ? 'm²' : 'م²'}` : null,
+    // Carried into the collapsed line because a building is reviewed folded:
+    // the officer checking their work scrolls a list of one-line summaries, and
+    // a vacancy invisible there is a vacancy nobody re-reads before saving.
+    unit.unitStatus ? labels.unitStatus[unit.unitStatus] : null,
   ];
   return parts.filter(Boolean).join(' — ');
 }
@@ -817,12 +1104,14 @@ function PropertyNumberField({
   index,
   value,
   onChange,
+  onViewParcel,
   locale = 'ar',
 }: {
   tenant: string;
   index: number;
   value: string;
   onChange: (value: string) => void;
+  onViewParcel?: (propertyNumber: string) => void;
   locale?: string;
 }) {
   const [result, setResult] = useState<PropertyNumberCheck | null>(null);
@@ -916,13 +1205,39 @@ function PropertyNumberField({
         </p>
       ) : null}
 
+      {/*
+        The neighbours line is the way in to the parcel's roster.
+
+        A registrar who reads "3 others are registered here" immediately wants
+        the next sentence — *which* three, and what do they hold — and that is
+        the question the roster answers. It is a link rather than a number in
+        the admin form and stays plain text in the citizen wizard, where the
+        count is reassurance ("your neighbours are here too") and the identity
+        of those neighbours is nobody's business.
+      */}
       {confirmed && neighbours > 0 ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Users className="size-4 shrink-0" aria-hidden />
-          {neighbours === 1
-            ? (locale === 'en' ? '1 other citizen registered on this parcel — normal in shared buildings.' : 'مسجّل شخص آخر على هذا العقار — هذا طبيعي في المباني المشتركة.')
-            : (locale === 'en' ? `${neighbours} other citizens registered on this parcel — normal in shared buildings.` : `مسجّل ${neighbours} أشخاص آخرين على هذا العقار — هذا طبيعي في المباني المشتركة.`)}
-        </p>
+        (() => {
+          const text =
+            neighbours === 1
+              ? (locale === 'en' ? '1 other citizen registered on this parcel — normal in shared buildings.' : 'مسجّل شخص آخر على هذا العقار — هذا طبيعي في المباني المشتركة.')
+              : (locale === 'en' ? `${neighbours} other citizens registered on this parcel — normal in shared buildings.` : `مسجّل ${neighbours} أشخاص آخرين على هذا العقار — هذا طبيعي في المباني المشتركة.`);
+
+          return onViewParcel ? (
+            <button
+              type="button"
+              onClick={() => onViewParcel(value.trim())}
+              className="flex items-center gap-2 text-start text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              <Users className="size-4 shrink-0" aria-hidden />
+              {text}
+            </button>
+          ) : (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="size-4 shrink-0" aria-hidden />
+              {text}
+            </p>
+          );
+        })()
       ) : null}
 
       {confirmed && result.location?.approximate ? (

@@ -19,6 +19,27 @@ import type { FieldFlag } from '@mechanization/shared-schemas';
  */
 
 const DB_NAME = 'mechanization.offline';
+/**
+ * Deliberately still 1, and adding a field to the payload is not a reason to
+ * change it.
+ *
+ * The store keeps whole submissions under `payload`, whose sections are opaque
+ * records — IndexedDB is storing a structured clone of an object, not rows in
+ * a typed table, so a new field like `unitStatus` needs no schema change to be
+ * written or read. Bumping the version would buy nothing and cost something
+ * real: an upgrade blocks while another tab holds the old connection, and
+ * `onblocked` below turns that into "no queue available" for an officer who
+ * happens to have two tabs open — exactly the person this store exists for.
+ *
+ * What a new field *does* need is a server that accepts its absence, because
+ * records queued before it existed are still on phones and will arrive without
+ * it. That is a schema default, not a database version; see `unitStatusField`,
+ * which is optional, and `FieldFlag.kind`, which solved the identical problem
+ * with `.default()`.
+ *
+ * Change this only for a change IndexedDB itself has to know about: a new
+ * object store, a new index, or a key path that moves.
+ */
 const DB_VERSION = 1;
 const STORE = 'citizenSubmissions';
 

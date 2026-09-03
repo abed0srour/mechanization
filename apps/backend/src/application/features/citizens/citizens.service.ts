@@ -3,6 +3,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   adminCreateCitizenSchema,
   buildCitizenPayload,
+  cadastreFlags,
+  FIELD_FLAG_KINDS,
   IMPORT_COLUMNS,
   statusForFlags,
 } from '@mechanization/shared-schemas';
@@ -22,7 +24,10 @@ import { Prisma } from '../../../generated/tenant-client';
 import { PropertyEntry, PropertyType } from '../../../domain/entities/property-entry.entity';
 import { ReferenceNumber } from '../../../domain/value-objects/reference-number.vo';
 import { PARCEL_REPOSITORY } from '../../../domain/interfaces/base-repository.interface';
-import type { ParcelRepository } from '../../../domain/interfaces/parcel-repository.interface';
+import type {
+  ParcelLocation,
+  ParcelRepository,
+} from '../../../domain/interfaces/parcel-repository.interface';
 import { ConflictError, NotFoundError, ValidationError } from '../../common/exceptions';
 import {
   RegistrationService,
@@ -68,9 +73,18 @@ function readFlags(value: unknown): FieldFlag[] {
 
   return value.flatMap((entry) => {
     if (typeof entry !== 'object' || entry === null) return [];
-    const { path, reason } = entry as Record<string, unknown>;
+    const { path, reason, kind } = entry as Record<string, unknown>;
     if (typeof path !== 'string' || typeof reason !== 'string') return [];
-    return [{ path, reason }];
+
+    /*
+      An unreadable `kind` reads as `UNESTABLISHED`, which is both the value
+      every row written before the column split carried and the safer of the
+      two to guess: it shows the field as blank-and-explained, which is what
+      those rows actually are. Guessing `UNVERIFIED` would put a "we have a
+      value" badge on a field holding nothing.
+    */
+    const flagKind = FIELD_FLAG_KINDS.find((candidate) => candidate === kind) ?? 'UNESTABLISHED';
+    return [{ path, reason, kind: flagKind }];
   });
 }
 
@@ -539,6 +553,7 @@ export class CitizensService {
         // Decimal → number at the edge, as everywhere else in this codebase.
         unitArea: property.unitArea == null ? null : Number(property.unitArea),
         sharedRights: property.sharedRights,
+        unitStatus: property.unitStatus,
         units: property.units.map((unit) => ({
           id: unit.id,
           unitType: unit.unitType,
@@ -546,6 +561,7 @@ export class CitizensService {
           side: unit.side,
           unitArea: Number(unit.unitArea),
           sharedRights: unit.sharedRights,
+          unitStatus: unit.unitStatus,
         })),
       })),
     };
@@ -662,7 +678,7 @@ export class CitizensService {
         const created = await this.create({
           tenantSlug: input.tenantSlug,
           /*
-            A spreadsheet row carries no flags, and cannot.
+            A spreadsheet row carries no `UNESTABLISHED` flags, and cannot.
 
             «غير مؤكَّد» is a statement by a named officer about one field they
             personally could not establish, with their reason. A bulk import is
@@ -670,6 +686,14 @@ export class CitizensService {
             nobody standing behind any individual gap — so a row is either
             complete enough for `adminCreateCitizenSchema`, which validated it
             above, or it is reported as a failed row for the clerk to fix.
+
+            An imported row can still end up carrying an `UNVERIFIED` one, and
+            that is the point: the submit path checks every رقم العقار against
+            the cadastre and annotates the ones it cannot find. A register typed
+            up over years is exactly where those live, and a row that used to be
+            rejected outright — losing the household's data over a parcel the
+            survey office has not exported yet — now lands as «يتطلب مراجعة»
+            with the number intact and the reason attached.
           */
           payload: { ...parsed.data, flags: [], clientSubmissionId: undefined },
           actor: input.actor,
@@ -718,7 +742,6 @@ export class CitizensService {
     actor: { id: string; role: string };
   }) {
     const tenant = await this.tenants.resolve(input.tenantSlug);
-    const flags = input.payload.flags;
 
     const citizen = await this.db.user.findFirst({
       where: { id: input.citizenId, kind: 'CITIZEN' },
@@ -737,11 +760,23 @@ export class CitizensService {
     // Same construction the submit path performs: the taxonomy rules live in
     // the aggregate, so an edit gets the identical guarantees a submission did
     // — including which of them this edit's own flags waive.
-    const cadastre = await this.resolveParcels(
+    const { found: cadastre, missing } = await this.resolveParcels(
       input.payload.properties
         .map((property) => property.propertyNumber)
         .filter((number): number is string => Boolean(number)),
     );
+
+    /*
+      Recomputed on every save, exactly as on the create path — which is what
+      makes the «يتطلب مراجعة» status self-clearing. A record held only because
+      its parcel was missing from the cadastre leaves that queue the first time
+      anyone saves it after the survey office imports the parcel, with nobody
+      having to remember that this record was waiting on it.
+    */
+    const flags: FieldFlag[] = [
+      ...input.payload.flags,
+      ...cadastreFlags(input.payload.properties, missing, input.payload.flags),
+    ];
 
     const entries = input.payload.properties.map((property, index) => {
       const { id, ...values } = property as { id?: string } & Record<string, unknown>;
@@ -891,6 +926,7 @@ export class CitizensService {
           tentLocation: p.tentLocation ?? null,
           unitArea: p.unitArea ?? null,
           sharedRights: p.sharedRights ?? [],
+          unitStatus: (p.unitStatus ?? null) as never,
           latitude: p.latitude ?? null,
           longitude: p.longitude ?? null,
         };
@@ -901,6 +937,7 @@ export class CitizensService {
           side: unit.side ?? null,
           unitArea: unit.unitArea,
           sharedRights: unit.sharedRights ?? [],
+          unitStatus: (unit.unitStatus ?? null) as never,
         }));
 
         if (id) {
@@ -1017,24 +1054,178 @@ export class CitizensService {
   }
 
   /**
-   * The same cadastre resolution the submission path performs — a رقم العقار
-   * either exists in this municipality's registry or the edit is a typo, and a
-   * municipality with no cadastre imported keeps the permissive behaviour.
+   * Everyone registered on one رقم العقار, and what each of them holds there.
+   *
+   * The parcel-centric view of a citizen-centric register — a projection, not a
+   * second place ownership is recorded. That distinction is the whole design.
+   * A registrar naturally thinks in parcels ("who is on 1553?"), and it is
+   * tempting to store the answer that way: a parcel row owning a list of units,
+   * each naming its occupant. It cannot work here. Every fee is raised against
+   * a `citizenId`, so an owner recorded as a name on a unit is an owner nobody
+   * can bill — and the register would hold two answers to "who owns this",
+   * which would disagree the first time one of them was edited.
+   *
+   * So ownership stays where billing can reach it, and the parcel view is
+   * computed. Nothing can drift, because there is only one copy.
+   *
+   * Reads every registration rather than only the latest, deliberately: this
+   * screen answers "who is on this parcel", and a household whose newest filing
+   * is about a different property is still on this one.
    */
-  private async resolveParcels(propertyNumbers: readonly string[]) {
+  async parcelRoster(propertyNumber: string) {
+    const trimmed = propertyNumber.trim();
+
+    const entries = await withConnectionRetry(() =>
+      this.db.propertyEntry.findMany({
+        where: { propertyNumber: trimmed },
+        select: {
+          id: true,
+          propertyType: true,
+          occupancyType: true,
+          buildingName: true,
+          neighborhood: true,
+          unitType: true,
+          unitArea: true,
+          unitStatus: true,
+          units: {
+            select: { id: true, unitType: true, floor: true, unitArea: true, unitStatus: true },
+          },
+          registration: {
+            select: {
+              id: true,
+              submittedAt: true,
+              citizen: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  middleName: true,
+                  lastName: true,
+                  phone: true,
+                  referenceNumber: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+
+    /*
+      Grouped by citizen, because that is the question being asked.
+
+      One person may hold several cards on the same parcel now — a building, the
+      house behind it, the shop on the street — and listing those as three
+      unrelated rows would read as three different claimants on a screen whose
+      entire purpose is to show who the claimants are.
+    */
+    const byCitizen = new Map<string, {
+      citizenId: string;
+      fullName: string;
+      phone: string | null;
+      referenceNumber: string | null;
+      isActive: boolean;
+      structures: Array<{
+        propertyEntryId: string;
+        propertyType: string;
+        occupancyType: string;
+        buildingName: string | null;
+        units: Array<{
+          id: string | null;
+          unitType: string | null;
+          floor: string | null;
+          unitArea: number | null;
+          /**
+           * Why this parcel view is where حالة الوحدة earns the most.
+           *
+           * «مين على العقار ١٥٥٣؟» and «شو في فاضي بالعقار ١٥٥٣؟» are the same
+           * question asked from either end, and the roster is the only screen
+           * that already holds every card on the parcel at once. Null means
+           * nobody was asked, which is not the same as occupied and must not
+           * render as it.
+           */
+          unitStatus: string | null;
+        }>;
+      }>;
+    }>();
+
+    for (const entry of entries) {
+      const citizen = entry.registration.citizen;
+      const existing = byCitizen.get(citizen.id) ?? {
+        citizenId: citizen.id,
+        fullName: [citizen.firstName, citizen.middleName, citizen.lastName]
+          .filter(Boolean)
+          .join(' '),
+        phone: citizen.phone,
+        referenceNumber: citizen.referenceNumber,
+        isActive: citizen.isActive,
+        structures: [],
+      };
+
+      existing.structures.push({
+        propertyEntryId: entry.id,
+        propertyType: entry.propertyType,
+        occupancyType: entry.occupancyType,
+        buildingName: entry.buildingName,
+        units:
+          entry.units.length > 0
+            ? entry.units.map((unit) => ({
+                id: unit.id,
+                unitType: unit.unitType,
+                floor: unit.floor,
+                unitArea: unit.unitArea === null ? null : Number(unit.unitArea),
+                unitStatus: unit.unitStatus,
+              }))
+            : // A card whose single unit lives flat on the row itself. Shown the
+              // same way, so the screen does not expose which of the two storage
+              // shapes the register happened to use.
+              [
+                {
+                  id: null,
+                  unitType: entry.unitType,
+                  floor: null,
+                  unitArea: entry.unitArea === null ? null : Number(entry.unitArea),
+                  unitStatus: entry.unitStatus,
+                },
+              ],
+      });
+
+      byCitizen.set(citizen.id, existing);
+    }
+
+    const neighborhood = entries.find((entry) => entry.neighborhood)?.neighborhood ?? null;
+
+    return {
+      propertyNumber: trimmed,
+      neighborhood,
+      citizenCount: byCitizen.size,
+      structureCount: entries.length,
+      citizens: [...byCitizen.values()],
+    };
+  }
+
+  /**
+   * The same cadastre resolution the submission path performs, with the same
+   * outcome: a رقم العقار the registry has never heard of is reported, not
+   * refused. See `RegistrationService.resolveParcels` for why that changed.
+   *
+   * Reporting matters more on this path than on the other one. This is the
+   * screen someone opens to *finish* a record the cadastre already complained
+   * about — and a save that threw would make correcting the rest of the record
+   * impossible until the one field nobody can currently resolve is resolved.
+   */
+  private async resolveParcels(
+    propertyNumbers: readonly string[],
+  ): Promise<{ found: Map<string, ParcelLocation>; missing: Set<string> }> {
     const found = await this.parcels.findManyByNumber(propertyNumbers);
 
-    const missing = propertyNumbers
+    const unresolved = propertyNumbers
       .map((number) => number.trim())
       .filter((number) => !found.has(number));
 
-    if (missing.length > 0 && (await this.parcels.count()) > 0) {
-      throw new ValidationError(
-        `رقم العقار غير موجود في سجل البلدية العقاري: ${missing.join('، ')}`,
-        { propertyNumber: missing[0] },
-      );
-    }
+    const hasCadastre = unresolved.length > 0 && (await this.parcels.count()) > 0;
 
-    return found;
+    return { found, missing: new Set(hasCadastre ? unresolved : []) };
   }
 }

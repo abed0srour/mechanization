@@ -14,11 +14,13 @@ import {
 import {
   fieldFlagsSchema,
   flaggedPaths,
+  isUnestablished,
   issuePath,
   withoutFlagged,
   type FieldFlag,
 } from './field-flag.schema';
 import { uuid } from './primitives';
+import { NON_OWNER_OCCUPANCY } from './enums';
 
 /**
  * Staff-entered registrations — the same submission a citizen used to file
@@ -148,7 +150,20 @@ function branchFieldsOnly(card: Record<string, unknown>): Record<string, unknown
     'occupancyType',
     'propertyType',
     ...branch,
-    ...(card.occupancyType === 'TENANT' ? ['landlordName', 'landlordPhone'] : []),
+    /*
+      Two fields gated on the *occupancy* axis, which `PROPERTY_FIELD_MAP` —
+      keyed by property type — has no way to describe. Both are listed here for
+      the same reason and neither is a special case of the other: the landlord
+      block exists only for someone occupying another person's property, and
+      حالة الوحدة exists only for the owner, who is the only person who can
+      say a unit is empty. Omitting either from this set would not reject it;
+      it would silently drop it on the way to `partialPropertyEntrySchema`,
+      which is the quieter and worse failure.
+    */
+    ...((NON_OWNER_OCCUPANCY as readonly string[]).includes(card.occupancyType as string)
+      ? ['landlordName', 'landlordPhone']
+      : []),
+    ...(card.occupancyType === 'OWNER' ? ['unitStatus'] : []),
   ]);
 
   return Object.fromEntries(Object.entries(card).filter(([key]) => keep.has(key)));
@@ -236,7 +251,17 @@ function shapeSubmission(input: SubmissionInput) {
         ),
       };
     }),
-    flags: input.flags,
+    /*
+      Only the officer's own flags survive the wire.
+
+      `UNVERIFIED` says "this value exists and the municipality's records do not
+      confirm it", which is a claim only something holding those records can
+      make. Accepting one from a browser would let a client mark its own record
+      reviewed-and-fine, or — the likelier accident — replay a stale cadastre
+      verdict from a phone that queued the record days before the parcel was
+      imported. The server re-derives them on every write instead.
+    */
+    flags: input.flags.filter(isUnestablished),
     clientSubmissionId: input.clientSubmissionId,
   };
 }
@@ -300,7 +325,60 @@ export type AdminCitizenUpdateSubmission = z.infer<typeof adminUpdateCitizenSubm
 export const CITIZEN_RECORD_STATUS = ['PENDING', 'REQUIRES_REVIEW'] as const;
 export type CitizenRecordStatus = (typeof CITIZEN_RECORD_STATUS)[number];
 
-/** A record is «يتطلب مراجعة» exactly when something on it was left unestablished. */
+/**
+ * A record is «يتطلب مراجعة» exactly when something on it is still open —
+ * a field the officer could not establish, or a value the municipality's own
+ * records do not confirm. Both are work for a person; neither is a rejection.
+ */
 export function statusForFlags(flags: readonly FieldFlag[]): CitizenRecordStatus {
   return flags.length > 0 ? 'REQUIRES_REVIEW' : 'PENDING';
+}
+
+/**
+ * What is said about a رقم العقار the cadastre has never heard of.
+ *
+ * Stored verbatim on the record, so the person who opens it next month reads
+ * the same sentence whether the number was typed at a counter or queued on a
+ * phone three days earlier.
+ */
+export const CADASTRE_UNVERIFIED_REASON =
+  'رقم العقار غير مدرج في السجل العقاري للبلدية — يلزم مطابقته مع سند الملكية.';
+
+/**
+ * The `UNVERIFIED` flags a submission earns from the cadastre check.
+ *
+ * This replaced a hard rejection, and the reasoning is worth keeping next to
+ * the code. A number absent from the cadastre is *usually* a typo — which is
+ * why the check exists — but it is also, routinely, a parcel the survey office
+ * has not imported yet, or one recorded under a different form of the same
+ * number. Refusing the submission treats the first case as the only case, and
+ * it does so at the worst possible moment: offline, the officer is told the
+ * record will sync, walks out of the settlement, and the record fails on
+ * arrival hours later with nobody there to retype it.
+ *
+ * So the number is kept exactly as the officer read it, the record is held at
+ * «يتطلب مراجعة» with the reason attached, and the typo is caught by the same
+ * person who would have had to catch it anyway — with the household's actual
+ * data in front of them instead of a blank.
+ *
+ * A card whose number the officer already flagged `UNESTABLISHED` is skipped:
+ * that field has no value to be unconfirmed about, and two flags on one path
+ * is a contradiction the storage cannot express.
+ */
+export function cadastreFlags(
+  properties: ReadonlyArray<{ propertyNumber?: string | null }>,
+  missing: ReadonlySet<string>,
+  officerFlags: readonly FieldFlag[] = [],
+): FieldFlag[] {
+  const alreadyFlagged = flaggedPaths(officerFlags);
+
+  return properties.flatMap((property, index) => {
+    const number = property.propertyNumber?.trim();
+    if (!number || !missing.has(number)) return [];
+
+    const path = `properties.${index}.propertyNumber`;
+    if (alreadyFlagged.has(path)) return [];
+
+    return [{ path, reason: CADASTRE_UNVERIFIED_REASON, kind: 'UNVERIFIED' as const }];
+  });
 }

@@ -23,6 +23,7 @@ export function OfflineQueueNotice({
   pending,
   blocked,
   syncing,
+  authRequired,
   onSync,
   href,
   locale = 'ar',
@@ -30,6 +31,8 @@ export function OfflineQueueNotice({
   pending: number;
   blocked: number;
   syncing: boolean;
+  /** Records are waiting and there is no session to send them under. */
+  authRequired: boolean;
   onSync: () => void;
   /** Where the full queue is listed. */
   href: string;
@@ -63,6 +66,18 @@ export function OfflineQueueNotice({
               : `${blocked} سجل رفضه الخادم ويحتاج إلى مراجعة.`}
           </span>
         ) : null}
+        {/*
+          Said here as well as in the panel, because this is the banner on the
+          entry form — where an officer is most likely to file another record
+          and walk away believing the previous ones went out.
+        */}
+        {authRequired ? (
+          <span className="block font-medium text-destructive">
+            {locale === 'en'
+              ? 'Your session has ended — sign in again to send these records.'
+              : 'انتهت الجلسة — يرجى تسجيل الدخول مجدداً لإرسال هذه السجلات.'}
+          </span>
+        ) : null}
       </p>
 
       <ShellLink
@@ -77,7 +92,7 @@ export function OfflineQueueNotice({
         size="sm"
         variant="outline"
         onClick={onSync}
-        disabled={syncing || pending === 0}
+        disabled={syncing || pending === 0 || authRequired}
         className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
       >
         {syncing ? (
@@ -148,7 +163,7 @@ export function OfflineQueuePanel({
             size="sm"
             variant="outline"
             onClick={queue.sync}
-            disabled={queue.syncing || queue.pending === 0}
+            disabled={queue.syncing || queue.pending === 0 || queue.authRequired}
             className="h-7 gap-1.5 px-2.5 text-xs"
           >
             {queue.syncing ? (
@@ -160,6 +175,18 @@ export function OfflineQueuePanel({
           </Button>
         </div>
       </header>
+
+      {queue.authRequired ? (
+        <p
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive"
+        >
+          <TriangleAlert className="size-4 shrink-0" aria-hidden />
+          {locale === 'en'
+            ? 'Your session has ended. These records are safe on this device and will be sent once you sign in again.'
+            : 'انتهت الجلسة. السجلات محفوظة على هذا الجهاز وستُرسل بعد تسجيل الدخول مجدداً.'}
+        </p>
+      ) : null}
 
       <ul className="space-y-1.5">
         {queue.items.map((item) => (
@@ -177,9 +204,20 @@ export function OfflineQueuePanel({
               </span>
             ) : null}
 
+            {/*
+              `basis-full` rather than `shrink-0`: a rejection is a whole
+              sentence from the server («رقم العقار غير موجود…»), and holding it
+              on one line pushed «تعديل» and «حذف» off the side of a phone —
+              the two things the message exists to prompt.
+            */}
             {item.status === 'blocked' ? (
-              <span className="min-w-0 shrink-0 text-destructive">
+              <span className="min-w-0 basis-full text-destructive sm:basis-auto sm:flex-1">
                 {/* Verbatim, because it is the only thing that says what to fix. */}
+                {item.lastError}
+              </span>
+            ) : item.lastError ? (
+              <span className="flex min-w-0 basis-full items-center gap-1 font-medium text-warning sm:basis-auto sm:flex-1">
+                <TriangleAlert className="size-3 shrink-0" aria-hidden />
                 {item.lastError}
               </span>
             ) : (

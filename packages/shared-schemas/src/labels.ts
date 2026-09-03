@@ -9,8 +9,10 @@ import type {
   PropertyType,
   ResidentStatus,
   StaffRole,
+  UnitStatus,
   UnitType,
 } from './enums';
+import type { FeeBasis, FeeTargetCategory } from './fee.schema';
 
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
@@ -49,9 +51,19 @@ export const ar = {
     LAND: 'أراضٍ',
     TENT: 'خيم',
     APARTMENT: 'شقق سكنية',
+    INDEPENDENT_HOUSE: 'منازل مستقلة',
     CLINIC: 'عيادات',
+    OFFICE: 'مكاتب',
     SHOP: 'محلات تجارية',
-  },
+    WAREHOUSE: 'مستودعات',
+  } satisfies Record<FeeTargetCategory, string>,
+
+  /** What the notice's amount is multiplied by. See `FEE_BASIS`. */
+  feeBasis: {
+    FLAT: 'مبلغ ثابت لكل مواطن',
+    PER_UNIT: 'المبلغ × عدد الوحدات',
+    PER_AREA: 'المبلغ × إجمالي المساحة (م²)',
+  } satisfies Record<FeeBasis, string>,
 
   /** Where a payment stands. `PENDING_REVIEW` is a claim, not a receipt. */
   paymentStatus: {
@@ -105,7 +117,27 @@ export const ar = {
     WIDOWED: 'أرمل',
   } satisfies Record<MaritalStatus, string>,
 
-  occupancyType: { OWNER: 'مالك', TENANT: 'مستأجر' } satisfies Record<OccupancyType, string>,
+  /**
+   * Never the bare word «شاغل».
+   *
+   * It differs from «شاغر» — the unit status below — by a single dot, and both
+   * appear on the same property card. The parenthetical is what a clerk
+   * glancing at a phone in a stairwell actually reads, and it is the half that
+   * cannot be confused with anything.
+   */
+  occupancyType: {
+    OWNER: 'مالك',
+    TENANT: 'مستأجر',
+    FREE_OCCUPANT: 'شاغل بتسامح (بدون بدل)',
+  } satisfies Record<OccupancyType, string>,
+
+  /** حالة الوحدة — about the unit, not the person. See `UNIT_STATUS`. */
+  unitStatus: {
+    OWNER_OCCUPIED: 'مشغولة من المالك',
+    RENTED: 'مؤجرة',
+    VACANT: 'شاغرة (غير مأهولة)',
+    UNDER_CONSTRUCTION: 'قيد الإنجاز',
+  } satisfies Record<UnitStatus, string>,
 
   propertyType: {
     BUILDING: 'مبنى',
@@ -116,8 +148,11 @@ export const ar = {
 
   unitType: {
     APARTMENT: 'شقة',
+    INDEPENDENT_HOUSE: 'منزل مستقل',
     CLINIC: 'عيادة',
+    OFFICE: 'مكتب',
     SHOP: 'محل تجاري',
+    WAREHOUSE: 'مستودع',
   } satisfies Record<UnitType, string>,
 
   landType: {
@@ -173,6 +208,7 @@ export const ar = {
     occupancyType: 'نوع الإشغال',
     landlordName: 'اسم المالك',
     landlordPhone: 'رقم هاتف المالك',
+    unitStatus: 'حالة الوحدة',
     propertyType: 'نوع العقار',
     neighborhood: 'الحي',
     propertyNumber: 'رقم العقار',
@@ -219,9 +255,18 @@ export const en = {
     LAND: 'Land',
     TENT: 'Tents',
     APARTMENT: 'Apartments',
+    INDEPENDENT_HOUSE: 'Independent Houses',
     CLINIC: 'Clinics',
+    OFFICE: 'Offices',
     SHOP: 'Commercial Shops',
-  },
+    WAREHOUSE: 'Warehouses',
+  } satisfies Record<FeeTargetCategory, string>,
+
+  feeBasis: {
+    FLAT: 'Flat amount per citizen',
+    PER_UNIT: 'Rate × number of units',
+    PER_AREA: 'Rate × total area (m²)',
+  } satisfies Record<FeeBasis, string>,
 
   paymentStatus: {
     UNPAID: 'Unpaid',
@@ -272,7 +317,18 @@ export const en = {
     WIDOWED: 'Widowed',
   } satisfies Record<MaritalStatus, string>,
 
-  occupancyType: { OWNER: 'Owner', TENANT: 'Tenant' } satisfies Record<OccupancyType, string>,
+  occupancyType: {
+    OWNER: 'Owner',
+    TENANT: 'Tenant',
+    FREE_OCCUPANT: 'Free occupant (no rent)',
+  } satisfies Record<OccupancyType, string>,
+
+  unitStatus: {
+    OWNER_OCCUPIED: 'Owner-occupied',
+    RENTED: 'Rented out',
+    VACANT: 'Vacant',
+    UNDER_CONSTRUCTION: 'Under construction',
+  } satisfies Record<UnitStatus, string>,
 
   propertyType: {
     BUILDING: 'Building',
@@ -283,8 +339,11 @@ export const en = {
 
   unitType: {
     APARTMENT: 'Apartment',
+    INDEPENDENT_HOUSE: 'Independent House',
     CLINIC: 'Clinic',
+    OFFICE: 'Office',
     SHOP: 'Commercial Shop',
+    WAREHOUSE: 'Warehouse',
   } satisfies Record<UnitType, string>,
 
   landType: {
@@ -326,6 +385,7 @@ export const en = {
     occupancyType: 'Occupancy Type',
     landlordName: 'Landlord Name',
     landlordPhone: 'Landlord Phone',
+    unitStatus: 'Unit Status',
     propertyType: 'Property Type',
     neighborhood: 'Neighborhood',
     propertyNumber: 'Property Number',

@@ -34,6 +34,18 @@ export interface QueueState {
   blocked: number;
   /** A drain is in flight. */
   syncing: boolean;
+  /**
+   * There are records waiting and no staff session to send them under.
+   *
+   * Engine state rather than a note written onto each record, which is what
+   * this was first: per-record notes cost a write per row per attempt, count
+   * against nothing, and — the reason they had to go — go stale. Once the
+   * officer signs back in, thirty rows still carrying «انتهت الجلسة» are all
+   * lying, and nothing clears them until each one happens to be retried. This
+   * is one boolean recomputed on every drain, so it is right the moment it is
+   * read.
+   */
+  authRequired: boolean;
   /** How many records the last completed drain delivered. */
   lastSynced: number;
   online: boolean;
@@ -44,6 +56,7 @@ const EMPTY: QueueState = {
   pending: 0,
   blocked: 0,
   syncing: false,
+  authRequired: false,
   lastSynced: 0,
   online: true,
 };
@@ -196,8 +209,27 @@ export async function syncQueue(tenant: string): Promise<void> {
     let delivered = 0;
 
     try {
+      /*
+        No usable session — and the queue has to say so rather than go quiet.
+
+        This is reachable with records still waiting: a token that expired while
+        the phone was in a bag, or a colleague signing out on a shared tablet.
+        Returning silently left «مزامنة الآن» looking like a button that does
+        nothing, next to rows claiming to be «بانتظار الإرسال» — which they were
+        not, in any sense that would ever resolve on its own.
+
+        Nothing is written to the records themselves. This is a fact about the
+        session, not about any one registration, and it stops being true the
+        moment someone logs in.
+      */
       const session = loadSession(tenant);
-      if (!session || session.user.kind !== 'STAFF') return;
+      if (!session || session.user.kind !== 'STAFF') {
+        const waiting = (await listQueued(tenant)).some((item) => item.status === 'pending');
+        publish(engine, { authRequired: waiting });
+        return;
+      }
+
+      publish(engine, { authRequired: false });
 
       for (const item of await listQueued(tenant)) {
         if (item.status !== 'pending') continue;

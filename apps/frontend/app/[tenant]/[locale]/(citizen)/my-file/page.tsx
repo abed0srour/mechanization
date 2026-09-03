@@ -473,6 +473,14 @@ export default function MyFilePage({
                   property.unitCount > 0
                     ? `${property.unitCount} ${locale === 'en' ? 'units' : 'وحدة'}`
                     : null,
+                  // Shown to the citizen because it is a fact about their
+                  // property that can change what they are billed — a resident
+                  // who can see «شاغرة» here is a resident who can tell the
+                  // municipality when it stops being true, which is the only
+                  // correction mechanism this field has.
+                  property.unitStatus
+                    ? (labels.unitStatus[property.unitStatus as never] ?? property.unitStatus)
+                    : null,
                   property.tentLocation,
                 ].filter(Boolean) as string[];
 

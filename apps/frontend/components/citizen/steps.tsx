@@ -1,7 +1,14 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
-import { BLOOD_TYPE, getLabels } from '@mechanization/shared-schemas';
+import {
+  BLOOD_TYPE,
+  GENDER,
+  getLabels,
+  IDENTITY_DOC_TYPE,
+  MARITAL_STATUS,
+  RESIDENT_STATUS,
+} from '@mechanization/shared-schemas';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -41,8 +48,8 @@ export function PersonalStep({
    * that status, so the choice is not offered once لبناني is selected.
    */
   const residentStatusOptions = isLebanese
-    ? (['VILLAGE_RESIDENT', 'DISPLACED'] as const)
-    : (['VILLAGE_RESIDENT', 'DISPLACED', 'REFUGEE'] as const);
+    ? RESIDENT_STATUS.filter((status) => status !== 'REFUGEE')
+    : RESIDENT_STATUS;
 
   useEffect(() => {
     if (isLebanese) {
@@ -130,7 +137,7 @@ export function PersonalStep({
               <SelectValue placeholder={locale === 'en' ? 'Select gender…' : 'اختر الجنس…'} />
             </SelectTrigger>
             <SelectContent>
-              {(['MALE', 'FEMALE'] as const).map((option) => (
+              {GENDER.map((option) => (
                 <SelectItem key={option} value={option}>
                   {labels.gender[option]}
                 </SelectItem>
@@ -256,7 +263,7 @@ export function PersonalStep({
                 <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
               </SelectTrigger>
               <SelectContent>
-                {(['NATIONAL_ID', 'FAMILY_RECORD', 'DRIVER_LICENSE', 'PASSPORT'] as const).map(
+                {IDENTITY_DOC_TYPE.map(
                   (o) => (
                     <SelectItem key={o} value={o}>
                       {labels.identityDocType[o]}
@@ -375,7 +382,7 @@ export function ContactStep({
               <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
             </SelectTrigger>
             <SelectContent>
-              {(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED'] as const).map((o) => (
+              {MARITAL_STATUS.map((o) => (
                 <SelectItem key={o} value={o}>
                   {labels.maritalStatus[o]}
                 </SelectItem>

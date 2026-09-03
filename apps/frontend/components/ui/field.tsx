@@ -1,8 +1,8 @@
 'use client';
 
 import { createContext, useContext, useId } from 'react';
-import { FileQuestion, X } from 'lucide-react';
-import { isFlaggablePath, type FieldFlag } from '@mechanization/shared-schemas';
+import { FileQuestion, ShieldQuestion, X } from 'lucide-react';
+import { isFlaggablePath, isUnestablished, type FieldFlag } from '@mechanization/shared-schemas';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +20,17 @@ import { cn } from '@/lib/utils';
 interface FieldFlagApi {
   /** Flags in effect, keyed by dot-path. */
   flags: ReadonlyMap<string, string>;
+  /**
+   * Fields holding a value the municipality's own records do not confirm,
+   * keyed by dot-path, carrying the server's reason.
+   *
+   * Read-only on purpose. These are not the officer's statement about their
+   * afternoon — they are the server's about its cadastre, re-derived on every
+   * save — so there is nothing here for a form to set or clear. What the
+   * officer *can* do is the useful thing, which is why the input stays on
+   * screen for these where a raised flag replaces it: correct the value.
+   */
+  unverified: ReadonlyMap<string, string>;
   /** Raise or amend a flag. An empty reason is what the form refuses to save. */
   set: (path: string, reason: string) => void;
   /** Withdraw a flag — the field is answerable after all. */
@@ -53,11 +64,37 @@ export function useFieldFlags(): FieldFlagApi | null {
 
 /** The flags as the wire wants them: an array, in the order fields appear. */
 export function flagsToArray(flags: ReadonlyMap<string, string>): FieldFlag[] {
-  return [...flags].map(([path, reason]) => ({ path, reason }));
+  return [...flags].map(([path, reason]) => ({
+    path,
+    reason,
+    kind: 'UNESTABLISHED' as const,
+  }));
 }
 
+/**
+ * The officer-editable flags out of what the server (or the offline queue)
+ * stored — `UNESTABLISHED` only.
+ *
+ * Filtering here is load-bearing, not tidiness. A stored `UNVERIFIED` flag
+ * names a field that *has* a value; letting it into this map would render the
+ * field as flagged, hide the value behind a reason box, and then send it back
+ * as an officer's flag on the next save — at which point the server would
+ * blank the very رقم العقار the flag exists to preserve. The value would be
+ * destroyed by the act of opening the record to look at it.
+ */
 export function flagsFromArray(flags: readonly FieldFlag[]): Map<string, string> {
-  return new Map(flags.map((flag) => [flag.path, flag.reason]));
+  return new Map(
+    flags.filter(isUnestablished).map((flag) => [flag.path, flag.reason] as const),
+  );
+}
+
+/** The counterpart: the server's own «بانتظار التحقق» notes, for display. */
+export function unverifiedFromArray(flags: readonly FieldFlag[]): Map<string, string> {
+  return new Map(
+    flags
+      .filter((flag) => !isUnestablished(flag))
+      .map((flag) => [flag.path, flag.reason] as const),
+  );
 }
 
 /**
@@ -67,8 +104,16 @@ export function flagsFromArray(flags: readonly FieldFlag[]): Map<string, string>
  *
  * `path` opts the field into «غير مؤكَّد». Given one — and rendered inside a
  * `FieldFlagProvider` — the caption grows a control that lets the officer say
- * they could not establish this value and why. Without it the field renders
- * exactly as it did, which is what the citizen wizard still gets.
+ * they could not establish this value, right where they are standing when they
+ * find out. Without it the field renders exactly as it did, which is what the
+ * citizen wizard still gets.
+ *
+ * The control is here as well as in the manager dialog, not instead of it: a
+ * gap is discovered *at the field*, mid-entry, and making the dialog the only
+ * route meant leaving the field, finding it again in a list of twenty, and
+ * coming back — which on a phone, in a settlement, is how a gap gets guessed
+ * at instead of recorded. The dialog is for the other moment, the pass before
+ * «حفظ» that asks what the record still does not say.
  */
 export function Field({
   label,
@@ -96,6 +141,14 @@ export function Field({
   const flaggable = Boolean(flagging && path && isFlaggablePath(path));
   const reason = flaggable && path ? flagging?.flags.get(path) : undefined;
   const flagged = reason !== undefined;
+  /*
+    The server's own note about this field: a value is present, and the
+    municipality's records do not confirm it. Rendered *around* the input
+    rather than in place of it — the whole point of the second flag kind is
+    that the value survives, so the officer can read it, compare it against the
+    deed in their hand, and correct it if it is wrong.
+  */
+  const unverifiedNote = path ? flagging?.unverified.get(path) : undefined;
   const locale = flagging?.locale ?? 'ar';
 
   return (
@@ -117,11 +170,44 @@ export function Field({
           )}
         </Label>
 
-        {flagged ? (
-          <span className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning ring-1 ring-warning/30">
-            <FileQuestion className="size-3" aria-hidden />
-            <span>{locale === 'en' ? 'Unverified' : 'غير مؤكَّد'}</span>
+        {/*
+          The server's verdict outranks the officer's control on the same
+          field. Not to take the decision away — flagging it «غير مؤكَّد» is
+          still available from the manager dialog if the number turns out to be
+          unusable — but because the two read as contradictory side by side,
+          and the useful next action here is to check the value, not to erase
+          it.
+        */}
+        {unverifiedNote !== undefined ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning ring-1 ring-warning/30">
+            <ShieldQuestion className="size-3 shrink-0" aria-hidden />
+            <span>{locale === 'en' ? 'Needs verification' : 'بانتظار التحقق'}</span>
           </span>
+        ) : flaggable && path ? (
+          <button
+            type="button"
+            onClick={() => (flagged ? flagging?.clear(path) : flagging?.set(path, ''))}
+            aria-pressed={flagged}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors select-none',
+              flagged
+                ? 'bg-warning/15 text-warning ring-1 ring-warning/40'
+                : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
+            )}
+          >
+            {flagged ? (
+              <X className="size-3 shrink-0" aria-hidden />
+            ) : (
+              <FileQuestion className="size-3 shrink-0" aria-hidden />
+            )}
+            {flagged
+              ? locale === 'en'
+                ? 'Undo'
+                : 'تراجع'
+              : locale === 'en'
+                ? 'Unverified'
+                : 'غير مؤكَّد'}
+          </button>
         ) : null}
       </div>
 
@@ -158,6 +244,17 @@ export function Field({
       ) : (
         children
       )}
+
+      {/*
+        Said under the input, not over it. This annotates a value that is still
+        on screen and still editable, so it has to read as a note about what the
+        officer is looking at rather than as a refusal of it.
+      */}
+      {unverifiedNote !== undefined && !flagged ? (
+        <p className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1 text-[11px] leading-normal text-warning">
+          {unverifiedNote}
+        </p>
+      ) : null}
 
       {error ? (
         <p

@@ -72,7 +72,7 @@ export function ZoneLegend({
                 ? (isEnglish ? 'Expand sectors list' : 'توسيع قائمة القطاعات')
                 : (isEnglish ? 'Collapse sectors list' : 'طي قائمة القطاعات')
             }
-            className="size-6 text-muted-foreground hover:text-foreground cursor-pointer"
+            className="size-7 text-muted-foreground hover:text-foreground cursor-pointer sm:size-6"
           >
             {collapsed ? (
               <ChevronDown className="size-3.5" aria-hidden />
@@ -99,7 +99,7 @@ export function ZoneLegend({
                   : (isEnglish ? 'Show sector names' : 'إظهار أسماء القطاعات')
               }
               className={cn(
-                'size-6 cursor-pointer transition-colors',
+                'size-7 cursor-pointer transition-colors sm:size-6',
                 labelsVisible
                   ? 'text-primary hover:text-primary/80 font-bold'
                   : 'text-muted-foreground/40 hover:text-foreground',
@@ -125,7 +125,7 @@ export function ZoneLegend({
                 ? (isEnglish ? 'Hide sectors from map' : 'إخفاء طبقة القطاعات')
                 : (isEnglish ? 'Show sectors on map' : 'إظهار طبقة القطاعات')
             }
-            className="size-6 text-muted-foreground hover:text-foreground cursor-pointer"
+            className="size-7 text-muted-foreground hover:text-foreground cursor-pointer sm:size-6"
           >
             {visible ? (
               <Eye className="size-3.5" aria-hidden />
@@ -138,7 +138,7 @@ export function ZoneLegend({
 
       {/* Sector List (hidden when collapsed, but zones remain visible on the map) */}
       {!collapsed ? (
-        <ul className="max-h-56 overflow-y-auto p-1 space-y-0.5">
+        <ul className="max-h-40 overflow-y-auto p-1 space-y-0.5 sm:max-h-56">
           {zones.map((zone) => {
             const active = activeZoneId === zone.id;
             return (
@@ -181,7 +181,7 @@ export function ZoneLegend({
                     }}
                     title={isEnglish ? `View ${zone.name} info` : `معلومات ومساحة ${zone.name}`}
                     aria-label={isEnglish ? `View ${zone.name} info` : `معلومات ${zone.name}`}
-                    className="size-6 text-muted-foreground/60 hover:text-primary hover:bg-background/80 shrink-0 cursor-pointer"
+                    className="size-7 text-muted-foreground/60 hover:text-primary hover:bg-background/80 shrink-0 cursor-pointer sm:size-6"
                   >
                     <Info className="size-3.5" />
                   </Button>

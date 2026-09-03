@@ -3,7 +3,8 @@ dist/
 build/
 .next/
 .turbo/
-coverage/
+/coverage/
+apps/*/coverage/
 *.tsbuildinfo
 
 # env — never commit real credentials

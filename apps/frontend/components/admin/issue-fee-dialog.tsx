@@ -18,9 +18,11 @@ import {
 import {
   getLabels,
   FEE_FREQUENCY,
+  FEE_BASIS,
   FEE_TARGET_CATEGORY,
   FEE_TARGET_TYPE,
 } from '@mechanization/shared-schemas';
+import type { FeeBasis } from '@mechanization/shared-schemas';
 import type { CitizenListItem } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,6 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ChoiceCard, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import {
@@ -48,6 +51,10 @@ import { formatDate } from '@/lib/dates';
 export interface IssueFeeValues {
   title: string;
   amount: string;
+  /** What `amount` is per — see `FEE_BASIS`. */
+  basis: FeeBasis;
+  /** False exempts units recorded شاغرة / قيد الإنجاز from this notice. */
+  chargesUnoccupied: boolean;
   frequency: string;
   targetType: string;
   targetCategory: string;
@@ -59,6 +66,21 @@ export interface IssueFeeValues {
 const EMPTY: IssueFeeValues = {
   title: '',
   amount: '',
+  // Flat by default, deliberately. Moving a fee onto a per-unit basis changes
+  // what residents owe, so it is a thing a clerk chooses on purpose.
+  basis: 'FLAT',
+  /*
+    And unoccupied units are charged by default, for the mirror-image reason.
+
+    Exempting them is the more generous choice and therefore the one that looks
+    safe to default to — it is not. It hands every property card in the register
+    the power to lower a bill, retroactively and every period, on the strength of
+    a field an officer may have set months ago and nobody has revisited. Whether
+    الوحدات الشاغرة are exempt is a council decision with a by-law behind it, so
+    it is switched on the same way the basis is: on purpose, once, by someone
+    who meant it.
+  */
+  chargesUnoccupied: true,
   frequency: 'MONTHLY',
   targetType: 'ALL_CITIZENS',
   targetCategory: 'SHOP',
@@ -254,7 +276,13 @@ export function IssueFeeDialog({
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field
-                  label={locale === 'en' ? 'Amount (LBP)' : 'المبلغ بالليرة اللبنانية'}
+                  label={
+                    values.basis === 'FLAT'
+                      ? (locale === 'en' ? 'Amount (LBP)' : 'المبلغ بالليرة اللبنانية')
+                      : values.basis === 'PER_AREA'
+                        ? (locale === 'en' ? 'Rate per m² (LBP)' : 'السعر للمتر المربع (ل.ل.)')
+                        : (locale === 'en' ? 'Rate per unit (LBP)' : 'السعر لكل وحدة (ل.ل.)')
+                  }
                   htmlFor="fee-amount"
                   required
                 >
@@ -268,6 +296,86 @@ export function IssueFeeDialog({
                     onChange={(event) => set({ amount: formatLbp(event.target.value) })}
                   />
                 </Field>
+
+                <Field
+                  label={locale === 'en' ? 'Charged' : 'طريقة الاحتساب'}
+                  htmlFor="fee-basis"
+                  hint={
+                    values.basis === 'FLAT'
+                      ? (locale === 'en'
+                          ? 'Every targeted citizen owes the same amount, however much they own.'
+                          : 'كل مواطن مستهدف يدفع المبلغ نفسه مهما بلغ عدد وحداته.')
+                      : (locale === 'en'
+                          ? 'Each citizen is billed from what the register says they hold. Records still awaiting a field survey are reported instead of billed.'
+                          : 'يُحتسب المبلغ من واقع ما هو مسجَّل لكل مواطن. السجلات التي تنتظر الجرد الميداني يتم إبلاغك بها بدل احتسابها.')
+                  }
+                  required
+                >
+                  <Select
+                    value={values.basis}
+                    onValueChange={(next) => set({ basis: next as FeeBasis })}
+                  >
+                    <SelectTrigger id="fee-basis">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FEE_BASIS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {labels.feeBasis[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+
+                {/*
+                  Hidden under FLAT, where it decides nothing.
+
+                  A flat notice charges its amount to everyone it targets and
+                  never asks the register what they hold, so an exemption for
+                  empty units has nothing to apply to. Showing the control there
+                  would offer a clerk a lever that does not move — and the value
+                  is preserved rather than reset, so a notice toggled FLAT and
+                  back does not quietly lose the exemption on the way.
+                */}
+                {values.basis === 'FLAT' ? null : (
+                  <Field
+                    label={locale === 'en' ? 'Unoccupied units' : 'الوحدات غير المشغولة'}
+                    htmlFor="fee-unoccupied"
+                    hint={
+                      values.chargesUnoccupied
+                        ? (locale === 'en'
+                            ? 'Units recorded vacant or under construction are charged like any other — the register records the status but this fee ignores it.'
+                            : 'الوحدات المسجَّلة شاغرة أو قيد الإنجاز تُحتسب كغيرها — السجل يدوّن الحالة وهذا الرسم لا يأخذها بالاعتبار.')
+                        : (locale === 'en'
+                            ? 'Vacant and under-construction units are exempt. This lowers what some residents owe every period — it needs the by-law it rests on.'
+                            : 'الوحدات الشاغرة وقيد الإنجاز معفاة. هذا يخفّض ما يترتّب على بعض المكلَّفين في كل دورة — يستلزم استناداً إلى نص قانوني.')
+                    }
+                  >
+                    <label
+                      htmlFor="fee-unoccupied"
+                      className={cn(
+                        'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs cursor-pointer select-none transition-colors',
+                        values.chargesUnoccupied
+                          ? 'border-border/70 bg-card hover:bg-muted/40'
+                          : 'border-warning/50 bg-warning/10',
+                      )}
+                    >
+                      <Checkbox
+                        id="fee-unoccupied"
+                        checked={!values.chargesUnoccupied}
+                        onCheckedChange={(checked) =>
+                          set({ chargesUnoccupied: checked !== true })
+                        }
+                      />
+                      <span className={values.chargesUnoccupied ? '' : 'font-medium text-warning'}>
+                        {locale === 'en'
+                          ? 'Exempt vacant / under-construction units'
+                          : 'إعفاء الوحدات الشاغرة وقيد الإنجاز'}
+                      </span>
+                    </label>
+                  </Field>
+                )}
 
                 <Field
                   label={locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق'}

@@ -6,9 +6,11 @@ import {
   IDENTITY_DOC_TYPE,
   LAND_TYPE,
   MARITAL_STATUS,
+  NON_OWNER_OCCUPANCY,
   OCCUPANCY_TYPE,
   PROPERTY_TYPE,
   RESIDENT_STATUS,
+  UNIT_STATUS,
   UNIT_TYPE,
 } from './enums';
 import { normalizeDigits } from './primitives';
@@ -67,6 +69,7 @@ export const IMPORT_COLUMN_KEYS = [
   'sharedRights',
   'unitType',
   'unitFloor',
+  'unitStatus',
 ] as const;
 
 export type ImportColumnKey = (typeof IMPORT_COLUMN_KEYS)[number];
@@ -136,7 +139,11 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
     hint: Object.values(ar.occupancyType).join(' / '),
     always: true,
   },
-  { key: 'landlordName', header: 'اسم المالك', hint: 'إلزامي للمستأجر فقط' },
+  {
+    key: 'landlordName',
+    header: 'اسم المالك',
+    hint: 'إلزامي للمستأجر والشاغل بتسامح',
+  },
   { key: 'landlordPhone', header: 'هاتف المالك', hint: 'إلزامي للمستأجر فقط' },
   {
     key: 'propertyType',
@@ -162,6 +169,15 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
     hint: `${Object.values(ar.unitType).join(' / ')} — للمبنى فقط`,
   },
   { key: 'unitFloor', header: 'الطابق', hint: 'إلزامي للمبنى فقط' },
+  {
+    key: 'unitStatus',
+    header: 'حالة الوحدة',
+    // Optional in the file for the same reason it is optional in the form: an
+    // imported register that never recorded vacancy should not have a value
+    // invented for every row on the way in. Blank means "not asked", and the
+    // biller reads it as occupied.
+    hint: `${Object.values(ar.unitStatus).join(' / ')} — اختياري، للمالك فقط`,
+  },
 ];
 
 /** Header → key, for matching whatever order a clerk's file happens to use. */
@@ -255,9 +271,24 @@ export function buildCitizenPayload(row: ImportRow): unknown {
   const area = text(row.unitArea) ? normalizeDigits(text(row.unitArea)!) : undefined;
 
   /** The property-type branch, mirroring `propertyBranch` field for field. */
+  /*
+    A شاغل بتسامح needs the landlord block too.
+
+    Gated on TENANT alone, a file whose نوع الإشغال column says «شاغل بتسامح»
+    would have its اسم المالك silently dropped here and then be rejected for
+    not having one — a validation error naming a column the clerk did fill in.
+  */
+  const isNonOwner = (NON_OWNER_OCCUPANCY as readonly string[]).includes(
+    occupancyType as string,
+  );
+
+  const unitStatus = row.unitStatus
+    ? toEnum(UNIT_STATUS, ar.unitStatus, row.unitStatus)
+    : undefined;
+
   const property: Record<string, unknown> = {
     occupancyType,
-    ...(occupancyType === 'TENANT'
+    ...(isNonOwner
       ? { landlordName: text(row.landlordName), landlordPhone: text(row.landlordPhone) }
       : {}),
     propertyType,
@@ -274,6 +305,7 @@ export function buildCitizenPayload(row: ImportRow): unknown {
         side: text(row.side),
         unitArea: area,
         sharedRights,
+        unitStatus,
       },
     ];
   } else if (propertyType === 'HOUSE') {
@@ -281,6 +313,7 @@ export function buildCitizenPayload(row: ImportRow): unknown {
     property.side = text(row.side);
     property.unitArea = area;
     property.sharedRights = sharedRights;
+    property.unitStatus = unitStatus;
   } else if (propertyType === 'LAND') {
     property.landType = toEnum(LAND_TYPE, ar.landType, row.landType ?? '');
     property.unitArea = area;

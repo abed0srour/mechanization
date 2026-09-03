@@ -1,5 +1,5 @@
 import { AggregateRoot } from './aggregate-root.base';
-import { ConflictError, ValidationError } from '../errors/domain-error';
+import { ValidationError } from '../errors/domain-error';
 import { PropertyEntry } from './property-entry.entity';
 
 /**
@@ -37,21 +37,31 @@ export class Registration extends AggregateRoot {
       throw new ValidationError('A registration must include at least one property');
     }
 
-    /**
-     * Two cards in one filing cannot claim the same رقم العقار.
-     *
-     * Cards whose number was never established are skipped rather than counted
-     * as matching each other: two unknowns are not a duplicate claim, and a
-     * household registering three tents that have no cadastral number between
-     * them is the ordinary case this system exists for.
-     */
-    const numbers = props.properties
-      .map((p) => p.propertyNumber)
-      .filter((n): n is string => Boolean(n));
-    const duplicate = numbers.find((n, i) => numbers.indexOf(n) !== i);
-    if (duplicate) {
-      throw new ConflictError(`Property number '${duplicate}' appears more than once`);
-    }
+    /*
+      Several cards in one filing MAY claim the same رقم العقار.
+
+      This used to be refused, on the reading that a repeated number is a
+      clerk's copy-paste slip. It is more often the property itself. One parcel
+      routinely carries a building, a standalone house behind it and a shop on
+      the street — one deed, one cadastral number, three structures that are
+      taxed and inspected as different things. Refusing the second card forced
+      the clerk to either invent a number, file the structures under one card
+      whose نوع العقار could only describe one of them, or leave them
+      unregistered; the register was getting all three.
+
+      Nothing is lost by allowing it. A parcel number was never an identity
+      here — `property_entries.propertyNumber` is deliberately non-unique across
+      citizens, because an apartment building is one number shared by everyone
+      inside it, and a rule that let twelve strangers share a number while
+      refusing one owner two of their own structures was not protecting
+      anything. What distinguishes the cards is what always did: نوع العقار,
+      the units under them, and their own row ids.
+
+      The rule was also only ever half-enforced. `CitizensService.update` never
+      called this constructor, so a clerk could file one card and then add the
+      duplicate by editing — the invariant held at the front door and nowhere
+      else, which is the worst place for an invariant to hold.
+    */
 
     const registration = new Registration(
       props.id,

@@ -1,9 +1,30 @@
 import { ValidationError } from '../errors/domain-error';
 
-export type OccupancyType = 'OWNER' | 'TENANT';
+export type OccupancyType = 'OWNER' | 'TENANT' | 'FREE_OCCUPANT';
 export type PropertyType = 'BUILDING' | 'HOUSE' | 'LAND' | 'TENT';
-export type UnitType = 'APARTMENT' | 'CLINIC' | 'SHOP';
+/**
+ * Kept in step with `UNIT_TYPE` in the shared enums by hand, because this layer
+ * deliberately imports nothing.
+ *
+ * It had fallen three values behind — `INDEPENDENT_HOUSE`, `OFFICE` and
+ * `WAREHOUSE` were added to the schema and the database when fees became
+ * per-unit, and never here. Nothing failed to compile, because every write
+ * crosses into Prisma through an `as never`, so the drift was invisible until
+ * a rate schedule tried to charge a مستودع differently from a محل.
+ */
+export type UnitType =
+  | 'APARTMENT'
+  | 'INDEPENDENT_HOUSE'
+  | 'CLINIC'
+  | 'OFFICE'
+  | 'SHOP'
+  | 'WAREHOUSE';
 export type LandType = 'AGRICULTURAL' | 'INDUSTRIAL';
+/** حالة الوحدة — about the unit. See `UNIT_STATUS` in the shared enums. */
+export type UnitStatus = 'OWNER_OCCUPIED' | 'RENTED' | 'VACANT' | 'UNDER_CONSTRUCTION';
+
+/** Occupancies that describe someone living in a property they do not own. */
+const NON_OWNER: ReadonlySet<OccupancyType> = new Set(['TENANT', 'FREE_OCCUPANT']);
 
 /**
  * One unit inside a building. A citizen who owns the whole building files a
@@ -16,6 +37,8 @@ export interface BuildingUnitProps {
   side?: string | null;
   unitArea: number;
   sharedRights?: string[];
+  /** Owner cards only; `normalise` clears it on anyone else's. */
+  unitStatus?: UnitStatus | null;
 }
 
 export interface PropertyEntryProps {
@@ -34,6 +57,15 @@ export interface PropertyEntryProps {
   tentLocation?: string | null;
   unitArea?: number | null;
   sharedRights?: string[];
+  /**
+   * HOUSE cards only, and only an owner's.
+   *
+   * A مبنى carries a status per unit inside `units`, because that is where its
+   * units are. أرض and خيمة carry none at all: «is this plot of land vacant»
+   * has no answer worth storing, and offering the field would put a fourth
+   * question on every tent registration in a settlement.
+   */
+  unitStatus?: UnitStatus | null;
   /** BUILDING only — every other type describes its single unit inline. */
   units?: BuildingUnitProps[];
   latitude?: number | null;
@@ -85,18 +117,34 @@ export class PropertyEntry {
     return new PropertyEntry(props);
   }
 
+  /**
+   * Someone occupying a property they do not own has to name its owner.
+   *
+   * The *phone* is required of a tenant and not of a شاغل بتسامح, which is the
+   * one place the two non-owner occupancies diverge. A tenant pays بدل to a
+   * landlord every month and can reach them; a free occupant's owner is
+   * routinely a relative abroad, elderly, or dead. Demanding a number there
+   * does not produce one — it produces an invented number, or an «غير مؤكَّد»
+   * flag on every such record until the flags stop carrying information.
+   */
   private static assertOccupancyConsistent(
     props: PropertyEntryProps,
     unestablished: UnestablishedFields,
   ): void {
-    if (props.occupancyType !== 'TENANT') return;
+    if (!NON_OWNER.has(props.occupancyType)) return;
 
-    const missing =
-      (!props.landlordName?.trim() && !unestablished.has('landlordName')) ||
-      (!props.landlordPhone?.trim() && !unestablished.has('landlordPhone'));
+    if (!props.landlordName?.trim() && !unestablished.has('landlordName')) {
+      throw new ValidationError('A non-owner entry requires the name of the property owner', {
+        propertyNumber: props.propertyNumber ?? null,
+      });
+    }
 
-    if (missing) {
-      throw new ValidationError('A tenant entry requires the landlord name and phone', {
+    if (
+      props.occupancyType === 'TENANT' &&
+      !props.landlordPhone?.trim() &&
+      !unestablished.has('landlordPhone')
+    ) {
+      throw new ValidationError('A tenant entry requires the landlord phone', {
         propertyNumber: props.propertyNumber ?? null,
       });
     }
@@ -161,7 +209,19 @@ export class PropertyEntry {
           throw fail('A house requires an area');
         }
         if (props.floor) throw fail('A standalone house cannot have a floor');
-        if (props.unitType) throw fail('A standalone house cannot have a unit type');
+        /*
+          A منزل has exactly one unit type and `normalise` supplies it.
+          
+          The rule used to be "a standalone house cannot have a unit type at
+          all", which is what made `INDEPENDENT_HOUSE` unreachable: the value
+          existed in the enum, in the database and in the list of things a fee
+          may target, and nothing could ever produce a row carrying it. What is
+          still refused is a *different* type on a house — a منزل is not a
+          مستودع, and a card claiming so has confused the two shapes.
+        */
+        if (props.unitType && props.unitType !== 'INDEPENDENT_HOUSE') {
+          throw fail('A standalone house can only be an independent house');
+        }
         break;
       case 'LAND':
         if (!required('landType', Boolean(props.landType))) throw fail('Land requires a land type');
@@ -207,16 +267,50 @@ export class PropertyEntry {
   private static normalise(props: PropertyEntryProps): PropertyEntryProps {
     const isBuilding = props.propertyType === 'BUILDING';
     const hasStructure = isBuilding || props.propertyType === 'HOUSE';
-    const isTenant = props.occupancyType === 'TENANT';
+    const isNonOwner = NON_OWNER.has(props.occupancyType);
+
+    /*
+      حالة الوحدة is the owner's statement and nobody else's.
+
+      Stripped rather than rejected, matching how the landlord block is handled
+      one line down: an out-of-branch value is what a card that was edited looks
+      like — occupancy switched from مالك to مستأجر with the old status still
+      sitting in the payload — and refusing the save over a leftover would fail
+      a correction the clerk got right. What must not survive is the leftover
+      itself: a «شاغرة» carried onto a tenant's card would claim that the person
+      filing it does not live there, and could exempt them from a fee they owe.
+    */
+    const isOwner = props.occupancyType === 'OWNER';
 
     return {
       ...props,
       neighborhood: props.neighborhood?.trim() || null,
-      landlordName: isTenant ? props.landlordName?.trim() : null,
-      landlordPhone: isTenant ? props.landlordPhone?.trim() : null,
-      // A building's unit detail lives in `units`; the inline columns describe
-      // the single unit that a HOUSE or a LAND is, and stay empty for a building.
-      unitType: null,
+      landlordName: isNonOwner ? (props.landlordName?.trim() || null) : null,
+      /*
+        `|| null` rather than a bare optional chain, because this is now a field
+        that can legitimately be absent on a card that is otherwise complete.
+        A tenant's landlord phone is required, so `undefined` never reached
+        here before; a free occupant's is not, and leaving it undefined makes
+        the entity disagree with the nullable column it is written to — and
+        with every reader that checks for null.
+      */
+      landlordPhone: isNonOwner ? (props.landlordPhone?.trim() || null) : null,
+      /*
+        A building's unit detail lives in `units`; the inline columns describe
+        the single unit that a HOUSE or a LAND is, and stay empty for a building.
+
+        A منزل is the one card whose own unit has a type, and it is *derived*
+        rather than asked: a standalone dwelling is an `INDEPENDENT_HOUSE` and
+        there is nothing else it could be, so putting the question on the form
+        would be a dropdown with one answer. Deriving it here is what makes the
+        value reachable at all — `billableUnits` reads it, `unitMatches` matches
+        on it, and a fee aimed at «منازل مستقلة» found nothing whatsoever while
+        this was hardcoded to null for every card.
+
+        أرض and خيمة genuinely have no unit type; they are not dwellings, and
+        `UNIT_TYPE` has no value that would describe them.
+      */
+      unitType: props.propertyType === 'HOUSE' ? 'INDEPENDENT_HOUSE' : null,
       landType: props.propertyType === 'LAND' ? (props.landType ?? null) : null,
       buildingName: hasStructure ? (props.buildingName?.trim() ?? null) : null,
       floor: null,
@@ -225,12 +319,17 @@ export class PropertyEntry {
       unitArea:
         props.propertyType === 'TENT' || isBuilding ? null : (props.unitArea ?? null),
       sharedRights: props.propertyType === 'HOUSE' ? (props.sharedRights ?? []) : [],
+      // A منزل is the only card that describes its own single unit; a مبنى
+      // states this per unit below, and أرض and خيمة are never asked.
+      unitStatus:
+        isOwner && props.propertyType === 'HOUSE' ? (props.unitStatus ?? null) : null,
       units: isBuilding
         ? (props.units ?? []).map((unit) => ({
             ...unit,
             floor: unit.floor.trim(),
             side: unit.side?.trim() || null,
             sharedRights: unit.sharedRights ?? [],
+            unitStatus: isOwner ? (unit.unitStatus ?? null) : null,
           }))
         : [],
       propertyNumber: props.propertyNumber?.trim() || null,
@@ -246,8 +345,18 @@ export class PropertyEntry {
     return this.props.propertyType;
   }
 
-  /** Which proof a citizen must attach for this specific card. */
-  get requiredProofDocument(): 'OWNERSHIP_PROOF' | 'RENTAL_CONTRACT' {
-    return this.props.occupancyType === 'TENANT' ? 'RENTAL_CONTRACT' : 'OWNERSHIP_PROOF';
+  /**
+   * Which proof a citizen must attach for this specific card.
+   *
+   * Null for a شاغل بتسامح, and that is the honest answer rather than a gap:
+   * the arrangement has no document. There is no عقد إيجار because no بدل is
+   * paid, and the سند الملكية names the owner, who is not the person filing.
+   * Asking for either would mean asking for a paper that does not exist — so
+   * the card is complete without one, and §7's "required proof follows
+   * occupancy" gains its third case.
+   */
+  get requiredProofDocument(): 'OWNERSHIP_PROOF' | 'RENTAL_CONTRACT' | null {
+    if (this.props.occupancyType === 'TENANT') return 'RENTAL_CONTRACT';
+    return this.props.occupancyType === 'OWNER' ? 'OWNERSHIP_PROOF' : null;
   }
 }
