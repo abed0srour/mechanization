@@ -12,7 +12,7 @@ import type {
   UnitStatus,
   UnitType,
 } from './enums';
-import type { FeeBasis, FeeTargetCategory } from './fee.schema';
+import type { FeeBasis, FeeBearer, FeeTargetCategory } from './fee.schema';
 
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
@@ -64,6 +64,26 @@ export const ar = {
     PER_UNIT: 'المبلغ × عدد الوحدات',
     PER_AREA: 'المبلغ × إجمالي المساحة (م²)',
   } satisfies Record<FeeBasis, string>,
+
+  /** Who the fee is levied on. See `FEE_BEARER`. */
+  feeBearer: {
+    OCCUPANT: 'الشاغل',
+    OWNER: 'المالك',
+  } satisfies Record<FeeBearer, string>,
+
+  /**
+   * The one line that says what choosing a bearer actually does.
+   *
+   * Kept beside the label rather than inlined in the dialog because it is the
+   * sentence a clerk reads before changing what a few hundred residents owe,
+   * and it should read identically wherever that choice is offered.
+   */
+  feeBearerHint: {
+    OCCUPANT:
+      'يُحتسب على من يشغل الوحدة فعلياً — المالك عن سكنه، والمستأجر عن مأجوره. لا تُحتسب الوحدات المؤجَّرة على مالكها لأن مستأجرها مكلَّف بها، ولا الوحدات الشاغرة أو قيد الإنجاز. مناسب لرسم النظافة والقيمة التأجيرية.',
+    OWNER:
+      'يُحتسب على صاحب العقار عن كل ما يملكه — مشغولاً كان أو مؤجَّراً أو شاغراً أو قيد الإنجاز — ولا يُحتسب على المستأجرين. مناسب للرسوم التأسيسية كالأرصفة والمجاري.',
+  } satisfies Record<FeeBearer, string>,
 
   /** Where a payment stands. `PENDING_REVIEW` is a claim, not a receipt. */
   paymentStatus: {
@@ -267,6 +287,18 @@ export const en = {
     PER_UNIT: 'Rate × number of units',
     PER_AREA: 'Rate × total area (m²)',
   } satisfies Record<FeeBasis, string>,
+
+  feeBearer: {
+    OCCUPANT: 'The occupant',
+    OWNER: 'The owner',
+  } satisfies Record<FeeBearer, string>,
+
+  feeBearerHint: {
+    OCCUPANT:
+      'Charged to whoever actually occupies the unit — an owner for what they live in, a tenant for what they rent. A landlord is not charged for units they have let, because the tenant is billed for them; vacant and under-construction units are charged to nobody. Suits waste and rental-value fees.',
+    OWNER:
+      'Charged to the deed holder for everything they own — occupied, let, vacant or still being built — and not to tenants at all. Suits foundational fees such as pavements and sewerage.',
+  } satisfies Record<FeeBearer, string>,
 
   paymentStatus: {
     UNPAID: 'Unpaid',

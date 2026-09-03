@@ -8,10 +8,12 @@ import {
   CalendarClock,
   Check,
   ClipboardList,
+  KeyRound,
   Loader2,
   Receipt,
   Target,
   TriangleAlert,
+  UserRound,
   Users,
   UserSearch,
 } from 'lucide-react';
@@ -19,10 +21,11 @@ import {
   getLabels,
   FEE_FREQUENCY,
   FEE_BASIS,
+  FEE_BEARER,
   FEE_TARGET_CATEGORY,
   FEE_TARGET_TYPE,
 } from '@mechanization/shared-schemas';
-import type { FeeBasis } from '@mechanization/shared-schemas';
+import type { FeeBasis, FeeBearer } from '@mechanization/shared-schemas';
 import type { CitizenListItem } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +36,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ChoiceCard, Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import {
@@ -53,8 +55,8 @@ export interface IssueFeeValues {
   amount: string;
   /** What `amount` is per — see `FEE_BASIS`. */
   basis: FeeBasis;
-  /** False exempts units recorded شاغرة / قيد الإنجاز from this notice. */
-  chargesUnoccupied: boolean;
+  /** Who owes it — see `FEE_BEARER`. Only consulted when basis is not FLAT. */
+  bearer: FeeBearer;
   frequency: string;
   targetType: string;
   targetCategory: string;
@@ -70,17 +72,17 @@ const EMPTY: IssueFeeValues = {
   // what residents owe, so it is a thing a clerk chooses on purpose.
   basis: 'FLAT',
   /*
-    And unoccupied units are charged by default, for the mirror-image reason.
+    And the occupant bears it by default — the commoner case, and the one that
+    changes nothing.
 
-    Exempting them is the more generous choice and therefore the one that looks
-    safe to default to — it is not. It hands every property card in the register
-    the power to lower a bill, retroactively and every period, on the strength of
-    a field an officer may have set months ago and nobody has revisited. Whether
-    الوحدات الشاغرة are exempt is a council decision with a by-law behind it, so
-    it is switched on the same way the basis is: on purpose, once, by someone
-    who meant it.
+    On a register where حالة الوحدة has not been recorded, an unmarked unit
+    reads as occupied by its owner, so this bills the owner for everything they
+    hold and each tenant for their own card: exactly the arithmetic that came
+    before any of this existed. Choosing المالك instead is a real change to
+    what residents owe, which is why it is a visible choice next to the basis
+    rather than a default anyone can arrive at without meaning to.
   */
-  chargesUnoccupied: true,
+  bearer: 'OCCUPANT',
   frequency: 'MONTHLY',
   targetType: 'ALL_CITIZENS',
   targetCategory: 'SHOP',
@@ -88,6 +90,12 @@ const EMPTY: IssueFeeValues = {
   dueDate: '',
   instructions: '',
 };
+
+/** One glyph per bearer, so the two are told apart before they are read. */
+const BEARER_ICON = {
+  OCCUPANT: UserRound,
+  OWNER: KeyRound,
+} as const;
 
 const TARGET_ICON = {
   ALL_CITIZENS: Users,
@@ -332,49 +340,64 @@ export function IssueFeeDialog({
                   Hidden under FLAT, where it decides nothing.
 
                   A flat notice charges its amount to everyone it targets and
-                  never asks the register what they hold, so an exemption for
-                  empty units has nothing to apply to. Showing the control there
-                  would offer a clerk a lever that does not move — and the value
-                  is preserved rather than reset, so a notice toggled FLAT and
-                  back does not quietly lose the exemption on the way.
+                  never asks the register what they hold, so there is no unit
+                  for a bearer rule to include or exclude. Showing the control
+                  there would offer a clerk a lever that does not move — and the
+                  value is preserved rather than reset, so a notice toggled to
+                  FLAT and back does not quietly lose the choice on the way.
+
+                  Two cards rather than a dropdown because this is the sentence
+                  that decides who in the town pays. A `Select` shows one option
+                  and hides the other behind a click; the whole difficulty here
+                  is that «الشاغل» and «المالك» sound interchangeable until you
+                  read what each does, so both descriptions are on screen at the
+                  moment of choosing.
                 */}
                 {values.basis === 'FLAT' ? null : (
+                  // Spans the row: two cards each carrying a sentence do not fit
+                  // in half a dialog, and the sentences are the whole point.
+                  <div className="sm:col-span-2">
                   <Field
-                    label={locale === 'en' ? 'Unoccupied units' : 'الوحدات غير المشغولة'}
-                    htmlFor="fee-unoccupied"
-                    hint={
-                      values.chargesUnoccupied
-                        ? (locale === 'en'
-                            ? 'Units recorded vacant or under construction are charged like any other — the register records the status but this fee ignores it.'
-                            : 'الوحدات المسجَّلة شاغرة أو قيد الإنجاز تُحتسب كغيرها — السجل يدوّن الحالة وهذا الرسم لا يأخذها بالاعتبار.')
-                        : (locale === 'en'
-                            ? 'Vacant and under-construction units are exempt. This lowers what some residents owe every period — it needs the by-law it rests on.'
-                            : 'الوحدات الشاغرة وقيد الإنجاز معفاة. هذا يخفّض ما يترتّب على بعض المكلَّفين في كل دورة — يستلزم استناداً إلى نص قانوني.')
-                    }
+                    label={locale === 'en' ? 'Levied on' : 'الرسم مترتّب على'}
+                    htmlFor="fee-bearer"
+                    required
                   >
-                    <label
-                      htmlFor="fee-unoccupied"
-                      className={cn(
-                        'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-xs cursor-pointer select-none transition-colors',
-                        values.chargesUnoccupied
-                          ? 'border-border/70 bg-card hover:bg-muted/40'
-                          : 'border-warning/50 bg-warning/10',
-                      )}
-                    >
-                      <Checkbox
-                        id="fee-unoccupied"
-                        checked={!values.chargesUnoccupied}
-                        onCheckedChange={(checked) =>
-                          set({ chargesUnoccupied: checked !== true })
-                        }
-                      />
-                      <span className={values.chargesUnoccupied ? '' : 'font-medium text-warning'}>
-                        {locale === 'en'
-                          ? 'Exempt vacant / under-construction units'
-                          : 'إعفاء الوحدات الشاغرة وقيد الإنجاز'}
-                      </span>
-                    </label>
+                    <div id="fee-bearer" className="grid gap-2 sm:grid-cols-2">
+                      {FEE_BEARER.map((option) => {
+                        const selected = values.bearer === option;
+                        const Icon = BEARER_ICON[option];
+
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => set({ bearer: option })}
+                            className={cn(
+                              'flex flex-col gap-1.5 rounded-lg border p-3 text-start transition-colors',
+                              selected
+                                ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                                : 'border-border/70 bg-card hover:bg-muted/40',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1.5 text-sm font-semibold',
+                                selected ? 'text-primary' : 'text-foreground',
+                              )}
+                            >
+                              <Icon className="size-4 shrink-0" aria-hidden />
+                              {labels.feeBearer[option]}
+                            </span>
+                            <span className="text-[11px] leading-relaxed text-muted-foreground">
+                              {labels.feeBearerHint[option]}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </Field>
+                  </div>
                 )}
 
                 <Field

@@ -90,7 +90,7 @@ export const areaField = z.coerce
  * مبنى of twenty flats would otherwise demand twenty four-way choices from an
  * officer who came to record who lives there, and a required choice someone
  * cannot answer is not answered honestly — it is answered with whatever is
- * under the thumb. This field decides money (see `FeeNotice.chargesUnoccupied`),
+ * under the thumb. This field decides money (see `FeeNotice.bearer`),
  * and a guessed exemption is worse than no exemption.
  *
  * The consequence is deliberate and runs one way: a unit nobody marked is

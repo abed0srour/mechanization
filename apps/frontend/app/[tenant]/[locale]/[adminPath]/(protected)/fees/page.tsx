@@ -329,7 +329,7 @@ export default function FeesPage({
         title: values.title,
         amount: Number(values.amount.replace(/\D/g, '')),
         basis: values.basis,
-        chargesUnoccupied: values.chargesUnoccupied,
+        bearer: values.bearer,
         frequency: values.frequency,
         targetType: values.targetType,
         targetCategory: values.targetCategory || undefined,
@@ -354,15 +354,15 @@ export default function FeesPage({
       }
 
       /*
-        And so is the exemption, for the same reason.
+        And so is what the bearer rule left out, for the same reason.
 
-        A clerk who switched off «احتساب الوحدات غير المشغولة» has changed what
-        the town owes, and the size of that change is knowable only right here —
-        afterwards it is spread across a few hundred invoices that each look
-        unremarkable. One number, at the moment it was decided.
+        A clerk who has just said this fee falls on المالك rather than الشاغل
+        has changed what the town owes, and the size of that change is knowable
+        only right here — afterwards it is spread across a few hundred invoices
+        that each look unremarkable. One number, at the moment it was decided.
       */
       if (res.exemptedUnits) {
-        toast.info(`${res.exemptedUnits} وحدة أُعفيت لكونها شاغرة أو قيد الإنجاز.`);
+        toast.info(`${res.exemptedUnits} وحدة لم تُحتسب حسب صفة المكلَّف بالرسم.`);
       }
       setIssueOpen(false);
       void load();

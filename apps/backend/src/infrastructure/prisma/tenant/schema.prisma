@@ -711,6 +711,24 @@ enum FeeBasis {
   PER_AREA
 }
 
+/// Who a fee is levied on — الرسم على الشاغل أم على المالك.
+///
+/// Lebanese practice draws this line and the register could not: a شاغرة unit
+/// is relieved of رسوم الإشغال والنفايات and still owes الرسوم التأسيسية
+/// كالأرصفة والمجاري. Those are not one fee with an exception; they are two
+/// fees with different bearers, and this is which.
+///
+/// There is no third value meaning "charge everyone holding it". That was the
+/// behaviour before this existed and it billed a landlord and their tenant for
+/// the same flat — double taxation of one unit, which survived only because
+/// nothing could tell the two apart.
+enum FeeBearer {
+  /// رسم النظافة, القيمة التأجيرية — on whoever is actually in the unit.
+  OCCUPANT
+  /// الأرصفة, المجاري — on the deed holder, whatever the unit's state.
+  OWNER
+}
+
 /// The rule an administrator writes once: "500,000 LBP of رسم النفايات, every
 /// month, for every resident". Issuing it fans out into one `CitizenPayment`
 /// per matching citizen — this row is the template, never the debt.
@@ -723,15 +741,14 @@ model FeeNotice {
   /// Defaulted so every notice written before per-unit billing existed keeps
   /// charging exactly what it always did.
   basis    FeeBasis @default(FLAT)
-  /// Whether a unit recorded شاغرة or قيد الإنجاز is charged like any other.
+  /// Who owes this fee. See FeeBearer above and §12 of docs/open-decisions.md.
   ///
-  /// True by default, which is the behaviour before `unitStatus` existed: the
-  /// column is recorded and the biller does not read it, so nothing a clerk
-  /// types into a property card can move a bill. Switching it off is a council
-  /// decision resting on a by-law about إعفاء الوحدات الشاغرة — see §11 of
-  /// docs/open-decisions.md. Ignored under FLAT, where the amount does not
-  /// depend on holdings at all.
-  chargesUnoccupied Boolean @default(true)
+  /// OCCUPANT by default, which on a register where nobody has recorded
+  /// حالة الوحدة yet is byte-for-byte the behaviour that came before it: an
+  /// unmarked unit reads as occupied by its owner, so the owner is billed for
+  /// all of them and each tenant for their own. Ignored under FLAT, where the
+  /// amount does not depend on holdings at all.
+  bearer FeeBearer @default(OCCUPANT)
   currency String  @default("LBP")
 
   frequency  FeeFrequency

@@ -7,6 +7,7 @@ import type {
   CurrencyCode,
   FeeAssessment,
   FeeBasis,
+  FeeBearer,
   FeeFrequency,
   FieldFlag,
   ImportRow,
@@ -1250,8 +1251,8 @@ export interface FeeNoticeSummary {
   amount: number;
   /** What `amount` is per. Absent on notices written before per-unit billing. */
   basis: FeeBasis;
-  /** False means this notice exempts units recorded شاغرة / قيد الإنجاز. */
-  chargesUnoccupied: boolean;
+  /** Who owes it — see `FEE_BEARER`. Meaningless under FLAT. */
+  bearer: FeeBearer;
   currency: string;
   frequency: string;
   targetType: string;
@@ -1322,8 +1323,8 @@ export async function issueFeeNotice(
     amount: number;
     /** What `amount` is per — see `FEE_BASIS`. */
     basis: FeeBasis;
-    /** Omitted means yes, which is what every notice did before this existed. */
-    chargesUnoccupied?: boolean;
+    /** Who owes it. Omitted means OCCUPANT — see `FEE_BEARER`. */
+    bearer?: FeeBearer;
     frequency: string;
     targetType: string;
     targetCategory?: string;
@@ -1343,13 +1344,13 @@ export async function issueFeeNotice(
      */
     unassessable?: Array<{ citizenId: string; name: string; reason: string }>;
     /**
-     * Units this notice declined to charge for, because they are recorded
-     * شاغرة or قيد الإنجاز and the notice exempts those.
+     * Units this notice declined to charge anyone for — let to a tenant who is
+     * billed for them directly, empty, still being built, or not owned by the
+     * person assessed.
      *
      * Reported for the same reason `unassessable` is: revenue absent by design
-     * is still revenue absent, and a clerk who can see how much of the town an
-     * exemption covered has something to take to the council. Zero when the
-     * notice charges unoccupied units, which is the default.
+     * is still revenue absent, and a clerk who can see how much of the town a
+     * bearer rule left out has something to take to the council.
      */
     exemptedUnits?: number;
   }>(tenant, '/fees/notices', {

@@ -322,11 +322,12 @@ should get one bill that can explain itself rather than six that cannot.
 
 ---
 
-## 🔴 12. Whether a vacant unit is exempt, and from which fees
+## 🔴 12. Who bears each fee — الرسم على الشاغل أم على المالك
 
-**Status:** the register can now say a unit is empty, and the biller can be told
-to ignore it. Whether any fee actually does is a council decision with a legal
-basis behind it — the same bar as §11, for the same reason.
+**Status:** the register can now say who occupies each unit, and each notice
+says whether it falls on the occupant or the owner. Which of the two applies to
+which fee is a council decision with a legal basis behind it — the same bar as
+§11, for the same reason.
 
 Lebanese practice has always distinguished الشاغل — the person occupying a
 property, who owes the القيمة التأجيرية and رسم النظافة — from a شاغر unit,
@@ -336,37 +337,57 @@ express neither: occupancy was OWNER or TENANT, so a شاغل بتسامح was f
 tenant, and a unit had no state at all, so a landlord's empty third floor and
 his occupied second were identical rows.
 
-`unitStatus` (مشغولة من المالك / مؤجرة / شاغرة / قيد الإنجاز) now records the
-second, per unit, and `FeeNotice.chargesUnoccupied` decides whether a given
-notice reads it. **It defaults to true**, which is exactly what the biller did
-before the column existed: the status is recorded and never consulted, so
-nothing anyone types into a property card can move a bill.
+Two columns now carry it. `PropertyEntry.unitStatus` (مشغولة من المالك / مؤجرة
+/ شاغرة / قيد الإنجاز) records what each unit is, per unit; `FeeNotice.bearer`
+records who owes the fee, per notice.
+
+**The bearer is the question, and vacancy is one of its answers.** This started
+as a boolean — "does this notice charge empty units?" — and that was a symptom
+mistaken for the disease. It could not reach the other half of the same
+problem: a مبنى is filed once by its owner and again, flat by flat, by each
+tenant, so under a per-unit notice the same apartment was charged twice, to two
+people. No municipality would choose that; it survived only because nothing
+could tell an owner's own home from an owner's let flat. Both halves fall out
+of one fact:
+
+- **`OCCUPANT`** — رسم النظافة, القيمة التأجيرية. An owner pays for what they
+  live in, a مستأجر and a شاغل بتسامح for what they occupy, a let flat is
+  billed to its tenant alone, and an empty or unfinished unit to nobody.
+- **`OWNER`** — الأرصفة, المجاري, and the rest of الرسوم التأسيسية. The deed
+  holder pays for everything they own, occupied or not; tenants owe none of it.
+
+There is deliberately no third value meaning "charge everyone holding it". That
+was the old behaviour, and it is double taxation of one unit rather than a
+policy anyone would adopt.
 
 Needed from the municipality:
 
-- **Which fees exempt empty units, and under which article.** Exempting رسم
-  النظافة for a شاغرة flat is defensible and conventional; exempting a
-  foundational fee is not. Each notice carries its own switch, so this is per
-  fee rather than global — which means it has to be decided per fee.
-- **Whether قيد الإنجاز is treated the same as شاغرة.** The code exempts both
-  under one switch. They are empty for different reasons and a council may
-  want to separate them, which would be a second flag rather than a code
-  change of any depth.
-- **Who re-checks a vacancy, and how often.** This is the sharp edge and it has
-  no technical answer. A flat marked شاغرة in March and let in April keeps
-  billing as exempt in December, because recurring notices re-assess against
-  whatever the register currently says. The exemption is only ever as fresh as
-  the last field visit, and unlike an unsurveyed building — which refuses to be
-  billed and names itself — a stale vacancy looks like a complete record. This
-  is the same unanswered question as §9, arriving on a field that costs money.
+- **Which bearer each fee carries, and under which article.** This is now a
+  required choice on every non-flat notice rather than a default someone can
+  arrive at without meaning to, and it is the one decision that determines both
+  who is billed and which units are exempt.
+- **Whether قيد الإنجاز should be separable from شاغرة.** An occupant-borne fee
+  exempts both, since nobody is in either. An owner-borne fee charges both,
+  since both are owned. A council wanting to relieve construction from an
+  owner-borne fee has no way to say so today; that would be a second flag, not
+  a deep change.
+- **Who re-checks a unit's status, and how often.** This is the sharp edge and
+  it has no technical answer. A flat marked شاغرة in March and let in April
+  keeps billing as exempt in December, because recurring notices re-assess
+  against whatever the register currently says. Unlike an unsurveyed building —
+  which refuses to be billed and names itself — a stale status looks like a
+  complete record. Same unanswered question as §9, arriving on a field that
+  costs money.
 
 **Deliberate asymmetries, so they are not read as oversights:**
 
 - **A unit nobody marked is charged.** Null means "not asked", never "empty".
-  Read the other way, every row written before this column existed would exempt
-  itself and the shortfall would be invisible. Over-collecting produces a
-  resident at the counter with a complaint someone can act on; under-collecting
-  produces nothing at all.
+  This is also what makes `OCCUPANT` safe as the default: on a register with no
+  حالة الوحدة recorded anywhere, every unit reads as occupied by its owner, so
+  the owner is billed for all of them and each tenant for their own — exactly
+  the arithmetic that came before any of this existed. The double-charge
+  corrects itself only as landlords actually mark units مؤجرة, which is the one
+  mechanism that does not require guessing on their behalf.
 - **The field is optional everywhere.** A required four-way choice on all twenty
   flats of a building is answered by thumb, not by looking — and a guessed
   exemption is worse than no exemption. The units editor offers a "set all"
@@ -377,10 +398,14 @@ Needed from the municipality:
   non-owner card, because a «شاغرة» left behind by an occupancy change would
   claim the filer does not live there — and could exempt them from a fee they
   owe.
-- **Exempted units are counted, not merely omitted.** Every invoice stores
+- **Units left out are counted, not merely omitted.** Every invoice stores
   `excludedUnitCount` and the issue result reports the total. Revenue absent by
   design is still revenue absent, and it has to be a number somebody can take
   to the council rather than a difference nobody can see.
+- **FLAT ignores the bearer entirely.** A flat notice never asks the register
+  what anyone holds, so there is no unit for a bearer rule to include or
+  exclude. The consequence is that "a flat annual charge on property owners"
+  is not currently expressible; say so if it is wanted.
 
 **Still not solved by any of this:** a vacant unit whose owner never registered
 is invisible, because the register is keyed to citizens and a property card

@@ -11,6 +11,7 @@ import type {
   DeclarePayment,
   FeeAssessment,
   FeeBasis,
+  FeeBearer,
   PaymentMethod,
   SystemSettingsInput,
 } from '@mechanization/shared-schemas';
@@ -70,6 +71,42 @@ function unitMatches(unit: BillableUnit, category?: string): boolean {
 }
 
 /**
+ * Whether this notice's bearer makes *this* person liable for *this* unit.
+ *
+ * The sibling of `unitMatches` above: that one asks whether the unit is the
+ * kind of thing the notice charges for, this one asks whether the citizen
+ * holding it is the person who owes for it. Both have to be true.
+ *
+ * The rule is short and every clause in it is load-bearing:
+ *
+ *  - **An owner-borne fee** (الأرصفة, المجاري) follows the deed. Every unit on
+ *    an OWNER card counts, whatever its state — an empty flat still fronts the
+ *    same pavement — and a tenant's card contributes nothing, because a tenant
+ *    owns none of what they occupy.
+ *
+ *  - **An occupant-borne fee** (النظافة, القيمة التأجيرية) follows who is
+ *    inside. A مستأجر or a شاغل بتسامح is by definition the occupant of the
+ *    card they filed, so it always counts. An owner's unit counts unless they
+ *    have said someone else is in it (مؤجرة — that tenant is billed on their
+ *    own card, and charging both is the double-count this whole enum exists to
+ *    end) or that nobody is (شاغرة, قيد الإنجاز).
+ *
+ * Null status counts as charged, as everywhere else: it means the question was
+ * never put, not that the flat is empty. That is what makes OCCUPANT safe as a
+ * default — on a register with no حالة الوحدة recorded anywhere, this function
+ * returns true for every unit and the arithmetic is exactly what it was before
+ * the column existed.
+ */
+function bearsFee(unit: BillableUnit, bearer: FeeBearer): boolean {
+  if (bearer === 'OWNER') return unit.occupancyType === 'OWNER';
+
+  // A non-owner card is the occupant's own, and carries no status to consult.
+  if (unit.occupancyType !== 'OWNER') return true;
+
+  return unit.unitStatus !== 'RENTED' && !isUnoccupied(unit.unitStatus);
+}
+
+/**
  * Whether an unsurveyed building could hold any of what this notice charges for.
  *
  * The refusal below is expensive on purpose — it drops a citizen out of a
@@ -121,14 +158,12 @@ function unsurveyedCanMatter(category?: string): boolean {
  * A citizen who simply holds none of what the notice charges for is a different
  * case entirely and not an error: they owe nothing, and are skipped.
  *
- * **Unoccupied units are the one thing here that is subtracted rather than
- * refused,** and only when the notice says so. `chargesUnoccupied` is true by
- * default and true for every notice written before it existed, so a شاغرة
- * recorded on a property card cannot move a bill until a council decides it
- * should — which is the same bar §11 sets for moving a fee off FLAT at all.
- * The alternative, exempting empty units because the register happens to know
- * about them, would let a data-entry choice lower a recurring charge in
- * perpetuity with nobody having decided anything.
+ * **Units the citizen does not bear the fee for are subtracted rather than
+ * refused** — the one thing here that is quietly dropped instead of stopping
+ * the assessment. That is safe because it is not a gap in the register: the
+ * notice has said who owes it, and the register has said what this person's
+ * relationship to each unit is. Both facts are present; the unit simply is not
+ * this person's to pay for. See `bearsFee`.
  */
 export function assessCitizen(
   entries: readonly BillablePropertyEntry[],
@@ -136,8 +171,8 @@ export function assessCitizen(
     amount: number;
     basis: FeeBasis;
     targetCategory?: string;
-    /** Absent means yes — see the note above and `createFeeNoticeSchema`. */
-    chargesUnoccupied?: boolean;
+    /** Who owes it. Absent means `OCCUPANT` — see `FEE_BEARER`. */
+    bearer?: FeeBearer;
   },
 ):
   | { kind: 'assessed'; amount: number; assessment: FeeAssessment }
@@ -182,30 +217,26 @@ export function assessCitizen(
     .filter((unit) => unitMatches(unit, notice.targetCategory));
 
   /*
-    شاغرة و قيد الإنجاز, set aside rather than dropped.
+    Split rather than filtered, so the ones left out can be counted.
 
-    Counted, so the invoice can say so. An assessment that quietly omits three
-    flats is indistinguishable from an assessment of a smaller building, and
-    the resident who believes they were charged for them has nothing to point
-    at. `excludedUnitCount` is what turns the exemption into a line someone can
-    check — and, when it is wrong, dispute.
-
-    `isUnoccupied` reads a null status as occupied, so a unit nobody was asked
-    about stays in `units` and stays billed.
+    An assessment that quietly omits three flats is indistinguishable from an
+    assessment of a smaller building, and the resident who believes they were
+    charged for them has nothing to point at. `excludedUnitCount` is what turns
+    a dropped unit into a line someone can check — and, when it is wrong,
+    dispute against the property card that caused it.
   */
-  const exempt = notice.chargesUnoccupied === false
-    ? held.filter((unit) => isUnoccupied(unit.unitStatus))
-    : [];
-  const units = exempt.length > 0 ? held.filter((unit) => !exempt.includes(unit)) : held;
+  const bearer = notice.bearer ?? 'OCCUPANT';
+  const units = held.filter((unit) => bearsFee(unit, bearer));
+  const excludedUnitCount = held.length - units.length;
 
   if (notice.basis === 'PER_AREA') {
     /*
       Only the units being charged for need an area.
 
-      An exempt flat with no recorded مساحة is not a hole in the bill — it
+      A flat this person does not owe for is not a hole in the bill — it
       contributes nothing to it either way — so refusing the whole citizen over
-      it would strand a household for a measurement that could not change what
-      they owe by a pound.
+      a missing مساحة there would strand a household for a measurement that
+      could not change what they owe by a pound.
     */
     const missing = units.find((unit) => unit.unitArea === null);
     if (missing) {
@@ -235,7 +266,7 @@ export function assessCitizen(
       rate: notice.amount,
       unitCount: units.length,
       totalArea,
-      excludedUnitCount: exempt.length,
+      excludedUnitCount,
       lines: units.map((unit) => ({
         propertyNumber: unit.propertyNumber,
         propertyType: unit.propertyType,
@@ -564,8 +595,8 @@ export class FeesService {
       /** Under FLAT the whole invoice; under the other two a rate. Read with `basis`. */
       amount: Number(row.amount),
       basis: row.basis,
-      /** False means this notice exempts units recorded شاغرة / قيد الإنجاز. */
-      chargesUnoccupied: row.chargesUnoccupied,
+      /** Who owes it — see `FEE_BEARER`. Meaningless under FLAT. */
+      bearer: row.bearer,
       currency: row.currency,
       frequency: row.frequency,
       targetType: row.targetType,
@@ -643,7 +674,7 @@ export class FeesService {
           title: input.title,
           amount: input.amount,
           basis: input.basis as never,
-          chargesUnoccupied: input.chargesUnoccupied,
+          bearer: input.bearer as never,
           frequency: input.frequency as never,
           targetType: input.targetType as never,
           targetCategory: input.targetCategory ?? null,
@@ -797,9 +828,9 @@ export class FeesService {
         basis: notice.basis as FeeBasis,
         targetCategory: notice.targetCategory ?? undefined,
         // Re-read from the notice every period, like the basis and the targets
-        // above it: a council that votes the exemption in March expects April's
-        // run to honour it without the notice being reissued.
-        chargesUnoccupied: notice.chargesUnoccupied,
+        // above it: a council that changes who bears a fee in March expects
+        // April's run to honour it without the notice being reissued.
+        bearer: notice.bearer as FeeBearer,
       });
 
       const billable = assessed.filter((entry) => entry.amount > 0);
@@ -941,7 +972,7 @@ export class FeesService {
       amount: number;
       basis: FeeBasis;
       targetCategory?: string;
-      chargesUnoccupied?: boolean;
+      bearer?: FeeBearer;
     },
   ): Promise<{ assessed: CitizenAssessment[]; unassessable: UnassessableCitizen[] }> {
     if (notice.basis === 'FLAT') {
@@ -989,9 +1020,15 @@ export class FeesService {
                     propertyNumber: true,
                     unitType: true,
                     unitArea: true,
-                    // Read here rather than joined later: the exemption is
-                    // decided per unit, and a card fetched without it would
-                    // have every unit assessed as occupied by default.
+                    /*
+                      Both halves of the bearer rule, read here rather than
+                      joined later. `occupancyType` says whether this citizen
+                      owns the card or occupies it; `unitStatus` says, on an
+                      owner's card, whether they are the one inside. A card
+                      fetched without either would be assessed as an owner
+                      living in every unit they hold.
+                    */
+                    occupancyType: true,
                     unitStatus: true,
                     units: { select: { unitType: true, unitArea: true, unitStatus: true } },
                   },

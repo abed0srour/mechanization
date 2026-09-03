@@ -31,6 +31,18 @@ export interface BillableUnit {
    * a landlord's empty flat and charge the identical empty house next door.
    */
   unitStatus: string | null;
+  /**
+   * `OWNER`, `TENANT` or `FREE_OCCUPANT` — the filer's relationship to the
+   * card this unit came from.
+   *
+   * Carried alongside the status because neither answers "should this person
+   * be billed for this unit" alone. A flat marked مؤجرة means "someone else
+   * lives here" on an owner's card and cannot appear on anyone else's; a null
+   * status means "not asked" on an owner's card and "not applicable" on a
+   * tenant's. The bearer rule needs both facts in the same hand — see
+   * `bearsFee`.
+   */
+  occupancyType: string;
   /** The card this came from, for the invoice's breakdown. */
   propertyType: string;
   propertyNumber: string | null;
@@ -40,6 +52,7 @@ export interface BillableUnit {
 export interface BillablePropertyEntry {
   propertyType: string;
   propertyNumber: string | null;
+  occupancyType: string;
   unitType: string | null;
   /** Prisma hands Decimal back; a plain number or null is equally acceptable. */
   unitArea: { toString(): string } | number | null;
@@ -82,6 +95,10 @@ export function billableUnits(entry: BillablePropertyEntry): BillableUnit[] {
       unitType: unit.unitType,
       unitArea: toNumber(unit.unitArea),
       unitStatus: unit.unitStatus ?? null,
+      // Occupancy is recorded on the card, never on the unit row: a citizen is
+      // the owner of a whole building or the tenant of one flat in it, and
+      // there is no shape in which one card mixes the two.
+      occupancyType: entry.occupancyType,
       propertyType: entry.propertyType,
       propertyNumber: entry.propertyNumber,
     }));
@@ -96,6 +113,7 @@ export function billableUnits(entry: BillablePropertyEntry): BillableUnit[] {
       unitType: entry.unitType,
       unitArea: toNumber(entry.unitArea),
       unitStatus: entry.unitStatus ?? null,
+      occupancyType: entry.occupancyType,
       propertyType: entry.propertyType,
       propertyNumber: entry.propertyNumber,
     },

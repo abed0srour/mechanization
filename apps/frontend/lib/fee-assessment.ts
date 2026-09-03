@@ -28,8 +28,8 @@ export function describeAssessment(
     const line = isEnglish ? `${area} m² × ${rate}` : `${area} م² × ${rate}`;
     if (!assessment.excludedUnitCount) return line;
     return isEnglish
-      ? `${line} (${assessment.excludedUnitCount} unoccupied, exempt)`
-      : `${line} (${assessment.excludedUnitCount} وحدة غير مشغولة معفاة)`;
+      ? `${line} (${assessment.excludedUnitCount} not charged)`
+      : `${line} (${assessment.excludedUnitCount} وحدة غير محتسبة)`;
   }
 
   const counted = `${assessment.unitCount} ${countedThing(assessment, locale)} × ${rate}`;
@@ -37,17 +37,22 @@ export function describeAssessment(
   /*
     What was left out, said out loud.
 
-    An exemption that shows up only as a smaller number is an exemption the
-    resident cannot verify and the clerk cannot audit — «٦ محل × ١٠٠٬٠٠٠» on a
-    citizen who holds nine reads as a register that lost three of them. Naming
-    the three is what makes the line checkable in the direction that matters:
-    against the property card, which is where the شاغرة was recorded.
+    A deduction that shows up only as a smaller number is one the resident
+    cannot verify and the clerk cannot audit — «٦ محل × ١٠٠٬٠٠٠» on a citizen
+    who holds nine reads as a register that lost three of them. Naming the
+    three makes the line checkable in the direction that matters: against the
+    property cards, where the مؤجرة or شاغرة that dropped them is recorded and
+    can be corrected.
+
+    Deliberately not itemised by reason. «٣ وحدات غير محتسبة» is the fact the
+    person holding the bill needs; which of three rules dropped each one is a
+    question for the register, not for a line on an invoice.
   */
   if (!assessment.excludedUnitCount) return counted;
 
   return isEnglish
-    ? `${counted} (${assessment.excludedUnitCount} unoccupied, exempt)`
-    : `${counted} (${assessment.excludedUnitCount} وحدة غير مشغولة معفاة)`;
+    ? `${counted} (${assessment.excludedUnitCount} not charged)`
+    : `${counted} (${assessment.excludedUnitCount} وحدة غير محتسبة)`;
 }
 
 /**

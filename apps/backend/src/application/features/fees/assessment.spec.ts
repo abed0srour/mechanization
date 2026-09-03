@@ -14,9 +14,11 @@ import type { BillablePropertyEntry } from '../../../domain/entities/billable-un
 const building = (
   propertyNumber: string,
   units: Array<[string, number | null] | [string, number | null, string]>,
+  occupancyType = 'OWNER',
 ): BillablePropertyEntry => ({
   propertyType: 'BUILDING',
   propertyNumber,
+  occupancyType,
   unitType: null,
   unitArea: null,
   units: units.map(([unitType, unitArea, unitStatus]) => ({
@@ -31,11 +33,14 @@ const card = (
   propertyNumber: string,
   unitType: string | null,
   unitArea: number | null,
+  extra: { occupancyType?: string; unitStatus?: string } = {},
 ): BillablePropertyEntry => ({
   propertyType,
   propertyNumber,
+  occupancyType: extra.occupancyType ?? 'OWNER',
   unitType,
   unitArea,
+  unitStatus: extra.unitStatus ?? null,
   units: [],
 });
 
@@ -55,6 +60,7 @@ describe('billable units — one list from two storage shapes', () => {
         unitType: null,
         unitArea: 800,
         unitStatus: null,
+        occupancyType: 'OWNER',
         propertyType: 'LAND',
         propertyNumber: '1553',
       },
@@ -206,122 +212,282 @@ describe('assessment', () => {
   });
 
   /**
-   * حالة الوحدة, and the rule that it costs nothing until someone decides it
-   * should.
+   * Who bears the fee — the rule deciding which of a citizen's units are
+   * theirs to pay for.
    *
-   * The danger this feature carries is not that empty units go unbilled — it
-   * is that they go unbilled *by accident*, from a field an officer set months
-   * ago, on a recurring notice nobody re-reads. So the exemption is opt-in per
-   * notice, an unmarked unit is charged, and whatever was let off is counted.
+   * The table below is exhaustive on purpose. There are only fourteen
+   * reachable combinations of occupancy, unit status and bearer; every one of
+   * them decides money, and several read as obviously right in prose and come
+   * out inverted in code. Enumerating them is cheaper than trusting four lines
+   * of `bearsFee` to keep reading correctly forever.
    */
-  describe('unoccupied units', () => {
-    const mixed = [
-      building('1553', [
-        ['SHOP', 40, 'RENTED'],
-        ['SHOP', 25, 'VACANT'],
-        ['SHOP', 30, 'UNDER_CONSTRUCTION'],
-      ]),
+  describe('bearer', () => {
+    const rate = { amount: 100_000, basis: 'PER_UNIT' as const, targetCategory: 'SHOP' };
+
+    /** One shop, held as described, and whether each bearer charges for it. */
+    const cases: Array<{
+      occupancyType: string;
+      unitStatus?: string;
+      occupant: boolean;
+      owner: boolean;
+      why: string;
+    }> = [
+      {
+        occupancyType: 'OWNER',
+        occupant: true,
+        owner: true,
+        why: 'nobody was asked, so the owner is presumed to be in it',
+      },
+      {
+        occupancyType: 'OWNER',
+        unitStatus: 'OWNER_OCCUPIED',
+        occupant: true,
+        owner: true,
+        why: 'the owner is the occupant',
+      },
+      {
+        occupancyType: 'OWNER',
+        unitStatus: 'RENTED',
+        occupant: false,
+        owner: true,
+        why: 'the tenant is billed for it on their own card',
+      },
+      {
+        occupancyType: 'OWNER',
+        unitStatus: 'VACANT',
+        occupant: false,
+        owner: true,
+        why: 'nobody occupies it, but it is still owned',
+      },
+      {
+        occupancyType: 'OWNER',
+        unitStatus: 'UNDER_CONSTRUCTION',
+        occupant: false,
+        owner: true,
+        why: 'not finished, still owned',
+      },
+      {
+        occupancyType: 'TENANT',
+        occupant: true,
+        owner: false,
+        why: 'a tenant occupies but owns nothing',
+      },
+      {
+        occupancyType: 'FREE_OCCUPANT',
+        occupant: true,
+        owner: false,
+        why: 'a free occupant occupies but owns nothing',
+      },
     ];
 
-    it('charges vacant units unless the notice says otherwise', () => {
-      // The default, and the whole compatibility guarantee: recording a شاغرة
-      // on a property card cannot move a bill on its own.
-      const result = assessCitizen(mixed, {
-        amount: 100_000,
-        basis: 'PER_UNIT',
-        targetCategory: 'SHOP',
+    for (const entry of cases) {
+      const held = entry.unitStatus
+        ? `${entry.occupancyType} / ${entry.unitStatus}`
+        : `${entry.occupancyType} / unrecorded`;
+
+      const one = (): BillablePropertyEntry =>
+        building(
+          '1553',
+          [entry.unitStatus ? ['SHOP', 40, entry.unitStatus] : ['SHOP', 40]],
+          entry.occupancyType,
+        );
+
+      it(`occupant-borne: ${entry.occupant ? 'charges' : 'skips'} ${held} — ${entry.why}`, () => {
+        const result = assessCitizen([one()], { ...rate, bearer: 'OCCUPANT' });
+
+        expect(result.kind === 'assessed' && result.amount).toBe(entry.occupant ? 100_000 : 0);
       });
 
-      expect(result.kind === 'assessed' && result.amount).toBe(300_000);
-      expect(result.kind === 'assessed' && result.assessment.excludedUnitCount).toBe(0);
+      it(`owner-borne: ${entry.owner ? 'charges' : 'skips'} ${held} — ${entry.why}`, () => {
+        const result = assessCitizen([one()], { ...rate, bearer: 'OWNER' });
+
+        expect(result.kind === 'assessed' && result.amount).toBe(entry.owner ? 100_000 : 0);
+      });
+    }
+
+    /** A landlord's two flats — one they live in, one they have let. */
+    const landlord = () =>
+      building('1553', [
+        ['APARTMENT', 100, 'OWNER_OCCUPIED'],
+        ['APARTMENT', 100, 'RENTED'],
+      ]);
+
+    /** The tenant of that second flat, filing their own card on the same parcel. */
+    const tenant = () => building('1553', [['APARTMENT', 100]], 'TENANT');
+
+    const flats = {
+      amount: 100_000,
+      basis: 'PER_UNIT' as const,
+      targetCategory: 'APARTMENT',
+    };
+
+    it('ends the double-charge on a flat the owner has let', () => {
+      /*
+        The case the whole enum exists for, both halves of it in one test.
+
+        A building is filed once by its owner and again by the tenant of one
+        flat — the same apartment under two citizens, which is correct, because
+        ownership and occupancy are different facts about it. Under an
+        occupant-borne fee exactly one of them owes for it: the tenant. Before
+        this, both did, and the municipality collected twice for one flat.
+      */
+      const landlordBill = assessCitizen([landlord()], { ...flats, bearer: 'OCCUPANT' });
+      const tenantBill = assessCitizen([tenant()], { ...flats, bearer: 'OCCUPANT' });
+
+      expect(landlordBill.kind === 'assessed' && landlordBill.amount).toBe(100_000);
+      expect(tenantBill.kind === 'assessed' && tenantBill.amount).toBe(100_000);
+
+      // Two flats on the parcel, two charges raised — not three.
+      const total =
+        (landlordBill.kind === 'assessed' ? landlordBill.amount : 0) +
+        (tenantBill.kind === 'assessed' ? tenantBill.amount : 0);
+      expect(total).toBe(200_000);
     });
 
-    it('exempts vacant and under-construction units when the notice does', () => {
-      const result = assessCitizen(mixed, {
-        amount: 100_000,
-        basis: 'PER_UNIT',
-        targetCategory: 'SHOP',
-        chargesUnoccupied: false,
-      });
+    it('bills the owner for both flats when the fee is owner-borne', () => {
+      // A pavement fee does not care who sleeps there, and the tenant owes none
+      // of it — they own nothing.
+      const landlordBill = assessCitizen([landlord()], { ...flats, bearer: 'OWNER' });
+      const tenantBill = assessCitizen([tenant()], { ...flats, bearer: 'OWNER' });
 
-      // Only the rented shop is charged; both ways of being empty are exempt.
+      expect(landlordBill.kind === 'assessed' && landlordBill.amount).toBe(200_000);
+      expect(tenantBill.kind === 'assessed' && tenantBill.amount).toBe(0);
+    });
+
+    it('defaults to the occupant, and to the arithmetic that came before it', () => {
+      /*
+        The compatibility guarantee, stated as a test.
+
+        On a register where nobody has recorded a unit status, every unit reads
+        as null — presumed occupied by its owner — so an occupant-borne notice
+        charges for all of them. That is exactly what the biller did before any
+        of this existed, which is what makes OCCUPANT safe to default to, and
+        why the correction only switches itself on as landlords actually mark
+        units as let.
+      */
+      const unmarked = [building('1553', [['SHOP', 40], ['SHOP', 25], ['SHOP', 30]])];
+
+      const defaulted = assessCitizen(unmarked, rate);
+      const explicit = assessCitizen(unmarked, { ...rate, bearer: 'OCCUPANT' });
+
+      expect(defaulted.kind === 'assessed' && defaulted.amount).toBe(300_000);
+      expect(explicit.kind === 'assessed' && explicit.amount).toBe(300_000);
+    });
+
+    it('counts what it left out, so the invoice can say so', () => {
+      const result = assessCitizen(
+        [
+          building('1553', [
+            ['SHOP', 40, 'OWNER_OCCUPIED'],
+            ['SHOP', 25, 'RENTED'],
+            ['SHOP', 30, 'VACANT'],
+          ]),
+        ],
+        { ...rate, bearer: 'OCCUPANT' },
+      );
+
       expect(result.kind === 'assessed' && result.amount).toBe(100_000);
+      expect(result.kind === 'assessed' && result.assessment.unitCount).toBe(1);
       expect(result.kind === 'assessed' && result.assessment.excludedUnitCount).toBe(2);
     });
 
-    it('treats a unit nobody recorded a status for as occupied', () => {
-      /*
-        The direction this has to fail in. Null is "not asked", not "empty" —
-        read the other way, every row written before the column existed would
-        exempt itself, and the shortfall would be invisible.
-      */
+    it('excludes nothing when every unit is borne by the person assessed', () => {
       const result = assessCitizen([building('1553', [['SHOP', 40]])], {
-        amount: 100_000,
-        basis: 'PER_UNIT',
-        targetCategory: 'SHOP',
-        chargesUnoccupied: false,
+        ...rate,
+        bearer: 'OCCUPANT',
       });
 
-      expect(result.kind === 'assessed' && result.amount).toBe(100_000);
       expect(result.kind === 'assessed' && result.assessment.excludedUnitCount).toBe(0);
     });
 
-    it('exempts an empty house filed on its own card, not just a flat', () => {
-      // The two storage shapes have to reach the same answer, or the exemption
-      // would depend on how the register happened to file the property.
-      const house: BillablePropertyEntry = {
-        propertyType: 'HOUSE',
-        propertyNumber: '1554',
-        unitType: 'INDEPENDENT_HOUSE',
-        unitArea: 90,
-        unitStatus: 'VACANT',
-        units: [],
+    it('applies the same rule to a house filed on its own card', () => {
+      // The two storage shapes have to agree, or what someone owes would depend
+      // on how the register happened to file their property.
+      const rented = card('HOUSE', '1554', 'INDEPENDENT_HOUSE', 90, { unitStatus: 'RENTED' });
+      const notice = {
+        amount: 100_000,
+        basis: 'PER_UNIT' as const,
+        targetCategory: 'INDEPENDENT_HOUSE',
       };
 
-      const result = assessCitizen([house], {
-        amount: 100_000,
-        basis: 'PER_UNIT',
-        targetCategory: 'HOUSE',
-        chargesUnoccupied: false,
-      });
+      const asOccupant = assessCitizen([rented], { ...notice, bearer: 'OCCUPANT' });
+      const asOwner = assessCitizen([rented], { ...notice, bearer: 'OWNER' });
 
-      expect(result.kind === 'assessed' && result.amount).toBe(0);
-      expect(result.kind === 'assessed' && result.assessment.excludedUnitCount).toBe(1);
+      expect(asOccupant.kind === 'assessed' && asOccupant.amount).toBe(0);
+      expect(asOwner.kind === 'assessed' && asOwner.amount).toBe(100_000);
     });
 
-    it('does not refuse a per-area bill over an exempt unit with no area', () => {
+    it('measures only the units it charges for, under a per-area fee', () => {
+      const result = assessCitizen(
+        [
+          building('1553', [
+            ['SHOP', 40, 'OWNER_OCCUPIED'],
+            ['SHOP', 25, 'RENTED'],
+          ]),
+        ],
+        { amount: 1_000, basis: 'PER_AREA', targetCategory: 'SHOP', bearer: 'OCCUPANT' },
+      );
+
+      expect(result.kind === 'assessed' && result.assessment.totalArea).toBe(40);
+      expect(result.kind === 'assessed' && result.amount).toBe(40_000);
+    });
+
+    it('does not refuse a per-area bill over a unit it is not charging for', () => {
       /*
-        The missing area cannot change what this citizen owes — the unit is not
-        being charged for either way — so stranding the whole household over it
-        would be a refusal that protects nothing.
+        A missing area on a flat this person does not owe for cannot change what
+        they owe, so stranding the whole household over it would be a refusal
+        that protects nothing.
       */
       const result = assessCitizen(
-        [building('1553', [['SHOP', 40, 'RENTED'], ['SHOP', null, 'VACANT']])],
-        { amount: 1_000, basis: 'PER_AREA', targetCategory: 'SHOP', chargesUnoccupied: false },
+        [
+          building('1553', [
+            ['SHOP', 40, 'OWNER_OCCUPIED'],
+            ['SHOP', null, 'RENTED'],
+          ]),
+        ],
+        { amount: 1_000, basis: 'PER_AREA', targetCategory: 'SHOP', bearer: 'OCCUPANT' },
       );
 
       expect(result.kind === 'assessed' && result.amount).toBe(40_000);
     });
 
-    it('still refuses a per-area bill over a charged unit with no area', () => {
-      const result = assessCitizen(
-        [building('1553', [['SHOP', null, 'RENTED']])],
-        { amount: 1_000, basis: 'PER_AREA', targetCategory: 'SHOP', chargesUnoccupied: false },
-      );
+    it('still refuses a per-area bill over a unit it is charging for', () => {
+      const result = assessCitizen([building('1553', [['SHOP', null, 'OWNER_OCCUPIED']])], {
+        amount: 1_000,
+        basis: 'PER_AREA',
+        targetCategory: 'SHOP',
+        bearer: 'OCCUPANT',
+      });
 
       expect(result.kind).toBe('unassessable');
     });
 
-    it('never lets the exemption reach a flat charge', () => {
-      // FLAT does not ask the register what anyone holds, so there is nothing
-      // for an exemption to remove.
-      const result = assessCitizen(mixed, {
+    it('never lets the bearer reach a flat charge', () => {
+      // FLAT does not ask the register what anyone holds, so there is no unit
+      // for a bearer rule to include or exclude. A tenant still owes it.
+      const result = assessCitizen([tenant()], {
         amount: 250_000,
         basis: 'FLAT',
-        chargesUnoccupied: false,
+        bearer: 'OWNER',
       });
 
       expect(result.kind === 'assessed' && result.amount).toBe(250_000);
+    });
+
+    it('keeps a breakdown listing only the units actually charged', () => {
+      const result = assessCitizen(
+        [
+          building('1553', [
+            ['SHOP', 40, 'OWNER_OCCUPIED'],
+            ['SHOP', 25, 'VACANT'],
+          ]),
+        ],
+        { ...rate, bearer: 'OCCUPANT' },
+      );
+
+      expect(result.kind === 'assessed' && result.assessment.lines).toEqual([
+        { propertyNumber: '1553', propertyType: 'BUILDING', unitType: 'SHOP', unitArea: null },
+      ]);
     });
   });
 
