@@ -19,6 +19,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { createClient } from '@supabase/supabase-js';
 import { PrismaClient as RegistryPrismaClient } from '../generated/registry-client';
 import { PrismaClient as TenantPrismaClient } from '../generated/tenant-client';
 import { TenantSlug } from '../domain/value-objects/tenant-slug.vo';
@@ -119,6 +120,38 @@ function writeAsset(path: string, contents: string): void {
   console.log(`  wrote ${path} (${kb} KB)`);
 }
 
+/**
+ * The local write above is what the frontend serves cadastre.geojson and
+ * parcels.geojson from once committed — fine for a repo colocated with the
+ * frontend. The backend reads its own copy from Supabase Storage instead (see
+ * `CadastreStorageService`), since in production the backend is a separate
+ * deployment with no access to the frontend's filesystem at all. Best-effort:
+ * a developer running this without Supabase creds configured still gets the
+ * local files and a clear nudge, rather than a failed import.
+ */
+async function uploadToSupabase(slug: string, assetName: string, contents: string): Promise<void> {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn(
+      `  ! SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not set — skipped uploading ${assetName} ` +
+        `to Supabase Storage; the map's backend will not see this layer until it is uploaded`,
+    );
+    return;
+  }
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error } = await supabase.storage
+    .from('cadastre')
+    .upload(`${slug}/${assetName}`, contents, { contentType: 'application/geo+json', upsert: true });
+
+  if (error) {
+    console.warn(`  ! Failed to upload ${assetName} to Supabase Storage: ${error.message}`);
+    return;
+  }
+  console.log(`  uploaded ${slug}/${assetName} to Supabase Storage`);
+}
+
 /** Rebuilds a municipality's parcel registry and map layers from its KMZ. */
 export async function importCadastre(args: Args): Promise<void> {
   const slug = TenantSlug.parse(args.slug);
@@ -175,8 +208,12 @@ export async function importCadastre(args: Args): Promise<void> {
       args.outDir ??
       join(__dirname, '..', '..', '..', 'frontend', 'public', 'tenants', slug.value);
 
-    writeAsset(join(outDir, 'parcels.geojson'), parcelsGeoJson(parcels));
-    writeAsset(join(outDir, 'cadastre.geojson'), cadastreGeoJson(lines));
+    const parcelsAsset = parcelsGeoJson(parcels);
+    const cadastreAsset = cadastreGeoJson(lines);
+    writeAsset(join(outDir, 'parcels.geojson'), parcelsAsset);
+    writeAsset(join(outDir, 'cadastre.geojson'), cadastreAsset);
+    await uploadToSupabase(slug.value, 'parcels.geojson', parcelsAsset);
+    await uploadToSupabase(slug.value, 'cadastre.geojson', cadastreAsset);
 
     // ── Derived geometry ──
     // The survey ships lines and labels but no shapes; these are reconstructed
@@ -188,9 +225,11 @@ export async function importCadastre(args: Args): Promise<void> {
     );
     if (geometry.parcelPolygonsGeoJson) {
       writeAsset(join(outDir, 'parcel-polygons.geojson'), geometry.parcelPolygonsGeoJson);
+      await uploadToSupabase(slug.value, 'parcel-polygons.geojson', geometry.parcelPolygonsGeoJson);
     }
     if (geometry.cityBoundaryGeoJson) {
       writeAsset(join(outDir, 'city-boundary.geojson'), geometry.cityBoundaryGeoJson);
+      await uploadToSupabase(slug.value, 'city-boundary.geojson', geometry.cityBoundaryGeoJson);
     }
 
     console.log(`\n✓ Cadastre imported for '${slug.value}'`);

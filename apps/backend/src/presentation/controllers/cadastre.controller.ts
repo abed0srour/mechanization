@@ -1,5 +1,3 @@
-import { existsSync, createReadStream } from 'node:fs';
-import { join } from 'node:path';
 import {
   Controller,
   Get,
@@ -14,6 +12,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { CadastreImportService } from '../../application/features/cadastre/cadastre-import.service';
 import { ValidationError } from '../../application/common/exceptions';
+import { CadastreStorageService } from '../../infrastructure/cadastre/cadastre-storage.service';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { Roles } from '../decorators/roles.decorator';
 import type { SessionClaims } from '../../application/features/identity/identity.service';
@@ -21,15 +20,25 @@ import { APP_CONFIG } from '../config/app.config';
 
 @Controller('t/:tenantSlug/cadastre')
 export class CadastreController {
-  constructor(private readonly cadastreImport: CadastreImportService) {}
+  constructor(
+    private readonly cadastreImport: CadastreImportService,
+    private readonly assets: CadastreStorageService,
+  ) {}
 
   /**
-   * Serves static GeoJSON map layers directly from the backend's configured
-   * storage directory. Useful for containerized and Docker deployments where
-   * backend and frontend filesystems are separated.
+   * Proxies a tenant's static GeoJSON map layers from Supabase Storage.
+   *
+   * The frontend's own `public/tenants/<slug>/` copy (committed to git) is
+   * this asset's fast path for `cadastre.geojson`/`parcels.geojson` — same
+   * origin, no round trip through this API. This endpoint is what the map
+   * falls back to when that copy is missing, and the only path at all for
+   * `parcel-polygons.geojson`/`city-boundary.geojson`, which the frontend
+   * never fetches directly. Proxied through this API's own origin rather than
+   * redirected to Supabase's storage host, which the deployed frontend's CSP
+   * `connect-src` does not allow.
    */
   @Get('assets/:assetName')
-  getAsset(
+  async getAsset(
     @Param('tenantSlug') tenantSlug: string,
     @Param('assetName') assetName: string,
     @Res() res: Response,
@@ -44,14 +53,14 @@ export class CadastreController {
       throw new NotFoundException('Asset not found');
     }
 
-    const filePath = join(APP_CONFIG.cadastre.mapAssetsDir(tenantSlug), assetName);
-    if (!existsSync(filePath)) {
+    const contents = await this.assets.read(tenantSlug, assetName);
+    if (contents === null) {
       throw new NotFoundException('Asset file not found');
     }
 
     res.setHeader('Content-Type', 'application/geo+json');
     res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
-    createReadStream(filePath).pipe(res);
+    res.send(contents);
   }
 
   /**

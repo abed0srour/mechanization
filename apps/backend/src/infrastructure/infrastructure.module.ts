@@ -18,6 +18,7 @@ import { WHISH_GATEWAY } from '../domain/interfaces/whish-gateway.interface';
 import { WhishGatewayService } from './payments/whish-gateway.service';
 import { RedisCacheService } from './cache/redis-cache.service';
 import { CadastreAssetsService } from './cadastre/cadastre-assets.service';
+import { CadastreStorageService } from './cadastre/cadastre-storage.service';
 import { TenantContextService } from './context/tenant-context.service';
 import { RegistryPrismaService } from './prisma/registry-prisma.service';
 import { TenantPrismaFactory } from './prisma/tenant-prisma.factory';
@@ -50,6 +51,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     TenantPrismaFactory,
     RedisCacheService,
     CadastreAssetsService,
+    CadastreStorageService,
 
     { provide: TENANT_REPOSITORY, useClass: PrismaTenantRepository },
     { provide: USER_REPOSITORY, useClass: PrismaUserRepository },
@@ -73,6 +75,7 @@ import { SupabaseStorageService } from './supabase/storage/supabase-storage.serv
     TenantPrismaFactory,
     RedisCacheService,
     CadastreAssetsService,
+    CadastreStorageService,
     TENANT_REPOSITORY,
     USER_REPOSITORY,
     REGISTRATION_REPOSITORY,
