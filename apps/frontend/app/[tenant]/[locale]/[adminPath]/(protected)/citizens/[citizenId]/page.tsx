@@ -9,6 +9,7 @@ import {
   Building2,
   Calendar,
   Clock3,
+  DoorOpen,
   Droplet,
   ExternalLink,
   FileDigit,
@@ -35,7 +36,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { getLabels } from '@mechanization/shared-schemas';
+import { getLabels, isUnoccupied } from '@mechanization/shared-schemas';
 import {
   ApiRequestError,
   getCitizenProfile,
@@ -930,6 +931,16 @@ function PropertyCard({
 }) {
   const Icon = PROPERTY_ICON[property.propertyType] ?? Building2;
   const isTenant = property.occupancyType === 'TENANT';
+  /*
+    A شاغل بتسامح has a landlord block too, and no lease.
+
+    The badge stays tinted for a tenancy alone because that is the occupancy
+    with a contract behind it and a document to check; a free occupancy is
+    neither more nor less remarkable than ownership at a glance. What the two
+    non-owner cases share is that someone else owns the property, and that is
+    the section below.
+  */
+  const isNonOwner = isTenant || property.occupancyType === 'FREE_OCCUPANT';
   const labels = getLabels(locale);
 
   const details = present([
@@ -979,6 +990,15 @@ function PropertyCard({
       icon: Key,
       label: locale === 'en' ? 'Shared Rights' : 'الحقوق المشتركة',
       value: property.sharedRights.length > 0 ? property.sharedRights.join(', ') : null,
+    },
+    {
+      icon: DoorOpen,
+      label: locale === 'en' ? 'Unit Status' : 'حالة الوحدة',
+      // `present` drops a null row, so an unrecorded status shows as an absent
+      // fact rather than as a rendered «—» claiming something was established.
+      value: property.unitStatus
+        ? (labels.unitStatus[property.unitStatus as never] ?? property.unitStatus)
+        : null,
     },
   ]);
 
@@ -1055,7 +1075,7 @@ function PropertyCard({
         </dl>
       ) : null}
 
-      {isTenant && landlord.length > 0 ? (
+      {isNonOwner && landlord.length > 0 ? (
         <div className="space-y-3 p-4">
           <SubHeading icon={UserCheck}>{locale === 'en' ? 'Landlord' : 'المالك'}</SubHeading>
           <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1096,6 +1116,14 @@ function PropertyCard({
                     <Key className="size-3.5 shrink-0" aria-hidden />
                     {unit.sharedRights.join(', ')}
                   </span>
+                ) : null}
+                {unit.unitStatus ? (
+                  <Badge
+                    variant={isUnoccupied(unit.unitStatus) ? 'warning' : 'outline'}
+                    className="shrink-0"
+                  >
+                    {labels.unitStatus[unit.unitStatus as never] ?? unit.unitStatus}
+                  </Badge>
                 ) : null}
               </li>
             ))}

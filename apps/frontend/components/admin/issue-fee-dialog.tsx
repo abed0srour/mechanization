@@ -8,19 +8,24 @@ import {
   CalendarClock,
   Check,
   ClipboardList,
+  KeyRound,
   Loader2,
   Receipt,
   Target,
   TriangleAlert,
+  UserRound,
   Users,
   UserSearch,
 } from 'lucide-react';
 import {
   getLabels,
   FEE_FREQUENCY,
+  FEE_BASIS,
+  FEE_BEARER,
   FEE_TARGET_CATEGORY,
   FEE_TARGET_TYPE,
 } from '@mechanization/shared-schemas';
+import type { FeeBasis, FeeBearer } from '@mechanization/shared-schemas';
 import type { CitizenListItem } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
@@ -48,6 +53,10 @@ import { formatDate } from '@/lib/dates';
 export interface IssueFeeValues {
   title: string;
   amount: string;
+  /** What `amount` is per — see `FEE_BASIS`. */
+  basis: FeeBasis;
+  /** Who owes it — see `FEE_BEARER`. Only consulted when basis is not FLAT. */
+  bearer: FeeBearer;
   frequency: string;
   targetType: string;
   targetCategory: string;
@@ -59,6 +68,21 @@ export interface IssueFeeValues {
 const EMPTY: IssueFeeValues = {
   title: '',
   amount: '',
+  // Flat by default, deliberately. Moving a fee onto a per-unit basis changes
+  // what residents owe, so it is a thing a clerk chooses on purpose.
+  basis: 'FLAT',
+  /*
+    And the occupant bears it by default — the commoner case, and the one that
+    changes nothing.
+
+    On a register where حالة الوحدة has not been recorded, an unmarked unit
+    reads as occupied by its owner, so this bills the owner for everything they
+    hold and each tenant for their own card: exactly the arithmetic that came
+    before any of this existed. Choosing المالك instead is a real change to
+    what residents owe, which is why it is a visible choice next to the basis
+    rather than a default anyone can arrive at without meaning to.
+  */
+  bearer: 'OCCUPANT',
   frequency: 'MONTHLY',
   targetType: 'ALL_CITIZENS',
   targetCategory: 'SHOP',
@@ -66,6 +90,12 @@ const EMPTY: IssueFeeValues = {
   dueDate: '',
   instructions: '',
 };
+
+/** One glyph per bearer, so the two are told apart before they are read. */
+const BEARER_ICON = {
+  OCCUPANT: UserRound,
+  OWNER: KeyRound,
+} as const;
 
 const TARGET_ICON = {
   ALL_CITIZENS: Users,
@@ -254,7 +284,13 @@ export function IssueFeeDialog({
 
               <div className="grid gap-5 sm:grid-cols-2">
                 <Field
-                  label={locale === 'en' ? 'Amount (LBP)' : 'المبلغ بالليرة اللبنانية'}
+                  label={
+                    values.basis === 'FLAT'
+                      ? (locale === 'en' ? 'Amount (LBP)' : 'المبلغ بالليرة اللبنانية')
+                      : values.basis === 'PER_AREA'
+                        ? (locale === 'en' ? 'Rate per m² (LBP)' : 'السعر للمتر المربع (ل.ل.)')
+                        : (locale === 'en' ? 'Rate per unit (LBP)' : 'السعر لكل وحدة (ل.ل.)')
+                  }
                   htmlFor="fee-amount"
                   required
                 >
@@ -268,6 +304,101 @@ export function IssueFeeDialog({
                     onChange={(event) => set({ amount: formatLbp(event.target.value) })}
                   />
                 </Field>
+
+                <Field
+                  label={locale === 'en' ? 'Charged' : 'طريقة الاحتساب'}
+                  htmlFor="fee-basis"
+                  hint={
+                    values.basis === 'FLAT'
+                      ? (locale === 'en'
+                          ? 'Every targeted citizen owes the same amount, however much they own.'
+                          : 'كل مواطن مستهدف يدفع المبلغ نفسه مهما بلغ عدد وحداته.')
+                      : (locale === 'en'
+                          ? 'Each citizen is billed from what the register says they hold. Records still awaiting a field survey are reported instead of billed.'
+                          : 'يُحتسب المبلغ من واقع ما هو مسجَّل لكل مواطن. السجلات التي تنتظر الجرد الميداني يتم إبلاغك بها بدل احتسابها.')
+                  }
+                  required
+                >
+                  <Select
+                    value={values.basis}
+                    onValueChange={(next) => set({ basis: next as FeeBasis })}
+                  >
+                    <SelectTrigger id="fee-basis">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FEE_BASIS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {labels.feeBasis[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+
+                {/*
+                  Hidden under FLAT, where it decides nothing.
+
+                  A flat notice charges its amount to everyone it targets and
+                  never asks the register what they hold, so there is no unit
+                  for a bearer rule to include or exclude. Showing the control
+                  there would offer a clerk a lever that does not move — and the
+                  value is preserved rather than reset, so a notice toggled to
+                  FLAT and back does not quietly lose the choice on the way.
+
+                  Two cards rather than a dropdown because this is the sentence
+                  that decides who in the town pays. A `Select` shows one option
+                  and hides the other behind a click; the whole difficulty here
+                  is that «الشاغل» and «المالك» sound interchangeable until you
+                  read what each does, so both descriptions are on screen at the
+                  moment of choosing.
+                */}
+                {values.basis === 'FLAT' ? null : (
+                  // Spans the row: two cards each carrying a sentence do not fit
+                  // in half a dialog, and the sentences are the whole point.
+                  <div className="sm:col-span-2">
+                  <Field
+                    label={locale === 'en' ? 'Levied on' : 'الرسم مترتّب على'}
+                    htmlFor="fee-bearer"
+                    required
+                  >
+                    <div id="fee-bearer" className="grid gap-2 sm:grid-cols-2">
+                      {FEE_BEARER.map((option) => {
+                        const selected = values.bearer === option;
+                        const Icon = BEARER_ICON[option];
+
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => set({ bearer: option })}
+                            className={cn(
+                              'flex flex-col gap-1.5 rounded-lg border p-3 text-start transition-colors',
+                              selected
+                                ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                                : 'border-border/70 bg-card hover:bg-muted/40',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1.5 text-sm font-semibold',
+                                selected ? 'text-primary' : 'text-foreground',
+                              )}
+                            >
+                              <Icon className="size-4 shrink-0" aria-hidden />
+                              {labels.feeBearer[option]}
+                            </span>
+                            <span className="text-[11px] leading-relaxed text-muted-foreground">
+                              {labels.feeBearerHint[option]}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                  </div>
+                )}
 
                 <Field
                   label={locale === 'en' ? 'Due Date' : 'تاريخ الاستحقاق'}

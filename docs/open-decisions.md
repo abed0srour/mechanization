@@ -159,7 +159,11 @@ not available. The wizard was instead derived from:
 - `صفة الإقامة` describes the person, never the property, and only *suggests* a
   property type (`SUGGESTED_PROPERTY_TYPE`) — it never gates one.
 - Required proof follows occupancy: `RENTAL_CONTRACT` for a tenant,
-  `OWNERSHIP_PROOF` for an owner.
+  `OWNERSHIP_PROOF` for an owner, and **nothing for a شاغل بتسامح** — no بدل is
+  paid so there is no عقد إيجار, and the سند الملكية names the owner, who is
+  not the person filing. `requiredProofDocument` returns null for that case
+  rather than demanding a paper that does not exist. Worth confirming with the
+  municipality that a card with no attachment is acceptable there.
 - Location is optional on every property.
 
 ---
@@ -217,3 +221,193 @@ counted on the registry's «يتطلب مراجعة» filter with the number of 
 open. Each flag keeps the officer's reason verbatim, and filling a field in is
 what clears it — there is no separate "resolve" action to forget to perform.
 Nothing expires, nothing escalates, and nobody is notified.
+
+---
+
+## 🔴 10. A رقم العقار the cadastre has never heard of
+
+**Status:** the code has stopped refusing these. Whether that is where the line
+belongs is the municipality's call.
+
+Until now a property number absent from the imported cadastre was rejected
+outright, on the reasoning that it could only be a typo. That reasoning held at
+a counter and broke completely in the field: a record filed with no signal is
+validated in the browser, queued, and promised to the officer as sent — and
+then refused hours later on sync, in a settlement nobody is going back to, over
+a number the officer read off the deed in front of them. The register was
+losing whole households to a check meant to catch a mistyped digit.
+
+The number is now kept as read. The record is stored, the parcel is annotated
+«بانتظار التحقق» with the reason attached, and the whole record lands in the
+same «يتطلب مراجعة» queue as any other open question. Nothing is guessed at and
+nothing is discarded; the typo is caught by the person who was always going to
+have to catch it, with the household's data in front of them instead of a
+blank. The annotation is re-derived on every save, so a record held only because
+its parcel was missing clears itself the first time anyone saves it after the
+survey office imports that parcel.
+
+Needed from the municipality:
+
+- **Whether an unverified parcel may be billed.** Same question as §9 and the
+  same current answer — yes, it is billable from the moment the row exists —
+  but sharper here, because the fee notice would carry a رقم العقار the
+  municipality's own registry does not contain. That is a document somebody has
+  to be able to defend at a counter.
+- **How stale a cadastre is allowed to get.** This change moves the cost of an
+  out-of-date cadastre from the officer (whose record was refused) to the
+  reviewer (whose queue now grows). That is the right direction, and it stops
+  being right if the survey office's export is a year behind and the queue is
+  mostly parcels that do exist.
+- **Whether a bulk import should behave the same way.** It now does: a
+  spreadsheet row with an unknown parcel used to fail the row and is now
+  imported as «يتطلب مراجعة». For a municipality's existing paper register —
+  the case imports exist for — keeping the data and flagging it is almost
+  certainly right, but it is a change in what a clerk sees after an upload.
+
+**Current behaviour:** submission and edit both report rather than refuse. A
+municipality with no cadastre imported is unaffected — there is nothing to
+check against, so nothing is annotated. Only the server may raise this
+annotation; one sent by a browser is discarded and recomputed, so a phone that
+queued a record days ago cannot replay a verdict the cadastre has since
+outgrown.
+
+---
+
+## 🔴 11. Whether a fee is charged per citizen or per unit
+
+**Status:** the code can now do either. Which one applies, and to which fees, is
+a council decision with a legal basis behind it — not a deploy.
+
+The register could always record that a citizen holds six shops. The biller
+could not read it. A notice's `amount` *was* the invoice, and the only question
+ever asked of a citizen's holdings was a boolean — do they have at least one of
+these — so six shops and one shop were billed identically. That was never a
+policy anyone chose; it was the shape of the code.
+
+A notice now carries a **basis**. `FLAT` is the old behaviour and the default,
+so every notice already issued keeps charging exactly what it charged, and this
+change alters nobody's bill until someone deliberately issues a notice on one of
+the other two: `PER_UNIT` (rate × units held) or `PER_AREA` (rate × total m²).
+Each invoice stores the breakdown it was computed from, so the number can be
+defended at the counter against the register as it stood the day the bill was
+raised.
+
+Needed from the municipality:
+
+- **Which fees move, and on what authority.** Moving رسم المحلات to `PER_UNIT`
+  multiplies what some residents owe. That needs the by-law it rests on named
+  before it is switched on, and residents told before the first notice lands.
+- **A dry run first.** Before switching a live recurring notice, issue it once
+  and read the assessment: the system reports who would be billed what. A
+  municipality should see the distribution — especially the largest bills —
+  before residents do.
+- **What happens to unsurveyed buildings.** A مبنى whose units were never
+  surveyed cannot be assessed per unit, and the code **refuses to guess**
+  rather than counting it as zero: counted as zero, the largest building in the
+  municipality would pay nothing, and the schedule of fees would be most
+  generous to exactly the properties worth the most. Those citizens are named
+  in the issue result and left unbilled. Somebody has to own chasing that
+  survey, which is the same unanswered question as §9.
+- **Whether area data is good enough to bill on.** `PER_AREA` is only as honest
+  as the areas in the register. A unit with no recorded area is refused rather
+  than defaulted, but a *wrong* area bills wrongly and looks fine.
+
+**Current behaviour:** basis defaults to `FLAT` everywhere, including for every
+existing notice. Recurring notices re-assess each period, so a citizen who
+registers two more shops is billed for them next month and one who sells a
+building stops paying for it. One invoice per citizen per period regardless of
+basis — never one per unit — because the settlement, receipt, Whish and
+collector flows all key on a single payment row, and a citizen at a counter
+should get one bill that can explain itself rather than six that cannot.
+
+---
+
+## 🔴 12. Who bears each fee — الرسم على الشاغل أم على المالك
+
+**Status:** the register can now say who occupies each unit, and each notice
+says whether it falls on the occupant or the owner. Which of the two applies to
+which fee is a council decision with a legal basis behind it — the same bar as
+§11, for the same reason.
+
+Lebanese practice has always distinguished الشاغل — the person occupying a
+property, who owes the القيمة التأجيرية and رسم النظافة — from a شاغر unit,
+which has no occupant and is conventionally relieved of those fees while
+remaining liable for the foundational ones (أرصفة, مجاري). The register could
+express neither: occupancy was OWNER or TENANT, so a شاغل بتسامح was filed as a
+tenant, and a unit had no state at all, so a landlord's empty third floor and
+his occupied second were identical rows.
+
+Two columns now carry it. `PropertyEntry.unitStatus` (مشغولة من المالك / مؤجرة
+/ شاغرة / قيد الإنجاز) records what each unit is, per unit; `FeeNotice.bearer`
+records who owes the fee, per notice.
+
+**The bearer is the question, and vacancy is one of its answers.** This started
+as a boolean — "does this notice charge empty units?" — and that was a symptom
+mistaken for the disease. It could not reach the other half of the same
+problem: a مبنى is filed once by its owner and again, flat by flat, by each
+tenant, so under a per-unit notice the same apartment was charged twice, to two
+people. No municipality would choose that; it survived only because nothing
+could tell an owner's own home from an owner's let flat. Both halves fall out
+of one fact:
+
+- **`OCCUPANT`** — رسم النظافة, القيمة التأجيرية. An owner pays for what they
+  live in, a مستأجر and a شاغل بتسامح for what they occupy, a let flat is
+  billed to its tenant alone, and an empty or unfinished unit to nobody.
+- **`OWNER`** — الأرصفة, المجاري, and the rest of الرسوم التأسيسية. The deed
+  holder pays for everything they own, occupied or not; tenants owe none of it.
+
+There is deliberately no third value meaning "charge everyone holding it". That
+was the old behaviour, and it is double taxation of one unit rather than a
+policy anyone would adopt.
+
+Needed from the municipality:
+
+- **Which bearer each fee carries, and under which article.** This is now a
+  required choice on every non-flat notice rather than a default someone can
+  arrive at without meaning to, and it is the one decision that determines both
+  who is billed and which units are exempt.
+- **Whether قيد الإنجاز should be separable from شاغرة.** An occupant-borne fee
+  exempts both, since nobody is in either. An owner-borne fee charges both,
+  since both are owned. A council wanting to relieve construction from an
+  owner-borne fee has no way to say so today; that would be a second flag, not
+  a deep change.
+- **Who re-checks a unit's status, and how often.** This is the sharp edge and
+  it has no technical answer. A flat marked شاغرة in March and let in April
+  keeps billing as exempt in December, because recurring notices re-assess
+  against whatever the register currently says. Unlike an unsurveyed building —
+  which refuses to be billed and names itself — a stale status looks like a
+  complete record. Same unanswered question as §9, arriving on a field that
+  costs money.
+
+**Deliberate asymmetries, so they are not read as oversights:**
+
+- **A unit nobody marked is charged.** Null means "not asked", never "empty".
+  This is also what makes `OCCUPANT` safe as the default: on a register with no
+  حالة الوحدة recorded anywhere, every unit reads as occupied by its owner, so
+  the owner is billed for all of them and each tenant for their own — exactly
+  the arithmetic that came before any of this existed. The double-charge
+  corrects itself only as landlords actually mark units مؤجرة, which is the one
+  mechanism that does not require guessing on their behalf.
+- **The field is optional everywhere.** A required four-way choice on all twenty
+  flats of a building is answered by thumb, not by looking — and a guessed
+  exemption is worse than no exemption. The units editor offers a "set all"
+  control instead, so the common case is one tap and the officer is left with
+  the units that actually differ.
+- **Only an owner is asked.** A مستأجر or a شاغل بتسامح *is* the occupant of
+  what they are filing. `PropertyEntry.normalise` strips a status from any
+  non-owner card, because a «شاغرة» left behind by an occupancy change would
+  claim the filer does not live there — and could exempt them from a fee they
+  owe.
+- **Units left out are counted, not merely omitted.** Every invoice stores
+  `excludedUnitCount` and the issue result reports the total. Revenue absent by
+  design is still revenue absent, and it has to be a number somebody can take
+  to the council rather than a difference nobody can see.
+- **FLAT ignores the bearer entirely.** A flat notice never asks the register
+  what anyone holds, so there is no unit for a bearer rule to include or
+  exclude. The consequence is that "a flat annual charge on property owners"
+  is not currently expressible; say so if it is wanted.
+
+**Still not solved by any of this:** a vacant unit whose owner never registered
+is invisible, because the register is keyed to citizens and a property card
+only exists under one. This records the vacancies of people the municipality
+already knows about; it is not a vacancy census.

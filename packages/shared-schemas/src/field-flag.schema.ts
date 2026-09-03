@@ -14,7 +14,29 @@ import { z } from 'zod';
  * field is emptied rather than guessed at, the officer says in their own words
  * why, and the whole record lands as `REQUIRES_REVIEW` so it appears on a work
  * queue instead of dissolving into the register looking finished.
+ *
+ * There are two of those exceptions, and conflating them was a real bug.
+ * `UNESTABLISHED` is the one above: nothing was learned, so the field is
+ * blanked and the strict schema's complaint about it is excused. `UNVERIFIED`
+ * is the opposite shape — a value *was* recorded and could not be confirmed
+ * against the municipality's own records. A رقم العقار read off a title deed
+ * that the imported cadastre has never heard of is the case that forced the
+ * distinction: erasing it (the only thing the old single-semantic model could
+ * do) throws away the best information anybody has about that household, and
+ * refusing the record outright strands a registration on a phone in a
+ * settlement nobody is going back to. So the number is kept, the record is
+ * held at «يتطلب مراجعة» with the reason attached, and a human decides.
+ *
+ * Only an officer raises `UNESTABLISHED` — it is a statement about what they
+ * did that afternoon. Only the server raises `UNVERIFIED`, because only the
+ * server holds the cadastre to check against; a client-sent one is discarded
+ * (`shapeSubmission`) and re-derived on every write, which is what lets a
+ * record clear itself the day the missing parcel is finally imported.
  */
+
+/** What kind of exception a flag records. See the note above. */
+export const FIELD_FLAG_KINDS = ['UNESTABLISHED', 'UNVERIFIED'] as const;
+export type FieldFlagKind = (typeof FIELD_FLAG_KINDS)[number];
 
 /**
  * The fields a flag may never cover.
@@ -81,9 +103,30 @@ export const fieldFlagSchema = z.object({
     .trim()
     .min(4, 'يرجى ذكر سبب عدم اكتمال هذه المعلومة')
     .max(300, 'السبب طويل جداً'),
+  /**
+   * Defaulted rather than required, for two populations that both predate it:
+   * every flag stored before this existed, and every registration sitting in a
+   * field phone's offline queue right now. Both mean the old single semantic,
+   * which is `UNESTABLISHED` — so they read back correctly without a backfill
+   * and without a queued record failing on arrival for a key it never carried.
+   */
+  kind: z.enum(FIELD_FLAG_KINDS).default('UNESTABLISHED'),
 });
 
 export type FieldFlag = z.infer<typeof fieldFlagSchema>;
+
+/**
+ * The same flag as it arrives — `kind` still optional.
+ *
+ * What the browser puts in IndexedDB and what an older row holds in
+ * `flaggedFields` are both this shape, not the parsed one above.
+ */
+export type FieldFlagInput = z.input<typeof fieldFlagSchema>;
+
+/** A flag records a value that was never established, and so was blanked. */
+export function isUnestablished(flag: { kind?: FieldFlagKind }): boolean {
+  return flag.kind !== 'UNVERIFIED';
+}
 
 /**
  * The flags on one submission.
@@ -111,8 +154,21 @@ export const fieldFlagsSchema = z
     });
   });
 
+/**
+ * The paths a flag actually excuses — `UNESTABLISHED` only.
+ *
+ * An `UNVERIFIED` flag must never reach here. It sits on a field that *has* a
+ * value, and every caller of this set either blanks the field or waives the
+ * strict schema's complaint about it; doing either to a recorded value would
+ * silently discard the very thing the second semantic exists to preserve.
+ */
 export function flaggedPaths(flags: readonly FieldFlag[]): Set<string> {
-  return new Set(flags.map((flag) => flag.path));
+  return new Set(flags.filter(isUnestablished).map((flag) => flag.path));
+}
+
+/** Fields carrying a recorded-but-unconfirmed value, keyed by path. */
+export function unverifiedPaths(flags: readonly FieldFlag[]): Set<string> {
+  return new Set(flags.filter((flag) => !isUnestablished(flag)).map((flag) => flag.path));
 }
 
 /**

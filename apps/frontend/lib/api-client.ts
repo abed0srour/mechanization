@@ -5,6 +5,9 @@ import type {
   CitizenImportResult,
   CitizenRecordStatus,
   CurrencyCode,
+  FeeAssessment,
+  FeeBasis,
+  FeeBearer,
   FeeFrequency,
   FieldFlag,
   ImportRow,
@@ -348,6 +351,17 @@ export interface ParcelRegistrantFinancials {
   paymentStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
 }
 
+/** One structure/card registered against a parcel. */
+export interface ParcelStructure {
+  id: string;
+  propertyType: string;
+  occupancyType: string;
+  buildingName: string | null;
+  unitCount: number;
+  unitType?: string | null;
+  unitArea?: number | null;
+}
+
 /** One citizen registered against a parcel, as the map drawer lists them. */
 export interface ParcelRegistrant {
   citizenId: string;
@@ -361,6 +375,8 @@ export interface ParcelRegistrant {
   registeredAt: string;
   unitCount: number;
   financials?: ParcelRegistrantFinancials;
+  /** All structures registered by this citizen on this parcel */
+  structures?: ParcelStructure[];
 }
 
 export interface ParcelFinancials {
@@ -382,6 +398,7 @@ export interface RegisteredParcel {
   longitude: number;
   registrants: ParcelRegistrant[];
   financials?: ParcelFinancials;
+  structureCount?: number;
 }
 
 /**
@@ -486,6 +503,8 @@ export interface CitizenProfileUnit {
   side: string | null;
   unitArea: number;
   sharedRights: string[];
+  /** حالة الوحدة. Null means nobody was asked — not that it is occupied. */
+  unitStatus: string | null;
 }
 
 export interface CitizenProfileProperty {
@@ -495,9 +514,11 @@ export interface CitizenProfileProperty {
   propertyNumber: string | null;
   propertyType: string;
   occupancyType: string;
-  /** TENANT only. */
+  /** Non-owner occupancies. The phone is required of a tenant only. */
   landlordName: string | null;
   landlordPhone: string | null;
+  /** HOUSE only, owner only. A BUILDING keeps this per unit. */
+  unitStatus: string | null;
   buildingName: string | null;
   /** HOUSE/LAND carry these directly; a BUILDING keeps them per unit. */
   unitType: string | null;
@@ -559,6 +580,13 @@ export interface CitizenProfilePayment {
   paidAt: string | null;
   reviewNote: string | null;
   frequency: string | null;
+  /**
+   * How this amount was arrived at, when it was not simply the notice's own.
+   *
+   * The answer to «ليش عليّ هالمبلغ؟» — null on a flat charge, which explains
+   * itself, and on every invoice raised before per-unit billing existed.
+   */
+  assessment?: FeeAssessment | null;
 }
 
 /**
@@ -1219,7 +1247,12 @@ export async function updateMunicipalitySettings(
 export interface FeeNoticeSummary {
   id: string;
   title: string;
+  /** Under FLAT the whole invoice; under the other two a rate. Read with `basis`. */
   amount: number;
+  /** What `amount` is per. Absent on notices written before per-unit billing. */
+  basis: FeeBasis;
+  /** Who owes it — see `FEE_BEARER`. Meaningless under FLAT. */
+  bearer: FeeBearer;
   currency: string;
   frequency: string;
   targetType: string;
@@ -1238,6 +1271,49 @@ export function getFeeNotices(tenant: string, token: string) {
   return apiFetch<{ items: FeeNoticeSummary[] }>(tenant, '/fees/notices', { token });
 }
 
+/**
+ * Everyone registered on one رقم العقار, and what each of them holds there.
+ *
+ * The parcel view of a citizen-keyed register — computed, never stored. Every
+ * fee is raised against a citizen, so ownership lives on the citizen and this
+ * is a projection over it; there is no second copy to drift.
+ */
+export interface ParcelRoster {
+  propertyNumber: string;
+  neighborhood: string | null;
+  citizenCount: number;
+  structureCount: number;
+  citizens: Array<{
+    citizenId: string;
+    fullName: string;
+    phone: string | null;
+    referenceNumber: string | null;
+    isActive: boolean;
+    structures: Array<{
+      propertyEntryId: string;
+      propertyType: string;
+      occupancyType: string;
+      buildingName: string | null;
+      units: Array<{
+        id: string | null;
+        unitType: string | null;
+        floor: string | null;
+        unitArea: number | null;
+        /** حالة الوحدة. Null means nobody was asked — not that it is occupied. */
+        unitStatus: string | null;
+      }>;
+    }>;
+  }>;
+}
+
+export function getParcelRoster(tenant: string, token: string, propertyNumber: string) {
+  return apiFetch<ParcelRoster>(
+    tenant,
+    `/citizens/parcel/${encodeURIComponent(propertyNumber)}`,
+    { token },
+  );
+}
+
 /** Writes the rule and bills every matching citizen in one transaction. */
 export async function issueFeeNotice(
   tenant: string,
@@ -1245,6 +1321,10 @@ export async function issueFeeNotice(
   input: {
     title: string;
     amount: number;
+    /** What `amount` is per — see `FEE_BASIS`. */
+    basis: FeeBasis;
+    /** Who owes it. Omitted means OCCUPANT — see `FEE_BEARER`. */
+    bearer?: FeeBearer;
     frequency: string;
     targetType: string;
     targetCategory?: string;
@@ -1253,7 +1333,27 @@ export async function issueFeeNotice(
     instructions?: string;
   },
 ) {
-  const result = await apiFetch<{ noticeId: string; issued: number }>(tenant, '/fees/notices', {
+  const result = await apiFetch<{
+    noticeId: string;
+    issued: number;
+    /**
+     * Targeted citizens whose holdings could not be measured — a building
+     * whose units were never surveyed, or a unit with no recorded area. They
+     * are not billed and not silently dropped: the caller names them so the
+     * municipality can chase the survey.
+     */
+    unassessable?: Array<{ citizenId: string; name: string; reason: string }>;
+    /**
+     * Units this notice declined to charge anyone for — let to a tenant who is
+     * billed for them directly, empty, still being built, or not owned by the
+     * person assessed.
+     *
+     * Reported for the same reason `unassessable` is: revenue absent by design
+     * is still revenue absent, and a clerk who can see how much of the town a
+     * bearer rule left out has something to take to the council.
+     */
+    exemptedUnits?: number;
+  }>(tenant, '/fees/notices', {
     token,
     method: 'POST',
     body: JSON.stringify(input),
@@ -1432,6 +1532,13 @@ export interface AdminPaymentItem {
   /** The محصّل holding the money — set only on a COLLECTOR payment. */
   collectedByName: string | null;
   frequency: string | null;
+  /**
+   * How this amount was arrived at, when it was not simply the notice's own.
+   *
+   * The answer to «ليش عليّ هالمبلغ؟» — null on a flat charge, which explains
+   * itself, and on every invoice raised before per-unit billing existed.
+   */
+  assessment?: FeeAssessment | null;
   citizenId: string;
   citizenName: string;
   citizenPhone: string | null;

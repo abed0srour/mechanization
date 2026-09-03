@@ -4,6 +4,7 @@ import {
   occupancyTypeSchema,
   PROPERTY_TYPE,
   propertyTypeSchema,
+  unitStatusSchema,
   unitTypeSchema,
   type PropertyType,
 } from './enums';
@@ -15,8 +16,9 @@ import { arabicOrLatinName, lebanesePhone } from './primitives';
  * Two independent conditional axes are modelled as discriminated unions so that
  * impossible combinations are unrepresentable rather than merely discouraged:
  *
- *   occupancy   OWNER  -> no landlord block
- *               TENANT -> landlord name + phone required
+ *   occupancy   OWNER          -> no landlord block; may state حالة الوحدة
+ *               TENANT         -> landlord name + phone required
+ *               FREE_OCCUPANT  -> landlord name required, phone optional
  *
  *   propertyType BUILDING -> buildingName + one-or-more units
  *                HOUSE    -> buildingName + side + area + sharedRights (no floor/unitType)
@@ -41,6 +43,24 @@ const occupancyBranch = z.discriminatedUnion(
       landlordName: arabicOrLatinName,
       landlordPhone: lebanesePhone,
     }),
+    /**
+     * شاغل بتسامح — occupying without paying بدل.
+     *
+     * The owner's *name* is required for the same reason it is of a tenant:
+     * the municipality has to know whose property this is, and someone living
+     * in it knows. The *phone* is not, and that asymmetry is the whole reason
+     * this is a separate branch rather than a relabelled TENANT. A tenant has
+     * a landlord they pay every month and can reach; this arrangement is
+     * typically a relative who is abroad, elderly, or dead — and a required
+     * phone field there does not produce a phone number, it produces an
+     * invented one, or an «غير مؤكَّد» flag on every such record until the flag
+     * stops meaning anything.
+     */
+    z.object({
+      occupancyType: z.literal('FREE_OCCUPANT'),
+      landlordName: arabicOrLatinName,
+      landlordPhone: lebanesePhone.optional(),
+    }),
   ],
   { errorMap: () => ({ message: 'نوع الإشغال مطلوب' }) },
 );
@@ -62,6 +82,24 @@ export const areaField = z.coerce
   .number({ required_error: 'المساحة مطلوبة', invalid_type_error: 'المساحة يجب أن تكون رقماً' })
   .positive('المساحة يجب أن تكون أكبر من صفر')
   .max(1_000_000);
+
+/**
+ * حالة الوحدة — optional everywhere, on purpose.
+ *
+ * Never required, and the omission is the design rather than a gap in it. A
+ * مبنى of twenty flats would otherwise demand twenty four-way choices from an
+ * officer who came to record who lives there, and a required choice someone
+ * cannot answer is not answered honestly — it is answered with whatever is
+ * under the thumb. This field decides money (see `FeeNotice.bearer`),
+ * and a guessed exemption is worse than no exemption.
+ *
+ * The consequence is deliberate and runs one way: a unit nobody marked is
+ * *billed*. Over-collecting from a flat that was empty produces a resident at
+ * the counter with a complaint someone can act on; under-collecting from one
+ * that was not produces nothing at all, which is the failure `isUnsurveyed`
+ * already refuses to allow. See `isUnoccupied`, which reads null as occupied.
+ */
+export const unitStatusField = unitStatusSchema.optional();
 
 export const propertyNumberField = z
   .string({ required_error: 'رقم العقار مطلوب' })
@@ -94,6 +132,12 @@ export const buildingUnitSchema = z.object({
   side: z.string().trim().max(60).optional(),
   unitArea: areaField,
   sharedRights: sharedRightsField,
+  /**
+   * Asked of an owner only, and stripped from anyone else's card by
+   * `PropertyEntry.normalise` — a مستأجر filing the flat they live in is its
+   * occupant, so there is no question to put to them.
+   */
+  unitStatus: unitStatusField,
 });
 
 export type BuildingUnit = z.infer<typeof buildingUnitSchema>;
@@ -130,6 +174,7 @@ const propertyBranch = z.discriminatedUnion(
       side: z.string().trim().max(60).optional(),
       unitArea: areaField,
       sharedRights: sharedRightsField,
+      unitStatus: unitStatusField,
     }),
     z.object({
       propertyType: z.literal('LAND'),
@@ -201,6 +246,7 @@ export const partialPropertyEntrySchema = z
     tentLocation: z.string().trim().min(3).max(200),
     unitArea: areaField,
     sharedRights: sharedRightsField,
+    unitStatus: unitStatusSchema,
     units: buildingUnitsSchema,
   })
   .partial()
@@ -220,7 +266,10 @@ type CardField =
   | 'occupancyType'
   | 'propertyType'
   | 'landlordName'
-  | 'landlordPhone';
+  | 'landlordPhone'
+  // Gated on occupancy as well as property type, so — like the landlord pair
+  // above it — it is not something `PROPERTY_FIELD_MAP` can express.
+  | 'unitStatus';
 
 /**
  * `true` when the partial shape covers every branch field, and `never` — so a
@@ -237,6 +286,7 @@ export const BUILDING_UNIT_FIELDS = [
   'side',
   'unitArea',
   'sharedRights',
+  'unitStatus',
 ] as const;
 
 /**

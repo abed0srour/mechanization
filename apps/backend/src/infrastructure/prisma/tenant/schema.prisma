@@ -283,6 +283,32 @@ model Registration {
 enum OccupancyType {
   OWNER
   TENANT
+  /// شاغل بتسامح — living in someone else's property without paying بدل.
+  ///
+  /// A son in his father's flat, a caretaker in the owner's ground floor. Not
+  /// a مالك (no deed) and not a مستأجر (no lease, no rent), and recording them
+  /// as the latter — the only prior option — writes a tenancy into the register
+  /// that does not exist. They are still the شاغل, so the occupancy fees fall
+  /// on them and the owner still has to be named; what differs is that there is
+  /// no عقد إيجار to attach and frequently no phone for the relative involved.
+  FREE_OCCUPANT
+}
+
+/// حالة الوحدة — about the unit, never the person. See OccupancyType above,
+/// which is «شاغل» to this enum's «شاغر»: one Arabic dot apart, and describing
+/// opposite things.
+///
+/// Nullable everywhere it appears, and null is *not* vacancy — it is a unit
+/// nobody was asked about. Reading the absence as empty would exempt every row
+/// written before this column existed, which is silent under-collection of the
+/// kind the per-unit assessment already refuses to commit.
+enum UnitStatus {
+  OWNER_OCCUPIED
+  /// Occupied under a lease. The value that lets a landlord's building and a
+  /// tenant's own card describe the same flat without both being charged for it.
+  RENTED
+  VACANT
+  UNDER_CONSTRUCTION
 }
 
 enum PropertyType {
@@ -292,10 +318,17 @@ enum PropertyType {
   TENT
 }
 
+/// What one unit inside a parcel is. Wider than the original three because a
+/// per-unit fee rate can only distinguish what this enum distinguishes — a
+/// محل and a مستودع sharing a value means the municipality cannot charge them
+/// differently even where its own schedule of fees does.
 enum UnitType {
   APARTMENT
+  INDEPENDENT_HOUSE
   CLINIC
+  OFFICE
   SHOP
+  WAREHOUSE
 }
 
 enum LandType {
@@ -341,6 +374,10 @@ model PropertyEntry {
   tentLocation   String?
   unitArea       Decimal?     @db.Decimal(12, 2)
   sharedRights   String[]     @default([])
+  /// Asked of an OWNER filing a منزل, and null for every other card: a مستأجر
+  /// or a شاغل بتسامح is the occupant of what they are filing, so there is no
+  /// question to put to them. A مبنى reads its units' statuses instead.
+  unitStatus     UnitStatus?
 
   latitude  Float?
   longitude Float?
@@ -373,6 +410,8 @@ model BuildingUnit {
   side         String?
   unitArea     Decimal  @db.Decimal(12, 2)
   sharedRights String[] @default([])
+  /// Set by the building's owner, unit by unit. Null on a tenant's own card.
+  unitStatus   UnitStatus?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -665,13 +704,51 @@ enum PaymentMethod {
   COLLECTOR
 }
 
+/// What a notice's `amount` is *per*. See FeeBasis in the shared schemas.
+enum FeeBasis {
+  FLAT
+  PER_UNIT
+  PER_AREA
+}
+
+/// Who a fee is levied on — الرسم على الشاغل أم على المالك.
+///
+/// Lebanese practice draws this line and the register could not: a شاغرة unit
+/// is relieved of رسوم الإشغال والنفايات and still owes الرسوم التأسيسية
+/// كالأرصفة والمجاري. Those are not one fee with an exception; they are two
+/// fees with different bearers, and this is which.
+///
+/// There is no third value meaning "charge everyone holding it". That was the
+/// behaviour before this existed and it billed a landlord and their tenant for
+/// the same flat — double taxation of one unit, which survived only because
+/// nothing could tell the two apart.
+enum FeeBearer {
+  /// رسم النظافة, القيمة التأجيرية — on whoever is actually in the unit.
+  OCCUPANT
+  /// الأرصفة, المجاري — on the deed holder, whatever the unit's state.
+  OWNER
+}
+
 /// The rule an administrator writes once: "500,000 LBP of رسم النفايات, every
 /// month, for every resident". Issuing it fans out into one `CitizenPayment`
 /// per matching citizen — this row is the template, never the debt.
 model FeeNotice {
   id       String  @id @default(uuid()) @db.Uuid
   title    String
+  /// Under FLAT this is the whole invoice. Under the other two it is a rate,
+  /// and the register decides the total — see `FeesService.assessCitizen`.
   amount   Decimal @db.Decimal(14, 2)
+  /// Defaulted so every notice written before per-unit billing existed keeps
+  /// charging exactly what it always did.
+  basis    FeeBasis @default(FLAT)
+  /// Who owes this fee. See FeeBearer above and §12 of docs/open-decisions.md.
+  ///
+  /// OCCUPANT by default, which on a register where nobody has recorded
+  /// حالة الوحدة yet is byte-for-byte the behaviour that came before it: an
+  /// unmarked unit reads as occupied by its owner, so the owner is billed for
+  /// all of them and each tenant for their own. Ignored under FLAT, where the
+  /// amount does not depend on holdings at all.
+  bearer FeeBearer @default(OCCUPANT)
   currency String  @default("LBP")
 
   frequency  FeeFrequency
@@ -729,6 +806,15 @@ model CitizenPayment {
   paidAmount Decimal  @default(0) @db.Decimal(14, 2)
   currency   String   @default("LBP")
   dueDate    DateTime
+
+  /// How this amount was arrived at, when it was not simply the notice's own.
+  ///
+  /// Written once, at issue, and never recomputed: a citizen who sells a shop
+  /// the week after being billed would otherwise open an invoice whose lines no
+  /// longer add up to what they are being asked to pay. A bill has to stay true
+  /// to the moment it was raised. Null for a flat charge, which needs no
+  /// explanation beyond its own amount.
+  assessment Json?
 
   paymentStatus PaymentStatus  @default(UNPAID)
   paymentMethod PaymentMethod?

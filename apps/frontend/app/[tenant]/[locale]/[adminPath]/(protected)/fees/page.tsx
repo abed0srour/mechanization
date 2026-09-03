@@ -39,6 +39,7 @@ import type {
 import { loadSession } from '@/lib/session';
 import { useStaffQuery } from '@/lib/use-staff-query';
 import { formatLbp } from '@/lib/currency';
+import { describeAssessment } from '@/lib/fee-assessment';
 import { formatDate } from '@/lib/dates';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -327,6 +328,8 @@ export default function FeesPage({
       const res = await issueFeeNotice(tenant, token, {
         title: values.title,
         amount: Number(values.amount.replace(/\D/g, '')),
+        basis: values.basis,
+        bearer: values.bearer,
         frequency: values.frequency,
         targetType: values.targetType,
         targetCategory: values.targetCategory || undefined,
@@ -335,6 +338,32 @@ export default function FeesPage({
         instructions: values.instructions || undefined,
       });
       toast.success(`تم إصدار الرسم بنجاح وتكليف ${res.issued} مواطن.`);
+
+      /*
+        The skipped are named, not buried.
+
+        A clerk told only that two hundred invoices were raised has no way to
+        know that eleven buildings went unbilled because nobody has been inside
+        them. This is the shortfall made visible so someone can act on it.
+      */
+      if (res.unassessable && res.unassessable.length > 0) {
+        toast.error(
+          `${res.unassessable.length} سجل لم يُحتسب لعدم اكتمال الجرد: ` +
+            res.unassessable.map((entry) => entry.name).join('، '),
+        );
+      }
+
+      /*
+        And so is what the bearer rule left out, for the same reason.
+
+        A clerk who has just said this fee falls on المالك rather than الشاغل
+        has changed what the town owes, and the size of that change is knowable
+        only right here — afterwards it is spread across a few hundred invoices
+        that each look unremarkable. One number, at the moment it was decided.
+      */
+      if (res.exemptedUnits) {
+        toast.info(`${res.exemptedUnits} وحدة لم تُحتسب حسب صفة المكلَّف بالرسم.`);
+      }
       setIssueOpen(false);
       void load();
     } catch (caught) {
@@ -415,9 +444,20 @@ export default function FeesPage({
         header: locale === 'en' ? 'Fee / Demand' : 'الرسم / المطالبة',
         cell: ({ row }) => {
           const payment = row.original;
+          /*
+            How the amount was arrived at, for the invoices where that is not
+            obvious. This is the sentence a collector reads back when a resident
+            asks why they owe what they owe.
+          */
+          const breakdown = describeAssessment(payment.assessment, locale);
           return (
             <div className="space-y-1">
               <p className="font-medium text-foreground">{payment.title}</p>
+              {breakdown ? (
+                <p className="font-mono text-[11px] text-muted-foreground" dir="ltr">
+                  {breakdown}
+                </p>
+              ) : null}
               {payment.frequency ? (
                 <Badge variant="soft-muted" className="text-[10px] px-1.5 py-0">
                   {labels.feeFrequency[payment.frequency as never] ?? payment.frequency}

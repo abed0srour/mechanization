@@ -29,6 +29,7 @@ import {
 } from '@/components/citizen/property-card';
 import { FieldFlagProvider, flagsToArray } from '@/components/ui/field';
 import { UnverifiedFieldsDialog } from './unverified-fields-dialog';
+import { ParcelRosterDialog } from './parcel-roster-dialog';
 import { cn, scopeErrors } from '@/lib/utils';
 import { useSectionNav } from '@/lib/use-section-nav';
 
@@ -44,6 +45,15 @@ export interface CitizenFormValues {
    * when its card is deleted. `flagsToArray` converts at the edge.
    */
   flags: Map<string, string>;
+  /**
+   * The server's «بانتظار التحقق» notes on this record, keyed by dot-path.
+   *
+   * Not part of what the form edits and never sent back — the server derives
+   * these from its own cadastre on every write. They are carried in the form's
+   * values only so the fields they name can say so while the officer is
+   * looking at them.
+   */
+  unverified: Map<string, string>;
 }
 
 /**
@@ -69,13 +79,42 @@ type SectionId = (typeof SECTIONS)[number]['id'];
 /** Stable identity for the nav hook's observer dependency. */
 const SECTION_IDS = SECTIONS.map((section) => section.id) as readonly SectionId[];
 
-/** A brand new record — one blank property card, Lebanese by default. */
-export const EMPTY_CITIZEN: CitizenFormValues = {
-  personal: { isLebanese: true },
-  contact: { whatsappSameAsPhone: true },
-  properties: [{}],
-  flags: new Map(),
-};
+/**
+ * A brand new record — one blank property card, Lebanese by default.
+ *
+ * A factory rather than a shared constant. The old constant handed every form
+ * that opened it the *same* `Map` and the same property array; nothing mutates
+ * them today, because every update in this file copies before it writes, but
+ * one `flags.set(...)` written in the ordinary imperative style would have
+ * leaked one officer's «غير مؤكَّد» flags into the next blank form on that
+ * device — and it would have looked completely reasonable in review.
+ */
+export function emptyCitizen(): CitizenFormValues {
+  return {
+    personal: { isLebanese: true },
+    contact: { whatsappSameAsPhone: true },
+    properties: [{}],
+    flags: new Map(),
+    unverified: new Map(),
+  };
+}
+
+/**
+ * One field this form is currently asking about, in the order it is asked.
+ *
+ * The section and the leaf are carried alongside the path because both of this
+ * list's consumers need them and neither should be re-deriving them by string
+ * surgery: the leaf is the label key, and the section is what the manager
+ * dialog groups by.
+ */
+export interface AskableField {
+  path: string;
+  /** The leaf name — `civilRecordNumber`, `landlordPhone`. Also the label key. */
+  field: string;
+  section: 'personal' | 'contact' | 'properties';
+  /** Which card, for a property field. */
+  propertyIndex?: number;
+}
 
 /**
  * Every dot-path this form is currently *asking about*.
@@ -90,46 +129,102 @@ export const EMPTY_CITIZEN: CitizenFormValues = {
  * So flags are pruned to this set. It is derived from the same
  * `PROPERTY_FIELD_MAP` the cards render from, which is what keeps "what is on
  * screen" and "what may be flagged" the same list.
+ *
+ * This is also the *only* statement of that list. The «خانات غير مؤكَّدة»
+ * dialog used to carry its own copy of these branches, which meant two places
+ * had to agree on what a non-Lebanese citizen is asked or what a خيمة card
+ * shows — and the failure mode was quiet in the worst way: the dialog offering
+ * a field the form would prune the moment it was confirmed, so the officer
+ * ticked six boxes and came back to five. One list, read by both.
  */
-function askablePaths(values: CitizenFormValues): Set<string> {
-  const paths = new Set<string>([
-    'personal.firstName',
-    'personal.middleName',
-    'personal.lastName',
-    'personal.gender',
-    'personal.bloodType',
-    'personal.residentStatus',
-    'contact.maritalStatus',
-    'contact.familySize',
-    'contact.phone',
-  ]);
+export function askableFields(values: CitizenFormValues): AskableField[] {
+  const fields: AskableField[] = [
+    { path: 'personal.firstName', field: 'firstName', section: 'personal' },
+    { path: 'personal.middleName', field: 'middleName', section: 'personal' },
+    { path: 'personal.lastName', field: 'lastName', section: 'personal' },
+    { path: 'personal.gender', field: 'gender', section: 'personal' },
+    { path: 'personal.bloodType', field: 'bloodType', section: 'personal' },
+    { path: 'personal.residentStatus', field: 'residentStatus', section: 'personal' },
+  ];
 
   if (values.personal.isLebanese !== false) {
-    paths.add('personal.identityDocType');
-    paths.add('personal.identityDocNumber');
-    paths.add('personal.civilRecordNumber');
+    fields.push(
+      { path: 'personal.identityDocType', field: 'identityDocType', section: 'personal' },
+      { path: 'personal.identityDocNumber', field: 'identityDocNumber', section: 'personal' },
+      { path: 'personal.civilRecordNumber', field: 'civilRecordNumber', section: 'personal' },
+    );
   } else {
-    paths.add('personal.nationality');
-    paths.add('personal.identityDocNumber');
-    paths.add('personal.residencyNumber');
+    fields.push(
+      { path: 'personal.nationality', field: 'nationality', section: 'personal' },
+      { path: 'personal.identityDocNumber', field: 'identityDocNumber', section: 'personal' },
+      { path: 'personal.residencyNumber', field: 'residencyNumber', section: 'personal' },
+    );
   }
 
-  if (values.contact.whatsappSameAsPhone === false) paths.add('contact.whatsapp');
+  fields.push(
+    { path: 'contact.phone', field: 'phone', section: 'contact' },
+    { path: 'contact.maritalStatus', field: 'maritalStatus', section: 'contact' },
+    { path: 'contact.familySize', field: 'familySize', section: 'contact' },
+  );
 
-  values.properties.forEach((property, index) => {
+  if (values.contact.whatsappSameAsPhone === false) {
+    fields.push({ path: 'contact.whatsapp', field: 'whatsapp', section: 'contact' });
+  }
+
+  values.properties.forEach((property, propertyIndex) => {
     const branch = PROPERTY_FIELD_MAP[property.propertyType as keyof typeof PROPERTY_FIELD_MAP];
-    for (const field of branch ?? []) paths.add(`properties.${index}.${field}`);
-    if (property.occupancyType === 'TENANT') {
-      paths.add(`properties.${index}.landlordName`);
-      paths.add(`properties.${index}.landlordPhone`);
+
+    for (const field of branch ?? []) {
+      fields.push({
+        path: `properties.${propertyIndex}.${field}`,
+        field,
+        section: 'properties',
+        propertyIndex,
+      });
+    }
+
+    /*
+      The landlord block, asked of both non-owner occupancies and flaggable
+      unevenly between them.
+
+      A tenant's landlord phone is required, so it can be the reason a record
+      is incomplete and therefore something an officer needs to be able to
+      excuse. A free occupant's is optional — there is nothing to excuse, and
+      offering the flag anyway would put a «غير مؤكَّد» box under a field that
+      was never going to fail, which is how a flag list stops meaning
+      "this record is missing something".
+
+      حالة الوحدة is absent here for the same reason and more strongly: it is
+      optional on every card that shows it, so it can never hold a record up.
+    */
+    const nonOwnerFields =
+      property.occupancyType === 'TENANT'
+        ? (['landlordName', 'landlordPhone'] as const)
+        : property.occupancyType === 'FREE_OCCUPANT'
+          ? (['landlordName'] as const)
+          : [];
+
+    for (const field of nonOwnerFields) {
+      fields.push({
+        path: `properties.${propertyIndex}.${field}`,
+        field,
+        section: 'properties',
+        propertyIndex,
+      });
     }
   });
 
-  return paths;
+  return fields;
+}
+
+/** The same list as a set, for the "is this still being asked?" question. */
+function askablePaths(values: CitizenFormValues): Set<string> {
+  return new Set(askableFields(values).map((entry) => entry.path));
 }
 
 /**
- * Renumbers property flags after the card at `removed` is deleted.
+ * Renumbers a path-keyed map of property annotations after the card at
+ * `removed` is deleted — the officer's flags, and the server's notes alike.
  *
  * Drops that card's own flags and shifts every higher index down by one, which
  * is the same correction `removeProperty` applies to the collapsed set — for
@@ -259,6 +354,7 @@ function validate(values: CitizenFormValues): Record<string, string> {
  */
 export function CitizenForm({
   tenant,
+  token,
   config,
   mode,
   initial,
@@ -270,6 +366,14 @@ export function CitizenForm({
   locale = 'ar',
 }: {
   tenant: string;
+  /**
+   * The staff session's token, for the parcel roster lookup.
+   *
+   * Optional because this form is also the citizen-facing wizard's admin twin
+   * and the roster is staff-only — without it the neighbours line stays the
+   * plain count it always was.
+   */
+  token?: string | null;
   config: PublicTenantConfig;
   mode: 'create' | 'edit';
   initial: CitizenFormValues;
@@ -292,6 +396,8 @@ export function CitizenForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showErrors, setShowErrors] = useState(false);
   const [unverifiedDialogOpen, setUnverifiedDialogOpen] = useState(false);
+  /** Which رقم العقار's roster is open, if any. */
+  const [rosterParcel, setRosterParcel] = useState<string | null>(null);
   /** Which property cards are folded shut. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   /**
@@ -371,8 +477,14 @@ export function CitizenForm({
   }, []);
 
   const flagging = useMemo(
-    () => ({ flags: values.flags, set: setFlag, clear: clearFlag, locale }),
-    [values.flags, setFlag, clearFlag, locale],
+    () => ({
+      flags: values.flags,
+      unverified: values.unverified,
+      set: setFlag,
+      clear: clearFlag,
+      locale,
+    }),
+    [values.flags, values.unverified, setFlag, clearFlag, locale],
   );
 
   const setProperty = useCallback((index: number, next: PropertyDraft) => {
@@ -382,13 +494,35 @@ export function CitizenForm({
     }));
   }, []);
 
-  const addProperty = useCallback(() => {
+  /**
+   * A new card.
+   *
+   * `sameParcelAs` carries the parcel's own identity across — رقم العقار and
+   * الحي — for the case this form could not express at all until now: one deed
+   * carrying a building, the house behind it and a shop on the street. Those
+   * are three structures that are typed, inspected and taxed differently, so
+   * they are three cards; what they are *not* is three different pieces of
+   * land, and making the clerk retype the number that says so invites the
+   * transposed digit that puts the shop on someone else's parcel.
+   *
+   * The owner is not copied because the owner was never on the card. It is the
+   * citizen this whole form is about, typed once at the top — which is why
+   * adding a fifth structure costs one tap and no re-entry.
+   */
+  const addProperty = useCallback((sameParcelAs?: number) => {
     setValues((current) => {
+      const source = sameParcelAs === undefined ? undefined : current.properties[sameParcelAs];
+
       const properties = [
         ...current.properties,
-        // A clerk entering several properties for one household fills the same
-        // shape repeatedly, so a new card inherits the last one's occupancy.
-        { occupancyType: current.properties.at(-1)?.occupancyType },
+        {
+          // A clerk entering several properties for one household fills the same
+          // shape repeatedly, so a new card inherits the last one's occupancy.
+          occupancyType: (source ?? current.properties.at(-1))?.occupancyType,
+          ...(source
+            ? { propertyNumber: source.propertyNumber, neighborhood: source.neighborhood }
+            : {}),
+        },
       ];
       setCollapsed(new Set(properties.slice(0, -1).map((_, i) => i)));
       return { ...current, properties };
@@ -406,8 +540,14 @@ export function CitizenForm({
         become a flag on whatever card slid into position 2 — excusing a field
         nobody said anything about, and holding that card's real gap against
         the officer. The removed card's own flags go with it.
+
+        The server's «بانتظار التحقق» notes are addressed the same way and are
+        renumbered with them: a note reading "this parcel number is not in the
+        cadastre" parked on the wrong card sends someone to re-check a number
+        that was never in question.
       */
       flags: reindexFlags(current.flags, index),
+      unverified: reindexFlags(current.unverified, index),
     }));
     // Indices above the removed card shift down by one; rebuilding the set
     // rather than deleting from it keeps the wrong card from folding shut.
@@ -640,17 +780,22 @@ export function CitizenForm({
           size="sm"
           onClick={() => setUnverifiedDialogOpen(true)}
           className={cn(
-            'h-8 gap-1.5 px-3 text-xs font-medium transition-colors',
+            'h-8 gap-1.5 px-2 sm:px-3 text-xs font-medium transition-colors shrink-0',
             values.flags.size > 0
               ? 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20'
               : 'text-muted-foreground hover:text-foreground',
           )}
+          title={locale === 'en' ? 'Unverified Fields' : 'خانات غير مؤكَّدة'}
         >
           <FileQuestion className="size-3.5 shrink-0" aria-hidden />
-          <span>
+          <span className="hidden sm:inline">
             {locale === 'en' ? 'Unverified Fields' : 'خانات غير مؤكَّدة'}
-            {values.flags.size > 0 ? ` (${values.flags.size})` : ''}
           </span>
+          {values.flags.size > 0 ? (
+            <span className="rounded-full bg-warning/20 px-1.5 py-0.5 text-[10px] font-bold text-warning">
+              {values.flags.size}
+            </span>
+          ) : null}
         </Button>
       </nav>
 
@@ -721,6 +866,8 @@ export function CitizenForm({
               collapsed={collapsed.has(index)}
               onToggleCollapse={() => toggleCollapsed(index)}
               onChange={(next) => setProperty(index, next)}
+              onAddOnSameParcel={() => addProperty(index)}
+              onViewParcel={token ? setRosterParcel : undefined}
               onRemove={() => removeProperty(index)}
               canRemove={values.properties.length > 1}
               errors={scopeErrors(shown, `properties.${index}`)}
@@ -739,7 +886,7 @@ export function CitizenForm({
           <Button
             variant="outline"
             size="sm"
-            onClick={addProperty}
+            onClick={() => addProperty()}
             className="w-full border-dashed border-primary/60 text-primary hover:bg-primary/5 h-9 text-xs sm:text-sm font-medium"
           >
             <Plus className="size-4" aria-hidden />
@@ -862,6 +1009,17 @@ export function CitizenForm({
         </div>
       </div>
     </div>
+
+    {token && rosterParcel ? (
+      <ParcelRosterDialog
+        open
+        onOpenChange={(next) => setRosterParcel(next ? rosterParcel : null)}
+        tenant={tenant}
+        token={token}
+        propertyNumber={rosterParcel}
+        locale={locale}
+      />
+    ) : null}
 
     <UnverifiedFieldsDialog
       open={unverifiedDialogOpen}

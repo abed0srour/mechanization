@@ -14,11 +14,27 @@ import {
   X,
 } from 'lucide-react';
 import type { RegisteredParcel } from '@/lib/api-client';
+import { getLabels } from '@mechanization/shared-schemas';
 import { formatLbp, formatLbpCompact } from '@/lib/currency';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+
+/**
+ * Arabic counts, which do not inflect the way English ones do.
+ *
+ * مواطن واحد / مواطنان / ٢ مواطنين / ٢٠ مواطناً — four forms, chosen by
+ * the number rather than by whether it is one. Written once because the drawer
+ * counts two different things in the same breath and the branching was
+ * identical both times; getting it wrong in one place and right in the other
+ * is the mistake this prevents.
+ */
+function countAr(n: number, forms: { one: string; two: string; few: string; many: string }): string {
+  if (n === 1) return forms.one;
+  if (n === 2) return forms.two;
+  return n <= 10 ? `${n} ${forms.few}` : `${n} ${forms.many}`;
+}
 
 export function CitizenDetailDrawer({
   parcel,
@@ -33,6 +49,7 @@ export function CitizenDetailDrawer({
   locale?: string;
 }) {
   const isEnglish = locale === 'en';
+  const labels = getLabels(locale);
   const [query, setQuery] = useState('');
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -67,7 +84,30 @@ export function CitizenDetailDrawer({
 
   if (!parcel) return null;
 
-  const count = registrants.length;
+  const citizenCount = registrants.length;
+  const structureCount =
+    parcel.structureCount ??
+    registrants.reduce((sum, r) => sum + (r.structures?.length || 1), 0);
+
+  const citizenText = isEnglish
+    ? `${citizenCount} registered citizen${citizenCount === 1 ? '' : 's'}`
+    : countAr(citizenCount, {
+        one: 'مواطن واحد مسجّل',
+        two: 'مواطنان مسجّلان',
+        few: 'مواطنين مسجّلين',
+        many: 'مواطناً مسجّلاً',
+      });
+
+  const structureText = isEnglish
+    ? `${structureCount} structure${structureCount === 1 ? '' : 's'}`
+    : countAr(structureCount, {
+        one: 'عقار واحد',
+        two: 'عقاران',
+        few: 'عقارات',
+        many: 'عقاراً',
+      });
+
+  const headerSubtitle = `${citizenText} • ${structureText}`;
 
   // Parcel-level financial status helpers
   const totalBilled = financials?.totalBilled ?? 0;
@@ -116,11 +156,7 @@ export function CitizenDetailDrawer({
             </div>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
               <Users className="size-3.5 shrink-0" aria-hidden />
-              <span>
-                {count === 1
-                  ? (isEnglish ? '1 registered citizen' : 'مواطن واحد مسجّل')
-                  : (isEnglish ? `${count} registered citizens` : `${count} مواطنين مسجّلين`)}
-              </span>
+              <span>{headerSubtitle}</span>
             </p>
           </div>
         </div>
@@ -221,7 +257,7 @@ export function CitizenDetailDrawer({
           </span>
         </div>
 
-        {/* Occupants List: Only Profile Icon, Full Name, and Phone Number */}
+        {/* Occupants List */}
         {filtered.length === 0 ? (
           <p className="py-6 text-center text-xs text-muted-foreground">
             {isEnglish ? 'No matching occupants found.' : 'لا نتائج مطابقة للبحث.'}
@@ -230,34 +266,66 @@ export function CitizenDetailDrawer({
           <div className="divide-y divide-border/70 rounded-xl border border-border/80 bg-card overflow-hidden shadow-xs">
             {filtered.map((registrant, idx) => (
               <Link
-                key={registrant.registrationId || `${registrant.citizenId}-${idx}`}
+                key={registrant.citizenId || registrant.registrationId || idx}
                 href={citizenHref(registrant.citizenId)}
                 title={isEnglish ? `View profile of ${registrant.fullName}` : `عرض ملف ${registrant.fullName}`}
-                className="group flex items-center justify-between gap-2 px-3 py-2.5 transition-colors hover:bg-accent/60 cursor-pointer text-start"
+                className="group block px-3 py-2.5 transition-colors hover:bg-accent/60 cursor-pointer text-start"
               >
-                {/* Profile Icon, Name, and Phone aligned next to each other on the same line */}
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-transform group-hover:scale-105">
-                    <User className="size-4" />
-                  </span>
-
-                  <span className="truncate text-xs font-bold text-foreground group-hover:text-primary transition-colors">
-                    {registrant.fullName}
-                  </span>
-
-                  {registrant.phone ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ms-auto font-mono" dir="ltr">
-                      <Phone className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
-                      <span>{registrant.phone}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-transform group-hover:scale-105">
+                      <User className="size-4" />
                     </span>
-                  ) : null}
+
+                    <span className="truncate text-xs font-bold text-foreground group-hover:text-primary transition-colors">
+                      {registrant.fullName}
+                    </span>
+
+                    {registrant.phone ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0 ms-auto font-mono" dir="ltr">
+                        <Phone className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
+                        <span>{registrant.phone}</span>
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <ChevronLeft
+                    aria-hidden
+                    className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover:-translate-x-0.5 rtl:rotate-180 rtl:group-hover:translate-x-0.5 group-hover:text-foreground"
+                  />
                 </div>
 
-                {/* Navigation Arrow */}
-                <ChevronLeft
-                  aria-hidden
-                  className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover:-translate-x-0.5 rtl:rotate-180 rtl:group-hover:translate-x-0.5 group-hover:text-foreground"
-                />
+                {/* Structures registered for this citizen on this parcel */}
+                {registrant.structures && registrant.structures.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 ps-[2.625rem]">
+                    {registrant.structures.map((s, sIdx) => {
+                      const typeLabel =
+                        labels.propertyType[s.propertyType as keyof typeof labels.propertyType] ??
+                        s.propertyType;
+                      const occupancyLabel =
+                        labels.occupancyType[s.occupancyType as keyof typeof labels.occupancyType] ??
+                        s.occupancyType;
+                      const displayName = s.buildingName ? `${typeLabel} (${s.buildingName})` : typeLabel;
+
+                      return (
+                        <span
+                          key={s.id || sIdx}
+                          className="inline-flex items-center gap-1 rounded-md bg-muted/70 px-2 py-0.5 text-[10px] font-medium text-foreground/85 border border-border/60"
+                        >
+                          <span>{displayName}</span>
+                          {s.unitCount > 0 ? (
+                            <span className="text-muted-foreground font-mono">
+                              • {s.unitCount} {isEnglish ? 'units' : 'وحدات'}
+                            </span>
+                          ) : null}
+                          <span className="text-muted-foreground/70 text-[9px]">
+                            ({occupancyLabel})
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </Link>
             ))}
           </div>

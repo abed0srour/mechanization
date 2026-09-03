@@ -96,21 +96,33 @@ export interface ParcelRegistrantFinancials {
   paymentStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS';
 }
 
+/** One structure/card registered against a parcel — a building, house, shop, or plot. */
+export interface ParcelStructure {
+  id: string;
+  propertyType: string;
+  occupancyType: string;
+  buildingName: string | null;
+  unitCount: number;
+  unitType?: string | null;
+  unitArea?: number | null;
+}
+
 export interface ParcelRegistrant {
   citizenId: string;
   registrationId: string;
   fullName: string;
   phone: string | null;
-  /** مالك / مستأجر — the closest thing to a "role" this domain has. */
+  /** مالك / مستأجر — the primary role. */
   occupancyType: string;
   propertyType: string;
-  /** Which building this registrant's unit sits in — a parcel can carry more
-   * than one, so this is what actually distinguishes them in the drawer. */
+  /** Which building this registrant's unit sits in — if named. */
   buildingName: string | null;
   registeredAt: string;
-  /** Units inside this citizen's slice of the building, if any. */
+  /** Total units inside this citizen's structures on this parcel. */
   unitCount: number;
   financials?: ParcelRegistrantFinancials;
+  /** All structures/cards owned or occupied by this citizen on this parcel */
+  structures: ParcelStructure[];
 }
 
 export interface ParcelFinancials {
@@ -134,6 +146,8 @@ export interface RegisteredParcel {
   longitude: number;
   registrants: ParcelRegistrant[];
   financials?: ParcelFinancials;
+  /** Total structures across all registrants on this parcel */
+  structureCount: number;
 }
 
 /** One unit inside a BUILDING — شقة, عيادة or محل. */
@@ -144,6 +158,8 @@ export interface CitizenProfileUnit {
   side: string | null;
   unitArea: number;
   sharedRights: string[];
+  /** حالة الوحدة — set by the building's owner. Null on a tenant's own card. */
+  unitStatus: string | null;
 }
 
 /**
@@ -168,9 +184,14 @@ export interface CitizenProfileProperty {
   propertyNumber: string | null;
   propertyType: string;
   occupancyType: string;
-  /** TENANT only — the wizard requires both when occupancy is مستأجر. */
+  /**
+   * Non-owner occupancies only. The name is required of both a مستأجر and a
+   * شاغل بتسامح; the phone only of the first — see `occupancyBranch`.
+   */
   landlordName: string | null;
   landlordPhone: string | null;
+  /** HOUSE only, owner only, and null wherever nobody was asked. */
+  unitStatus: string | null;
   buildingName: string | null;
   /** HOUSE/LAND carry these directly; a BUILDING keeps them per unit below. */
   unitType: string | null;
@@ -637,6 +658,7 @@ export class ReportingService {
                 occupancyType: true,
                 landlordName: true,
                 landlordPhone: true,
+                unitStatus: true,
                 buildingName: true,
                 unitType: true,
                 landType: true,
@@ -659,6 +681,7 @@ export class ReportingService {
                     side: true,
                     unitArea: true,
                     sharedRights: true,
+                    unitStatus: true,
                   },
                 },
               },
@@ -781,6 +804,7 @@ export class ReportingService {
           occupancyType: property.occupancyType,
           landlordName: property.landlordName,
           landlordPhone: property.landlordPhone,
+          unitStatus: property.unitStatus,
           buildingName: property.buildingName,
           unitType: property.unitType,
           landType: property.landType,
@@ -801,6 +825,7 @@ export class ReportingService {
             side: unit.side,
             unitArea: Number(unit.unitArea),
             sharedRights: unit.sharedRights,
+            unitStatus: unit.unitStatus,
           })),
         })),
         documents: registration.documents.map((document) => ({
@@ -849,10 +874,13 @@ export class ReportingService {
           propertyNumber: { not: null },
         },
         select: {
+          id: true,
           propertyNumber: true,
           propertyType: true,
           occupancyType: true,
           buildingName: true,
+          unitType: true,
+          unitArea: true,
           latitude: true,
           longitude: true,
           createdAt: true,
@@ -909,66 +937,121 @@ export class ReportingService {
       paymentsByCitizen.set(p.citizenId, list);
     }
 
-    const byParcel = new Map<string, RegisteredParcel>();
+    /*
+      One citizen's standing, folded once and reused.
 
-    for (const row of rows) {
-      const citizenId = row.registration.citizen.id;
-      const citizenPayments = paymentsByCitizen.get(citizenId) ?? [];
+      A citizen appears here once per card they hold, and a parcel may now carry
+      several of theirs — a building, the house behind it, the shop on the
+      street. Re-summing their whole payment history for each of those cards
+      re-answers a question that has one answer per citizen, not one per card.
+    */
+    const financialsByCitizen = new Map<string, ParcelRegistrantFinancials>();
+    const citizenFinancials = (citizenId: string): ParcelRegistrantFinancials => {
+      const cached = financialsByCitizen.get(citizenId);
+      if (cached) return cached;
 
       let totalBilled = 0;
       let totalPaid = 0;
-      for (const cp of citizenPayments) {
+      for (const cp of paymentsByCitizen.get(citizenId) ?? []) {
         totalBilled += cp.amount;
         totalPaid += cp.paidAmount;
       }
       const totalDue = Math.max(totalBilled - totalPaid, 0);
 
-      let citizenStatus: 'PAID' | 'PARTIALLY_PAID' | 'UNPAID' | 'NO_BILLS' = 'NO_BILLS';
-      if (totalBilled === 0) {
-        citizenStatus = 'NO_BILLS';
-      } else if (totalDue === 0) {
-        citizenStatus = 'PAID';
-      } else if (totalPaid > 0) {
-        citizenStatus = 'PARTIALLY_PAID';
-      } else {
-        citizenStatus = 'UNPAID';
-      }
-
-      const parcel = byParcel.get(row.propertyNumber!) ?? {
-        propertyNumber: row.propertyNumber!,
-        latitude: row.latitude!,
-        longitude: row.longitude!,
-        registrants: [],
+      const computed: ParcelRegistrantFinancials = {
+        totalBilled,
+        totalPaid,
+        totalDue,
+        paymentStatus:
+          totalBilled === 0
+            ? 'NO_BILLS'
+            : totalDue === 0
+              ? 'PAID'
+              : totalPaid > 0
+                ? 'PARTIALLY_PAID'
+                : 'UNPAID',
       };
 
-      parcel.registrants.push({
-        citizenId,
-        registrationId: row.registration.id,
-        fullName: [
-          row.registration.citizen.firstName,
-          row.registration.citizen.middleName,
-          row.registration.citizen.lastName,
-        ]
-          .filter(Boolean)
-          .join(' '),
-        phone: row.registration.citizen.phone,
-        occupancyType: row.occupancyType,
-        propertyType: row.propertyType,
-        buildingName: row.buildingName,
-        registeredAt: row.registration.submittedAt.toISOString(),
-        unitCount: row._count.units,
-        financials: {
-          totalBilled,
-          totalPaid,
-          totalDue,
-          paymentStatus: citizenStatus,
-        },
-      });
+      financialsByCitizen.set(citizenId, computed);
+      return computed;
+    };
 
-      byParcel.set(row.propertyNumber!, parcel);
+    const byParcel = new Map<string, RegisteredParcel>();
+    /*
+      Each parcel's registrants, indexed by citizen id.
+
+      A keyed lookup rather than scanning `parcel.registrants` for every card:
+      the scan is quadratic in the registrants on one parcel, and an apartment
+      building — the case with the most cards on a single number — is exactly
+      where that count is highest. Keyed on the parcel object itself so no
+      separator has to be safe against whatever a رقم العقار contains.
+    */
+    const registrantsByParcel = new Map<RegisteredParcel, Map<string, ParcelRegistrant>>();
+
+    for (const row of rows) {
+      const citizenId = row.registration.citizen.id;
+      const propertyNumber = row.propertyNumber!;
+
+      let parcel = byParcel.get(propertyNumber);
+      if (!parcel) {
+        parcel = {
+          propertyNumber,
+          latitude: row.latitude!,
+          longitude: row.longitude!,
+          registrants: [],
+          structureCount: 0,
+        };
+        byParcel.set(propertyNumber, parcel);
+        registrantsByParcel.set(parcel, new Map());
+      }
+      const byCitizen = registrantsByParcel.get(parcel)!;
+
+      const structure: ParcelStructure = {
+        id: row.id,
+        propertyType: row.propertyType,
+        occupancyType: row.occupancyType,
+        buildingName: row.buildingName,
+        unitCount: row._count.units,
+        unitType: row.unitType,
+        // `!= null` rather than a truthiness test: a unit measured at zero is a
+        // recorded measurement, not a missing one.
+        unitArea: row.unitArea != null ? Number(row.unitArea) : null,
+      };
+
+      const existing = byCitizen.get(citizenId);
+
+      if (existing) {
+        existing.structures.push(structure);
+        existing.unitCount += row._count.units;
+      } else {
+        const registrant: ParcelRegistrant = {
+          citizenId,
+          registrationId: row.registration.id,
+          fullName: [
+            row.registration.citizen.firstName,
+            row.registration.citizen.middleName,
+            row.registration.citizen.lastName,
+          ]
+            .filter(Boolean)
+            .join(' '),
+          phone: row.registration.citizen.phone,
+          occupancyType: row.occupancyType,
+          propertyType: row.propertyType,
+          buildingName: row.buildingName,
+          registeredAt: row.registration.submittedAt.toISOString(),
+          unitCount: row._count.units,
+          financials: citizenFinancials(citizenId),
+          structures: [structure],
+        };
+
+        parcel.registrants.push(registrant);
+        byCitizen.set(citizenId, registrant);
+      }
+
+      parcel.structureCount += 1;
     }
 
-    // Compute parcel-level aggregated financials
+    // Compute parcel-level aggregated financials (deduplicated by citizen)
     for (const parcel of byParcel.values()) {
       let parcelBilled = 0;
       let parcelPaid = 0;
@@ -1025,6 +1108,11 @@ export class ReportingService {
       'unit_type',
       'floor',
       'unit_area',
+      // Empty for every row recorded before حالة الوحدة existed and for every
+      // card whose occupant was not its owner — an absence, not an OCCUPIED.
+      // A reader summing this column has to treat blank as "not asked", the
+      // same way the assessment does.
+      'unit_status',
     ];
 
     const lines = [header.join(',')];
@@ -1053,9 +1141,10 @@ export class ReportingService {
               propertyType: true,
               occupancyType: true,
               unitArea: true,
+              unitStatus: true,
               buildingName: true,
               units: {
-                select: { unitType: true, floor: true, unitArea: true },
+                select: { unitType: true, floor: true, unitArea: true, unitStatus: true },
               },
             },
           },
@@ -1102,6 +1191,8 @@ export class ReportingService {
                 // The area lives on the unit for a building and on the property
                 // itself for everything else.
                 (unit?.unitArea ?? property?.unitArea)?.toString() ?? '',
+                // Same split, same reason — a building states it per unit.
+                unit?.unitStatus ?? property?.unitStatus ?? '',
               ]
                 .map(csvCell)
                 .join(','),

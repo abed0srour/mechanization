@@ -1,5 +1,7 @@
 import {
   adminCreateCitizenSubmissionSchema,
+  CADASTRE_UNVERIFIED_REASON,
+  cadastreFlags,
   isFlaggablePath,
   statusForFlags,
 } from '@mechanization/shared-schemas';
@@ -71,6 +73,103 @@ describe('citizen submission — no flags', () => {
     delete input.personal.civilRecordNumber;
 
     expect(failures(input)).toEqual(['personal.civilRecordNumber']);
+  });
+});
+
+/**
+ * The two fields gated on occupancy rather than on property type.
+ *
+ * Both travel through `branchFieldsOnly`, which filters a card down to its
+ * branch before the partial schemas coerce it — and `PROPERTY_FIELD_MAP`, being
+ * keyed by نوع العقار, cannot describe either of them. A field missing from
+ * that filter is not rejected; it is silently dropped on the way to storage,
+ * which is the failure worth a test rather than a comment.
+ */
+describe('citizen submission — occupancy-gated fields', () => {
+  const ownedHouse = (extra: Record<string, unknown> = {}) => {
+    const input = complete();
+    input.properties = [
+      {
+        occupancyType: 'OWNER',
+        propertyType: 'HOUSE',
+        neighborhood: 'الحي الشرقي',
+        propertyNumber: '1553',
+        buildingName: 'دار المراد',
+        unitArea: '140',
+        ...extra,
+      } as Record<string, unknown>,
+    ];
+    return input;
+  };
+
+  it('keeps حالة الوحدة on an owner-filed house', () => {
+    const result = adminCreateCitizenSubmissionSchema.safeParse(
+      ownedHouse({ unitStatus: 'VACANT' }),
+    );
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.properties[0]?.unitStatus).toBe('VACANT');
+  });
+
+  it('does not require one', () => {
+    // Optional everywhere it appears, so a card without it is complete and a
+    // clerk is never blocked on a question they could not answer.
+    expect(failures(ownedHouse())).toEqual([]);
+  });
+
+  it('accepts a free occupant who names the owner but has no number for them', () => {
+    const input = complete();
+    input.properties = [
+      {
+        occupancyType: 'FREE_OCCUPANT',
+        landlordName: 'أبو خالد',
+        propertyType: 'HOUSE',
+        neighborhood: 'الحي الشرقي',
+        propertyNumber: '1553',
+        buildingName: 'دار المراد',
+        unitArea: '140',
+      } as Record<string, unknown>,
+    ];
+
+    const result = adminCreateCitizenSubmissionSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.properties[0]?.landlordName).toBe('أبو خالد');
+    expect(result.data.properties[0]?.landlordPhone).toBeUndefined();
+  });
+
+  it('still demands the owner’s name from one', () => {
+    const input = complete();
+    input.properties = [
+      {
+        occupancyType: 'FREE_OCCUPANT',
+        propertyType: 'HOUSE',
+        neighborhood: 'الحي الشرقي',
+        propertyNumber: '1553',
+        buildingName: 'دار المراد',
+        unitArea: '140',
+      } as Record<string, unknown>,
+    ];
+
+    expect(failures(input)).toEqual(['properties.0.landlordName']);
+  });
+
+  it('still demands both from a tenant', () => {
+    const input = complete();
+    input.properties = [
+      {
+        occupancyType: 'TENANT',
+        landlordName: 'سمير مراد',
+        propertyType: 'HOUSE',
+        neighborhood: 'الحي الشرقي',
+        propertyNumber: '1553',
+        buildingName: 'دار المراد',
+        unitArea: '140',
+      } as Record<string, unknown>,
+    ];
+
+    expect(failures(input)).toEqual(['properties.0.landlordPhone']);
   });
 });
 
@@ -226,5 +325,114 @@ describe('citizen submission — offline delivery', () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(statusForFlags(result.data.flags)).toBe('PENDING');
+  });
+});
+
+/**
+ * The two flag kinds, and the wall between them.
+ *
+ * `UNESTABLISHED` blanks a field and excuses the strict schema's complaint
+ * about it. `UNVERIFIED` does neither — it annotates a value that is present
+ * and must still be valid. Everything below exists because letting one behave
+ * like the other is silent data loss in one direction and silent validation
+ * loss in the other.
+ */
+describe('citizen submission — recorded-but-unverified fields', () => {
+  it('never blanks a field an UNVERIFIED flag names', () => {
+    const input = complete();
+    input.flags = [
+      {
+        path: 'properties.0.propertyNumber',
+        reason: CADASTRE_UNVERIFIED_REASON,
+        kind: 'UNVERIFIED',
+      },
+    ] as never;
+
+    const result = adminCreateCitizenSubmissionSchema.safeParse(input);
+
+    expect(result.success).toBe(true);
+    // The number the officer read off the deed survives the round trip; the
+    // whole reason this kind exists is that erasing it destroys the best
+    // information anyone has about the household.
+    expect(result.data!.properties[0]!.propertyNumber).toBe('1553');
+  });
+
+  it('does not let an UNVERIFIED flag excuse a field that is actually missing', () => {
+    const input = complete();
+    delete input.properties[0]!.propertyNumber;
+    input.flags = [
+      { path: 'properties.0.propertyNumber', reason: 'غير مؤكد حالياً', kind: 'UNVERIFIED' },
+    ] as never;
+
+    // An UNVERIFIED flag is a note about a value, not a waiver. With the value
+    // gone the strict schema's complaint stands.
+    expect(failures(input)).toContain('properties.0.propertyNumber');
+  });
+
+  it('discards an UNVERIFIED flag sent by a client', () => {
+    const input = complete();
+    input.flags = [
+      { path: 'personal.bloodType', reason: 'لا يهم', kind: 'UNVERIFIED' },
+    ] as never;
+
+    const result = adminCreateCitizenSubmissionSchema.safeParse(input);
+
+    expect(result.success).toBe(true);
+    // Only something holding the municipality's records may assert this, so a
+    // browser's copy is dropped rather than stored or trusted.
+    expect(result.data!.flags).toEqual([]);
+  });
+
+  it('treats a flag with no kind as the officer own — every stored row predates the split', () => {
+    const input = complete();
+    delete input.personal.bloodType;
+    input.flags = [{ path: 'personal.bloodType', reason: 'الأهل غير متواجدين' }];
+
+    const result = adminCreateCitizenSubmissionSchema.safeParse(input);
+
+    expect(result.success).toBe(true);
+    expect(result.data!.flags[0]!.kind).toBe('UNESTABLISHED');
+  });
+});
+
+describe('cadastre notes', () => {
+  const cards = [{ propertyNumber: '1553' }, { propertyNumber: '9999' }];
+
+  it('annotates only the card whose number the cadastre does not have', () => {
+    const flags = cadastreFlags(cards, new Set(['9999']));
+
+    expect(flags).toEqual([
+      {
+        path: 'properties.1.propertyNumber',
+        reason: CADASTRE_UNVERIFIED_REASON,
+        kind: 'UNVERIFIED',
+      },
+    ]);
+  });
+
+  it('says nothing when the municipality has no cadastre to check against', () => {
+    expect(cadastreFlags(cards, new Set())).toEqual([]);
+  });
+
+  it('leaves a number the officer already flagged alone', () => {
+    // The field has no value to be unconfirmed about, and two flags on one
+    // path is a contradiction the storage cannot express.
+    const flags = cadastreFlags([{ propertyNumber: undefined }], new Set(['9999']), [
+      { path: 'properties.0.propertyNumber', reason: 'السند غير متوفر', kind: 'UNESTABLISHED' },
+    ]);
+
+    expect(flags).toEqual([]);
+  });
+
+  it('holds a record for review on the strength of a cadastre note alone', () => {
+    expect(
+      statusForFlags([
+        {
+          path: 'properties.0.propertyNumber',
+          reason: CADASTRE_UNVERIFIED_REASON,
+          kind: 'UNVERIFIED',
+        },
+      ]),
+    ).toBe('REQUIRES_REVIEW');
   });
 });

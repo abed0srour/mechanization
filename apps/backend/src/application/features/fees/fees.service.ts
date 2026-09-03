@@ -9,9 +9,19 @@ import type {
 import type {
   CreateFeeNotice,
   DeclarePayment,
+  FeeAssessment,
+  FeeBasis,
+  FeeBearer,
   PaymentMethod,
   SystemSettingsInput,
 } from '@mechanization/shared-schemas';
+import { isUnoccupied } from '@mechanization/shared-schemas';
+import {
+  billableUnits,
+  isUnsurveyed,
+  type BillablePropertyEntry,
+  type BillableUnit,
+} from '../../../domain/entities/billable-unit';
 import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
 import { withConnectionRetry } from '../../../infrastructure/prisma/with-connection-retry';
 import { ConflictError, NotFoundError } from '../../common/exceptions';
@@ -21,6 +31,251 @@ import { PaymentLedgerService } from './payment-ledger.service';
 
 /** Property categories that live on `PropertyEntry.propertyType`. */
 const PROPERTY_TYPE_CATEGORIES = new Set(['BUILDING', 'HOUSE', 'LAND', 'TENT']);
+
+/**
+ * How many citizens one assessment round-trip reads at a time.
+ *
+ * Bounds the result set and the bind list on an ALL_CITIZENS run, which is the
+ * only place this query sees the whole register at once. Large enough that a
+ * municipality of ordinary size still assesses in a handful of queries.
+ */
+const ASSESSMENT_BATCH_SIZE = 500;
+
+/** One citizen's bill under this notice, and how it was arrived at. */
+export interface CitizenAssessment {
+  citizenId: string;
+  amount: number;
+  /** Null under a flat charge, which needs no explanation beyond its amount. */
+  assessment: FeeAssessment | null;
+}
+
+/** Someone the notice targets whose holdings cannot be measured. */
+export interface UnassessableCitizen {
+  citizenId: string;
+  name: string;
+  reason: string;
+}
+
+/**
+ * Whether a unit is one of the things this notice charges for.
+ *
+ * A category names either a نوع العقار (the whole card) or a نوع الوحدة (one
+ * unit inside it), which is why the check has to look at both depths. A notice
+ * with no category at all — ALL_CITIZENS, or one aimed at a single citizen —
+ * charges for everything the citizen holds.
+ */
+function unitMatches(unit: BillableUnit, category?: string): boolean {
+  if (!category) return true;
+  if (PROPERTY_TYPE_CATEGORIES.has(category)) return unit.propertyType === category;
+  return unit.unitType === category;
+}
+
+/**
+ * Whether this notice's bearer makes *this* person liable for *this* unit.
+ *
+ * The sibling of `unitMatches` above: that one asks whether the unit is the
+ * kind of thing the notice charges for, this one asks whether the citizen
+ * holding it is the person who owes for it. Both have to be true.
+ *
+ * The rule is short and every clause in it is load-bearing:
+ *
+ *  - **An owner-borne fee** (الأرصفة, المجاري) follows the deed. Every unit on
+ *    an OWNER card counts, whatever its state — an empty flat still fronts the
+ *    same pavement — and a tenant's card contributes nothing, because a tenant
+ *    owns none of what they occupy.
+ *
+ *  - **An occupant-borne fee** (النظافة, القيمة التأجيرية) follows who is
+ *    inside. A مستأجر or a شاغل بتسامح is by definition the occupant of the
+ *    card they filed, so it always counts. An owner's unit counts unless they
+ *    have said someone else is in it (مؤجرة — that tenant is billed on their
+ *    own card, and charging both is the double-count this whole enum exists to
+ *    end) or that nobody is (شاغرة, قيد الإنجاز).
+ *
+ * Null status counts as charged, as everywhere else: it means the question was
+ * never put, not that the flat is empty. That is what makes OCCUPANT safe as a
+ * default — on a register with no حالة الوحدة recorded anywhere, this function
+ * returns true for every unit and the arithmetic is exactly what it was before
+ * the column existed.
+ */
+function bearsFee(unit: BillableUnit, bearer: FeeBearer): boolean {
+  if (bearer === 'OWNER') return unit.occupancyType === 'OWNER';
+
+  // A non-owner card is the occupant's own, and carries no status to consult.
+  if (unit.occupancyType !== 'OWNER') return true;
+
+  return unit.unitStatus !== 'RENTED' && !isUnoccupied(unit.unitStatus);
+}
+
+/**
+ * Whether an unsurveyed building could hold any of what this notice charges for.
+ *
+ * The refusal below is expensive on purpose — it drops a citizen out of a
+ * billing run — so it has to fire only where the missing survey could actually
+ * change the number. A building's units are always `propertyType: 'BUILDING'`,
+ * so a notice aimed at أرض or خيمة cannot gain or lose a single billable unit
+ * from anything found inside one. Blocking there would leave a citizen unbilled
+ * for their land because of a building the notice never charged for — the same
+ * silent under-collection the refusal exists to prevent, arrived at backwards.
+ */
+function unsurveyedCanMatter(category?: string): boolean {
+  if (!category) return true;
+  if (PROPERTY_TYPE_CATEGORIES.has(category)) return category === 'BUILDING';
+  /*
+    A منزل مستقل is the one unit type a building cannot contain.
+
+    It is what a whole HOUSE card *is* — a standalone dwelling — so surveying a
+    building can never turn up another one, and refusing to bill a citizen for
+    their house because they also own an unsurveyed building would strand them
+    over a number the notice never depended on. That is the same silent
+    under-collection this guard exists to prevent, arrived at backwards; see
+    the note above about أرض.
+
+    Every other unit-type category — محل, مستودع, مكتب — is exactly what an
+    unsurveyed building is most likely to be hiding.
+  */
+  return category !== 'INDEPENDENT_HOUSE';
+}
+
+/**
+ * One citizen's bill, from their registered holdings.
+ *
+ * Refusing to guess is the whole design of this function. There are two ways a
+ * rate can be multiplied by a number that is not the truth, and both bill the
+ * wrong person the wrong way round:
+ *
+ *  - A **building nobody surveyed** has no unit rows. Counted as zero, the
+ *    largest building in the municipality pays nothing at all, and the fee
+ *    schedule ends up most generous to exactly the properties worth the most.
+ *  - A unit with **no recorded area** cannot be charged per square metre. Read
+ *    as zero it is free; read as some default it is fiction with a number
+ *    attached, and the citizen disputing it at the counter would be right.
+ *
+ * Both stop the assessment for that citizen rather than producing a figure. The
+ * caller reports them by name so the municipality chases the survey — which is
+ * work someone can actually do — instead of quietly under-collecting, which is
+ * work nobody can see.
+ *
+ * A citizen who simply holds none of what the notice charges for is a different
+ * case entirely and not an error: they owe nothing, and are skipped.
+ *
+ * **Units the citizen does not bear the fee for are subtracted rather than
+ * refused** — the one thing here that is quietly dropped instead of stopping
+ * the assessment. That is safe because it is not a gap in the register: the
+ * notice has said who owes it, and the register has said what this person's
+ * relationship to each unit is. Both facts are present; the unit simply is not
+ * this person's to pay for. See `bearsFee`.
+ */
+export function assessCitizen(
+  entries: readonly BillablePropertyEntry[],
+  notice: {
+    amount: number;
+    basis: FeeBasis;
+    targetCategory?: string;
+    /** Who owes it. Absent means `OCCUPANT` — see `FEE_BEARER`. */
+    bearer?: FeeBearer;
+  },
+):
+  | { kind: 'assessed'; amount: number; assessment: FeeAssessment }
+  | { kind: 'unassessable'; reason: string } {
+  /*
+    A flat charge never asks the register anything.
+
+    It is the notice's own amount, for everyone it targets, and it is checked
+    first so that neither guard below can refuse it. Ordering matters: `issue`
+    short-circuits FLAT before it reaches here, so a FLAT notice reaching this
+    function through any other caller would otherwise have been dropped for a
+    citizen whose building was never surveyed — refusing to compute a number
+    that does not depend on the survey at all.
+  */
+  if (notice.basis === 'FLAT') {
+    return {
+      kind: 'assessed',
+      amount: Math.round(notice.amount),
+      assessment: {
+        basis: 'FLAT',
+        rate: notice.amount,
+        unitCount: 0,
+        totalArea: 0,
+        excludedUnitCount: 0,
+        lines: [],
+      },
+    };
+  }
+
+  const unsurveyed = unsurveyedCanMatter(notice.targetCategory)
+    ? entries.find(isUnsurveyed)
+    : undefined;
+  if (unsurveyed) {
+    return {
+      kind: 'unassessable',
+      reason: `مبنى على العقار ${unsurveyed.propertyNumber ?? '—'} لم تُجرد وحداته بعد`,
+    };
+  }
+
+  const held = entries
+    .flatMap(billableUnits)
+    .filter((unit) => unitMatches(unit, notice.targetCategory));
+
+  /*
+    Split rather than filtered, so the ones left out can be counted.
+
+    An assessment that quietly omits three flats is indistinguishable from an
+    assessment of a smaller building, and the resident who believes they were
+    charged for them has nothing to point at. `excludedUnitCount` is what turns
+    a dropped unit into a line someone can check — and, when it is wrong,
+    dispute against the property card that caused it.
+  */
+  const bearer = notice.bearer ?? 'OCCUPANT';
+  const units = held.filter((unit) => bearsFee(unit, bearer));
+  const excludedUnitCount = held.length - units.length;
+
+  if (notice.basis === 'PER_AREA') {
+    /*
+      Only the units being charged for need an area.
+
+      A flat this person does not owe for is not a hole in the bill — it
+      contributes nothing to it either way — so refusing the whole citizen over
+      a missing مساحة there would strand a household for a measurement that
+      could not change what they owe by a pound.
+    */
+    const missing = units.find((unit) => unit.unitArea === null);
+    if (missing) {
+      return {
+        kind: 'unassessable',
+        reason: `وحدة على العقار ${missing.propertyNumber ?? '—'} بلا مساحة مسجّلة`,
+      };
+    }
+  }
+
+  const totalArea = units.reduce((sum, unit) => sum + (unit.unitArea ?? 0), 0);
+
+  // Only the two rate bases reach here; FLAT returned above.
+  const multiplier = notice.basis === 'PER_AREA' ? totalArea : units.length;
+
+  return {
+    kind: 'assessed',
+    /*
+      Rounded to the whole pound, because that is what a Lebanese municipal
+      receipt is denominated in and `lbpAmount` refuses anything else. Rounding
+      here rather than at the database keeps the stored breakdown and the stored
+      amount describing the same arithmetic.
+    */
+    amount: Math.round(notice.amount * multiplier),
+    assessment: {
+      basis: notice.basis,
+      rate: notice.amount,
+      unitCount: units.length,
+      totalArea,
+      excludedUnitCount,
+      lines: units.map((unit) => ({
+        propertyNumber: unit.propertyNumber,
+        propertyType: unit.propertyType,
+        unitType: unit.unitType,
+        unitArea: notice.basis === 'PER_AREA' ? unit.unitArea : null,
+      })),
+    },
+  };
+}
 
 /**
  * Five minutes. Contact details and office hours change a few times a year,
@@ -115,6 +370,14 @@ export interface PaymentSummary {
   paidAt: string | null;
   reviewNote: string | null;
   frequency: string | null;
+  /**
+   * How this amount was arrived at, when it was not simply the notice's own.
+   *
+   * The answer to the only question anyone actually asks at the counter, and
+   * the one nobody could answer before: «ليش عليّ هالمبلغ؟». Null for a flat
+   * charge, which explains itself.
+   */
+  assessment: FeeAssessment | null;
 }
 
 /**
@@ -329,7 +592,11 @@ export class FeesService {
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
+      /** Under FLAT the whole invoice; under the other two a rate. Read with `basis`. */
       amount: Number(row.amount),
+      basis: row.basis,
+      /** Who owes it — see `FEE_BEARER`. Meaningless under FLAT. */
+      bearer: row.bearer,
       currency: row.currency,
       frequency: row.frequency,
       targetType: row.targetType,
@@ -368,11 +635,46 @@ export class FeesService {
       throw new ConflictError('تاريخ الاستحقاق غير صالح');
     }
 
+    const { assessed, unassessable } = await this.assessTargets(citizenIds, input);
+
+    /*
+      A citizen who holds none of what this notice charges for owes nothing, and
+      an invoice for zero is not a bill — it is a letter telling someone they
+      owe nothing, arriving with a due date. Skipped rather than raised.
+    */
+    const billable = assessed.filter((entry) => entry.amount > 0);
+
+    /** Units this notice declined to charge for. Reported, never silent. */
+    const exemptedUnits = assessed.reduce(
+      (sum, entry) => sum + (entry.assessment?.excludedUnitCount ?? 0),
+      0,
+    );
+
+    if (billable.length === 0) {
+      /*
+        Three ways to bill nobody, and telling them apart is the whole value of
+        the message. "Nobody matched" sends a clerk to check the target
+        category; "needs a survey" sends them to the field; "everything is
+        exempt" tells them the exemption they just switched on covers every unit
+        the notice was aimed at — which is usually a mis-set toggle, and would
+        otherwise read as a fee that targets nobody.
+      */
+      throw new ConflictError(
+        exemptedUnits > 0 && unassessable.length === 0
+          ? 'كل الوحدات المستهدفة مسجَّلة شاغرة أو قيد الإنجاز وهذا الرسم يعفيها — لن يتم إصدار أي إشعار'
+          : unassessable.length > 0
+            ? 'لا يمكن احتساب هذا الرسم لأي مواطن — السجلات المستهدفة تحتاج إلى جرد ميداني أولاً'
+            : 'لا يوجد مواطنون مطابقون لهذه الفئة — لن يتم إصدار أي إشعار',
+      );
+    }
+
     const result = await this.db.$transaction(async (tx) => {
       const notice = await tx.feeNotice.create({
         data: {
           title: input.title,
           amount: input.amount,
+          basis: input.basis as never,
+          bearer: input.bearer as never,
           frequency: input.frequency as never,
           targetType: input.targetType as never,
           targetCategory: input.targetCategory ?? null,
@@ -385,11 +687,21 @@ export class FeesService {
       });
 
       const created = await tx.citizenPayment.createMany({
-        data: citizenIds.map((citizenId) => ({
-          citizenId,
+        data: billable.map((entry) => ({
+          citizenId: entry.citizenId,
           feeNoticeId: notice.id,
           title: input.title,
-          amount: input.amount,
+          /*
+            One invoice per citizen, whatever the basis — never one per unit.
+
+            Every downstream flow keys on a single payment row: the settlement
+            screen, the Whish callback, the collector's round, the receipt
+            facsimile. Splitting a six-shop bill into six rows would multiply
+            all of that, and hand the citizen six pieces of paper for one visit
+            to one counter. What they get instead is one bill that can say why.
+          */
+          amount: entry.amount,
+          assessment: (entry.assessment ?? undefined) as never,
           dueDate,
           // The first period is the one the chosen due date falls in; the
           // recurring job takes over from the next one.
@@ -407,18 +719,54 @@ export class FeesService {
       `Fee "${input.title}" issued to ${result.issued} citizen(s) in ${this.tenantContext.tenantSlug}`,
     );
 
+    if (unassessable.length > 0) {
+      this.logger.warn(
+        `Fee "${input.title}": ${unassessable.length} citizen(s) could not be assessed — ${unassessable
+          .map((entry) => `${entry.name} (${entry.reason})`)
+          .join('; ')}`,
+      );
+    }
+
+    /*
+      How much of the town this notice let off, in one number.
+
+      An exemption nobody counted is the same shape of problem as an unbilled
+      unsurveyed building: revenue that is absent by design, and indisputable
+      afterwards only if somebody wrote down how much of it there was. A clerk
+      who exempts empty units and sees «٣١٤ وحدة معفاة» has been told something
+      they can take to the council; one who sees only the invoice count has not.
+    */
+    if (exemptedUnits > 0) {
+      this.logger.log(
+        `Fee "${input.title}": ${exemptedUnits} unit(s) exempted as شاغرة / قيد الإنجاز`,
+      );
+    }
+
     this.events.emit('fee.issued', {
       tenantSlug: this.tenantContext.tenantSlug,
       noticeId: result.noticeId,
       title: input.title,
       amount: input.amount,
+      basis: input.basis,
       targetType: input.targetType,
       issuedCount: result.issued,
+      unassessableCount: unassessable.length,
+      exemptedUnitCount: exemptedUnits,
       actorId: actor.id,
       actorRole: actor.role,
     });
 
-    return result;
+    /*
+      The skipped are returned, not just logged.
+
+      A clerk who issues «رسم المحلات» to two hundred citizens and is told only
+      that two hundred invoices were raised has no way to know that eleven
+      buildings went unbilled because nobody has been inside them. Naming them
+      turns an invisible shortfall into a list someone can work through — which
+      is the entire argument for refusing to guess at the number in the first
+      place.
+    */
+    return { ...result, unassessable, exemptedUnits };
   }
 
   /**
@@ -466,12 +814,43 @@ export class FeesService {
 
       if (citizenIds.length === 0) continue;
 
+      /*
+        Re-assessed every period, not carried over from the first issue.
+
+        Same reasoning as re-resolving the targets: a citizen who added two
+        shops last month should be billed for them this month, and one who sold
+        a building should stop paying for it. A frozen assessment would make the
+        register's accuracy irrelevant to the bill after the first period, which
+        is the failure the whole feature exists to correct.
+      */
+      const { assessed, unassessable } = await this.assessTargets(citizenIds, {
+        amount: Number(notice.amount),
+        basis: notice.basis as FeeBasis,
+        targetCategory: notice.targetCategory ?? undefined,
+        // Re-read from the notice every period, like the basis and the targets
+        // above it: a council that changes who bears a fee in March expects
+        // April's run to honour it without the notice being reissued.
+        bearer: notice.bearer as FeeBearer,
+      });
+
+      const billable = assessed.filter((entry) => entry.amount > 0);
+      if (billable.length === 0) continue;
+
+      if (unassessable.length > 0) {
+        this.logger.warn(
+          `Recurring "${notice.title}" (${periodKey}): ${unassessable.length} citizen(s) not assessed — ${unassessable
+            .map((entry) => `${entry.name} (${entry.reason})`)
+            .join('; ')}`,
+        );
+      }
+
       const created = await this.db.citizenPayment.createMany({
-        data: citizenIds.map((citizenId) => ({
-          citizenId,
+        data: billable.map((entry) => ({
+          citizenId: entry.citizenId,
           feeNoticeId: notice.id,
           title: notice.title,
-          amount: notice.amount,
+          amount: entry.amount,
+          assessment: (entry.assessment ?? undefined) as never,
           dueDate,
           periodKey,
         })),
@@ -516,7 +895,11 @@ export class FeesService {
    * property of that kind — billing someone for a shop they never registered
    * is the error this whole feature would be judged on.
    */
-  private async resolveTargets(input: CreateFeeNotice): Promise<string[]> {
+  private async resolveTargets(input: {
+    targetType: string;
+    targetCategory?: string;
+    targetCitizenId?: string;
+  }): Promise<string[]> {
     if (input.targetType === 'INDIVIDUAL_CITIZEN') {
       const citizen = await this.db.user.findFirst({
         where: { id: input.targetCitizenId, kind: 'CITIZEN', isActive: true },
@@ -534,12 +917,28 @@ export class FeesService {
       return rows.map((row) => row.id);
     }
 
-    // BUILDING_CATEGORY — the category names either a property type or a unit
-    // type, and the two live at different depths of the registration tree.
+    /*
+      BUILDING_CATEGORY — the category names either a property type or a unit
+      type, and the two live at different depths of the registration tree.
+
+      A unit type is matched in *both* places it can occur, which it was not.
+      Looking only inside `units` finds the flats and shops of a building and
+      misses every card that carries its own type on the row — which since
+      `INDEPENDENT_HOUSE` became derivable is every منزل in the register. The
+      effect was a notice aimed at «منازل مستقلة» resolving to nobody and
+      reporting that no citizen matched the category, which reads as a
+      municipality that has no houses rather than as a query looking in one
+      place.
+    */
     const category = input.targetCategory!;
     const propertyWhere = PROPERTY_TYPE_CATEGORIES.has(category)
       ? { propertyType: category as never }
-      : { units: { some: { unitType: category as never } } };
+      : {
+          OR: [
+            { unitType: category as never },
+            { units: { some: { unitType: category as never } } },
+          ],
+        };
 
     const rows = await this.db.user.findMany({
       where: {
@@ -550,6 +949,115 @@ export class FeesService {
       select: { id: true },
     });
     return rows.map((row) => row.id);
+  }
+
+  /**
+   * What each targeted citizen owes, and who could not be assessed at all.
+   *
+   * Under `FLAT` this is the behaviour that has always existed, spelled out:
+   * everyone the notice targets owes the notice's amount, and there is nothing
+   * to explain. The two other bases make `amount` a rate and ask the register
+   * how much of the thing being charged for each citizen actually holds.
+   *
+   * **Which registration counts.** The citizen's latest, not all of them. A
+   * citizen may hold several — someone who came back a year later with a
+   * second building — and summing every one would bill a household twice for
+   * the same flat the day they re-registered it. The edit form already treats
+   * the latest registration as the record's current state; billing agrees with
+   * it rather than inventing a second answer.
+   */
+  private async assessTargets(
+    citizenIds: readonly string[],
+    notice: {
+      amount: number;
+      basis: FeeBasis;
+      targetCategory?: string;
+      bearer?: FeeBearer;
+    },
+  ): Promise<{ assessed: CitizenAssessment[]; unassessable: UnassessableCitizen[] }> {
+    if (notice.basis === 'FLAT') {
+      return {
+        assessed: citizenIds.map((citizenId) => ({
+          citizenId,
+          amount: notice.amount,
+          assessment: null,
+        })),
+        unassessable: [],
+      };
+    }
+
+    const assessed: CitizenAssessment[] = [];
+    const unassessable: UnassessableCitizen[] = [];
+
+    /*
+      Read in batches rather than one `IN (...)` over the whole register.
+
+      An ALL_CITIZENS notice targets every active citizen, and this is the only
+      query in the fee path that pulls their property cards *and* every unit row
+      under them. Asked for all of it at once, a municipality of any size builds
+      one result set holding its entire property inventory before a single
+      invoice is computed — and hands the driver a bind list of the same length.
+      Batching bounds both, and costs nothing: the work is a pure fold, so the
+      batches never need to meet.
+    */
+    for (let offset = 0; offset < citizenIds.length; offset += ASSESSMENT_BATCH_SIZE) {
+      const batch = citizenIds.slice(offset, offset + ASSESSMENT_BATCH_SIZE);
+
+      const rows = await withConnectionRetry(() =>
+        this.db.user.findMany({
+          where: { id: { in: [...batch] } },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            registrations: {
+              orderBy: { submittedAt: 'desc' },
+              take: 1,
+              select: {
+                properties: {
+                  select: {
+                    propertyType: true,
+                    propertyNumber: true,
+                    unitType: true,
+                    unitArea: true,
+                    /*
+                      Both halves of the bearer rule, read here rather than
+                      joined later. `occupancyType` says whether this citizen
+                      owns the card or occupies it; `unitStatus` says, on an
+                      owner's card, whether they are the one inside. A card
+                      fetched without either would be assessed as an owner
+                      living in every unit they hold.
+                    */
+                    occupancyType: true,
+                    unitStatus: true,
+                    units: { select: { unitType: true, unitArea: true, unitStatus: true } },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      );
+
+      for (const row of rows) {
+        const entries = row.registrations[0]?.properties ?? [];
+        const name = [row.firstName, row.lastName].filter(Boolean).join(' ');
+        const outcome = assessCitizen(entries, notice);
+
+        if (outcome.kind === 'unassessable') {
+          unassessable.push({ citizenId: row.id, name, reason: outcome.reason });
+          continue;
+        }
+
+        assessed.push({
+          citizenId: row.id,
+          amount: outcome.amount,
+          assessment: outcome.assessment,
+        });
+      }
+    }
+
+    return { assessed, unassessable };
   }
 
   // ────────────────────────────  Payments  ────────────────────────────
@@ -583,6 +1091,7 @@ export class FeesService {
       paidAt: row.paidAt?.toISOString() ?? null,
       reviewNote: row.reviewNote,
       frequency: row.feeNotice?.frequency ?? null,
+      assessment: (row.assessment as FeeAssessment | null) ?? null,
     }));
   }
 
@@ -882,6 +1391,16 @@ export class FeesService {
         ? `${row.collectedBy.firstName} ${row.collectedBy.lastName}`.trim()
         : null,
       frequency: row.feeNotice?.frequency ?? null,
+      /**
+       * How this amount was arrived at, when it was not simply the notice's own.
+       *
+       * Carried on the admin row as well as the citizen's, because the ledger
+       * and the settle page are where the question is actually asked out loud:
+       * a collector taking a disputed «600,000» needs to be able to read back
+       * «6 محل تجاري × 100,000» without leaving the screen they are settling on.
+       * Null for a flat charge, which explains itself.
+       */
+      assessment: (row.assessment as FeeAssessment | null) ?? null,
       citizenId: row.citizen.id,
       citizenName: `${row.citizen.firstName} ${row.citizen.lastName}`,
       citizenPhone: row.citizen.phone,

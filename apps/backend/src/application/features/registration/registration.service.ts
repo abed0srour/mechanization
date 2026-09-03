@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
+  cadastreFlags,
+  isUnestablished,
   statusForFlags,
   type AdminCitizenSubmission,
   type CitizenRecordStatus,
@@ -13,9 +15,12 @@ import {
   PARCEL_REPOSITORY,
   REGISTRATION_REPOSITORY,
 } from '../../../domain/interfaces/base-repository.interface';
-import type { ParcelRepository } from '../../../domain/interfaces/parcel-repository.interface';
+import type {
+  ParcelLocation,
+  ParcelRepository,
+} from '../../../domain/interfaces/parcel-repository.interface';
 import { RegistrationRepository } from '../../../domain/interfaces/registration-repository.interface';
-import { ConflictError, ValidationError } from '../../common/exceptions';
+import { ConflictError } from '../../common/exceptions';
 import { TenantService } from '../tenant/tenant.service';
 
 /** How many alternative parcel numbers to offer when a number is not found. */
@@ -60,6 +65,13 @@ export interface SubmitResult {
  * any other card. The domain entity validates one card at a time and has no
  * idea which index it is, so the index is resolved here, once, rather than
  * teaching `PropertyEntry` about the shape of the form above it.
+ *
+ * `UNVERIFIED` flags are not waivers and are filtered out. The field they name
+ * holds a real value that must still satisfy every rule about what a value of
+ * that kind may look like — a رقم العقار missing from the cadastre is still
+ * required to be a رقم العقار. Waiving it here would let the one flag the
+ * server raises by itself quietly disable the validation on the field it is
+ * about.
  */
 export function unestablishedOnCard(
   flags: readonly FieldFlag[],
@@ -68,7 +80,7 @@ export function unestablishedOnCard(
   const prefix = `properties.${index}.`;
   return new Set(
     flags
-      .filter((flag) => flag.path.startsWith(prefix))
+      .filter((flag) => isUnestablished(flag) && flag.path.startsWith(prefix))
       .map((flag) => flag.path.slice(prefix.length)),
   );
 }
@@ -97,7 +109,6 @@ export class RegistrationService {
     payload: AdminCitizenSubmission;
   }): Promise<SubmitResult> {
     const tenant = await this.tenants.resolve(input.tenantSlug);
-    const flags = input.payload.flags;
 
     /**
      * Coordinates come from the municipality's cadastre, not from the citizen.
@@ -111,11 +122,24 @@ export class RegistrationService {
      * the number in — which is the honest outcome, and better than the
      * alternative of asking the cadastre about an empty string.
      */
-    const cadastre = await this.resolveParcels(
+    const { found: cadastre, missing } = await this.resolveParcels(
       input.payload.properties
         .map((entry) => entry.propertyNumber)
         .filter((number): number is string => Boolean(number)),
     );
+
+    /*
+      The officer's flags, plus whatever the cadastre had to say.
+
+      Derived here rather than trusted from the payload, and re-derived on every
+      write: a record queued three days ago carries the verdict of a cadastre
+      that may since have gained the very parcel it was missing, and the right
+      answer is the one that is true now.
+    */
+    const flags: FieldFlag[] = [
+      ...input.payload.flags,
+      ...cadastreFlags(input.payload.properties, missing, input.payload.flags),
+    ];
 
     // Zod validated the wire format at the controller. These construct domain
     // objects, which is where the taxonomy rules actually live — so a seed
@@ -227,30 +251,33 @@ export class RegistrationService {
   /**
    * Looks every submitted رقم العقار up in the municipality's cadastre.
    *
-   * A municipality that has not imported one gets the previous behaviour — any
-   * well-formed number is accepted, with no coordinates — so onboarding a tenant
-   * does not have to wait on their survey office. Where a cadastre *does* exist
-   * it is authoritative: a number that is not in it is a typo, and catching it
-   * at submission is far cheaper than a clerk failing to find the property weeks
-   * later.
+   * Reports rather than refuses. This used to throw, and the rejection was
+   * wrong in both directions: it treated "the survey office has not imported
+   * this parcel yet" as a typo, and it did so at the one moment nobody could
+   * act on it — a record filed with no signal was queued, promised to the
+   * officer as sent, and then failed on delivery hours later in a settlement
+   * they had already left. `cadastreFlags` turns the same finding into an
+   * `UNVERIFIED` flag: the number is stored as read, the record is held at
+   * «يتطلب مراجعة», and the typo is caught by the person who was always going
+   * to have to catch it — with the household's data in front of them.
+   *
+   * A municipality that has not imported a cadastre has nothing to check
+   * against, so nothing is reported missing.
    */
-  private async resolveParcels(propertyNumbers: readonly string[]) {
+  private async resolveParcels(
+    propertyNumbers: readonly string[],
+  ): Promise<{ found: Map<string, ParcelLocation>; missing: Set<string> }> {
     const found = await this.parcels.findManyByNumber(propertyNumbers);
 
-    // Only asked when something is missing: with every number resolved there is
-    // nothing for the count to decide.
-    const missing = propertyNumbers
+    const unresolved = propertyNumbers
       .map((number) => number.trim())
       .filter((number) => !found.has(number));
 
-    if (missing.length > 0 && (await this.parcels.count()) > 0) {
-      throw new ValidationError(
-        `رقم العقار غير موجود في سجل البلدية العقاري: ${missing.join('، ')}`,
-        { propertyNumber: missing[0] },
-      );
-    }
+    // Only asked when something is missing: with every number resolved there is
+    // nothing for the count to decide.
+    const hasCadastre = unresolved.length > 0 && (await this.parcels.count()) > 0;
 
-    return found;
+    return { found, missing: new Set(hasCadastre ? unresolved : []) };
   }
 
   /**

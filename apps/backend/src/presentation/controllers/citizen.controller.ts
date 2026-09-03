@@ -155,6 +155,19 @@ export class CitizenController {
   }
 
   /**
+   * Who is registered on one رقم العقار.
+   *
+   * Sits above `:id` because Nest matches in declaration order and `parcel`
+   * would otherwise be read as a citizen id — the same reasoning `citizens/new`
+   * and `citizens/queue` already follow on the frontend router.
+   */
+  @Roles('SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR', 'COLLECTOR', 'ACCOUNTANT', 'ADMINISTRATIVE_OFFICER')
+  @Get('parcel/:propertyNumber')
+  parcelRoster(@Param('propertyNumber') propertyNumber: string) {
+    return this.citizens.parcelRoster(propertyNumber);
+  }
+
+  /**
    * Every staff role reads this: an inspector standing at the property needs
    * to know who filed for it, and a collector at the door needs to know whom
    * they are billing. The identity numbers on this response are the reason the
