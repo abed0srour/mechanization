@@ -941,14 +941,16 @@ export class CitizensService {
   }
 
   /**
-   * Erases a citizen and everything hanging off them — registrations,
-   * properties, units, documents rows and invoices, all by cascade.
+   * Erases a citizen row outright — permitted only when nothing else in the
+   * schema still points at them.
    *
-   * Refused while any money has actually changed hands. A PAID invoice is the
-   * municipality's own record of a receipt it issued, and deleting the person
-   * would delete the only row saying the payment happened; whoever wants the
-   * citizen gone can wait for the ledger to be reconciled, or deactivate them
-   * instead. Unpaid and rejected-claim rows carry no such record and go.
+   * Refused whenever the citizen has a registration, a payment of any status,
+   * or a fee notice issued directly to them. A rejected claim or an unpaid
+   * invoice is still the municipality's own record of what was reviewed and
+   * why; cascading it away with the person would erase that history rather
+   * than the citizen's identity data alone, and an orphaned fee notice would
+   * be a bill with no one left to collect it from. Deactivate instead — hard
+   * delete is left for a citizen row nothing has ever been built on top of.
    */
   async remove(input: {
     tenantSlug: string;
@@ -961,12 +963,14 @@ export class CitizensService {
     });
     if (!citizen) throw new NotFoundError('Citizen', input.citizenId);
 
-    const settled = await this.db.citizenPayment.count({
-      where: { citizenId: citizen.id, paymentStatus: 'PAID' },
-    });
-    if (settled > 0) {
+    const [registrations, payments, feeNotices] = await Promise.all([
+      this.db.registration.count({ where: { citizenId: citizen.id } }),
+      this.db.citizenPayment.count({ where: { citizenId: citizen.id } }),
+      this.db.feeNotice.count({ where: { targetCitizenId: citizen.id } }),
+    ]);
+    if (registrations + payments + feeNotices > 0) {
       throw new ConflictError(
-        `لا يمكن حذف مواطن لديه ${settled} دفعة مسدّدة — سجل المدفوعات يعود للبلدية. يمكنك تعطيل الحساب بدلاً من ذلك.`,
+        'لا يمكن حذف مواطن لديه طلبات تسجيل أو مدفوعات أو رسوم مرتبطة به — يمكنك تعطيل الحساب بدلاً من ذلك.',
       );
     }
 
