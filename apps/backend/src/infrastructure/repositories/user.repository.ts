@@ -270,8 +270,19 @@ export class PrismaUserRepository implements UserRepository {
         totpConfirmedAt: true,
         // Counted in the same query rather than per row: the alternative is
         // a history lookup per staff member, and this list is rendered in
-        // full on every visit to the page.
-        _count: { select: { reviewedRegistrations: true } },
+        // full on every visit to the page. Every relation `countStaffHistory`
+        // checks at delete time belongs here too — undercounting here would
+        // show a delete button the actual delete then refuses.
+        _count: {
+          select: {
+            reviewedRegistrations: true,
+            reviewedPayments: true,
+            collectedPayments: true,
+            collectedTransactions: true,
+            recordedTransactions: true,
+            issuedFeeNotices: true,
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -297,7 +308,13 @@ export class PrismaUserRepository implements UserRepository {
       isActive: row.isActive,
       hasConfirmedTotp: Boolean(row.totpConfirmedAt),
       historyCount:
-        row._count.reviewedRegistrations + (auditByActor.get(row.id) ?? 0),
+        row._count.reviewedRegistrations +
+        row._count.reviewedPayments +
+        row._count.collectedPayments +
+        row._count.collectedTransactions +
+        row._count.recordedTransactions +
+        row._count.issuedFeeNotices +
+        (auditByActor.get(row.id) ?? 0),
       createdAt: row.createdAt.toISOString(),
       lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
     }));
@@ -412,11 +429,19 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   /**
-   * Audit entries plus registrations reviewed. Zero is what makes an account
-   * safe to erase outright.
+   * Every row anywhere in the schema that still names this account. Zero is
+   * what makes it safe to erase outright.
    */
   async countStaffHistory(id: string): Promise<number> {
-    const [reviewed, audited, recorded, collected] = await Promise.all([
+    const [
+      reviewed,
+      audited,
+      recorded,
+      collectedTransactions,
+      reviewedPayments,
+      collectedPayments,
+      issuedFeeNotices,
+    ] = await Promise.all([
       this.db.registration.count({ where: { reviewedById: id } }),
       this.db.auditLogEntry.count({ where: { actorId: id } }),
       // Ledger rows are history in the strongest sense the system has: money
@@ -425,8 +450,19 @@ export class PrismaUserRepository implements UserRepository {
       // sentence about deactivating it instead of a raw constraint violation.
       this.db.paymentTransaction.count({ where: { recordedById: id } }),
       this.db.paymentTransaction.count({ where: { collectedById: id } }),
+      this.db.citizenPayment.count({ where: { reviewedById: id } }),
+      this.db.citizenPayment.count({ where: { collectedById: id } }),
+      this.db.feeNotice.count({ where: { issuedById: id } }),
     ]);
-    return reviewed + audited + recorded + collected;
+    return (
+      reviewed +
+      audited +
+      recorded +
+      collectedTransactions +
+      reviewedPayments +
+      collectedPayments +
+      issuedFeeNotices
+    );
   }
 
   /** Prisma error codes stop here — no layer above this one sees them. */

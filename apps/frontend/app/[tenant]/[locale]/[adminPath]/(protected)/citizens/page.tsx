@@ -661,8 +661,8 @@ export default function CitizensPage({
                 </ActionTooltip>
               ) : null}
 
-              {canDelete ? (
-                <ActionTooltip label={locale === 'en' ? 'Permanent delete' : 'حذف نهائي — يحذف الطلبات والمستندات والفواتير'}>
+              {canDelete && citizen.registrationCount === 0 ? (
+                <ActionTooltip label={locale === 'en' ? 'Permanent delete — no applications on file' : 'حذف نهائي — لا طلبات على هذا الملف'}>
                   <Button
                     variant="outline"
                     size="icon-sm"
@@ -800,8 +800,8 @@ export default function CitizensPage({
           </CardTitle>
           <p className="text-xs text-muted-foreground">
             {locale === 'en'
-              ? '"Overdue" reflects unpaid fees past their due date. Disabling halts new fees while preserving historical records; deleting permanently purges all files.'
-              : '«المتأخرات» هي الرسوم غير المسدّدة التي تجاوزت تاريخ استحقاقها. التعطيل يوقف إصدار رسوم جديدة ويُبقي السجل كما هو؛ الحذف النهائي يزيل كل شيء.'}
+              ? '"Overdue" reflects unpaid fees past their due date. Disabling halts new fees while preserving historical records. Permanent delete is only allowed for a citizen with no applications, payments, or fees on file.'
+              : '«المتأخرات» هي الرسوم غير المسدّدة التي تجاوزت تاريخ استحقاقها. التعطيل يوقف إصدار رسوم جديدة ويُبقي السجل كما هو. الحذف النهائي متاح فقط لمواطن ليس له طلبات أو مدفوعات أو رسوم مسجّلة.'}
           </p>
         </CardHeader>
         <CardContent className="p-6">
@@ -875,29 +875,25 @@ export default function CitizensPage({
         title={locale === 'en' ? 'Delete Record Permanently' : 'حذف الملف نهائياً'}
         description={
           pendingDelete ? (
-            <>
-              {locale === 'en' ? (
-                <>
-                  Citizen file for{' '}
-                  <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
-                  will be deleted permanently along with all {pendingDelete.registrationCount} applications,{' '}
-                  {pendingDelete.propertyCount} properties, documents, and bills. This cannot be undone.
-                </>
-              ) : (
-                <>
-                  سيُحذف ملف <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
-                  بكل ما فيه: {pendingDelete.registrationCount} طلب، {pendingDelete.propertyCount} عقار،
-                  ومستنداته وفواتيره. لا يمكن التراجع.
-                </>
-              )}
-              {pendingDelete.outstandingTotal > 0 ? (
-                <span className="mt-2 block font-medium text-destructive">
-                  {locale === 'en'
-                    ? 'This record has unpaid fees — the outstanding debt will be removed with it.'
-                    : 'على هذا الملف رسوم غير مسدّدة — سيُحذف الدين معه.'}
+            locale === 'en' ? (
+              <>
+                The record for{' '}
+                <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
+                will be deleted permanently. This cannot be undone.
+                <span className="mt-2 block text-muted-foreground">
+                  If the goal is to remove them from active use, &quot;Disable&quot; is sufficient and
+                  reversible.
                 </span>
-              ) : null}
-            </>
+              </>
+            ) : (
+              <>
+                سيُحذف ملف <span className="font-semibold text-foreground">{pendingDelete.fullName}</span>{' '}
+                نهائياً. لا يمكن التراجع.
+                <span className="mt-2 block text-muted-foreground">
+                  إن كان الهدف إخراجه من الاستخدام الفعلي فقط، «التعطيل» يكفي ويمكن التراجع عنه.
+                </span>
+              </>
+            )
           ) : null
         }
         confirmLabel={locale === 'en' ? 'Delete Permanently' : 'حذف نهائي'}
