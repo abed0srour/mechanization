@@ -35,8 +35,7 @@ export function ZoneLegend({
 }) {
   const isEnglish = locale === 'en';
   const [collapsed, setCollapsed] = useState(false);
-
-  if (zones.length === 0) return null;
+  const hasZones = zones.length > 0;
 
   return (
     <div
@@ -87,6 +86,7 @@ export function ZoneLegend({
               type="button"
               variant="ghost"
               size="icon"
+              disabled={!hasZones}
               onClick={() => onLabelsVisibleChange(!labelsVisible)}
               aria-label={
                 labelsVisible
@@ -114,6 +114,7 @@ export function ZoneLegend({
             type="button"
             variant="ghost"
             size="icon"
+            disabled={!hasZones}
             onClick={() => onVisibleChange(!visible)}
             aria-label={
               visible
@@ -137,7 +138,13 @@ export function ZoneLegend({
       </div>
 
       {/* Sector List (hidden when collapsed, but zones remain visible on the map) */}
-      {!collapsed ? (
+      {!collapsed && !hasZones ? (
+        <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+          {isEnglish ? 'No sectors created yet' : 'لا توجد قطاعات بعد'}
+        </p>
+      ) : null}
+
+      {!collapsed && hasZones ? (
         <ul className="max-h-56 overflow-y-auto p-1 space-y-0.5">
           {zones.map((zone) => {
             const active = activeZoneId === zone.id;
