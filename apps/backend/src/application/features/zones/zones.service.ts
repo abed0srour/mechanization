@@ -208,7 +208,7 @@ export class ZonesService {
         );
       }
 
-      const boundary = this.assets.getCityBoundary(tenantSlug);
+      const boundary = await this.assets.getCityBoundary(tenantSlug);
       if (boundary) {
         const outside = parcelNumbers.filter((parcelNumber) => {
           const parcel = known.get(parcelNumber);
@@ -246,7 +246,7 @@ export class ZonesService {
     features: Feature[];
   }> {
     const zones = await this.zones.findAll();
-    const shapes = this.assets.getParcelPolygons(tenantSlug);
+    const shapes = await this.assets.getParcelPolygons(tenantSlug);
 
     const features: Feature[] = [];
     for (const zone of zones) {

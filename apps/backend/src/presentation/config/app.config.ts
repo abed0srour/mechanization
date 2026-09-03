@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-
 /** Values that are policy rather than environment — kept out of .env so they are
  *  reviewed in code rather than drifting per-deployment. */
 export const APP_CONFIG = {
@@ -57,16 +55,5 @@ export const APP_CONFIG = {
 
   cadastre: {
     maxFileSizeBytes: 15 * 1024 * 1024,
-    /**
-     * Where the static map layers the staff map fetches directly are written.
-     * Computed from `cwd` rather than `__dirname`: both the ts-node CLI
-     * importer (running from `src/`) and the compiled Nest app (running from
-     * `dist/`) start with `cwd` at `apps/backend`, but `__dirname` sits at a
-     * different depth in each, so anchoring on it here would break one of them.
-     */
-    mapAssetsDir: (tenantSlug: string) =>
-      process.env.CADASTRE_ASSETS_DIR
-        ? join(process.env.CADASTRE_ASSETS_DIR, tenantSlug)
-        : join(process.cwd(), '..', 'frontend', 'public', 'tenants', tenantSlug),
   },
 } as const;

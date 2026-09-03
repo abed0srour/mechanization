@@ -1,11 +1,9 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PARCEL_REPOSITORY } from '../../../domain/interfaces/base-repository.interface';
 import type { ParcelRepository } from '../../../domain/interfaces/parcel-repository.interface';
 import { ValidationError } from '../../common/exceptions';
-import { APP_CONFIG } from '../../../presentation/config/app.config';
+import { CadastreStorageService } from '../../../infrastructure/cadastre/cadastre-storage.service';
 import { buildCadastreGeometryAssets } from '../../../infrastructure/cadastre/parcel-geometry';
 
 /** Six decimal places is ~0.11m at this latitude — finer than any survey's own
@@ -47,6 +45,7 @@ export interface CadastreImportResult {
 export class CadastreImportService {
   constructor(
     @Inject(PARCEL_REPOSITORY) private readonly parcels: ParcelRepository,
+    private readonly storage: CadastreStorageService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -73,12 +72,11 @@ export class CadastreImportService {
       );
     }
 
-    const outDir = APP_CONFIG.cadastre.mapAssetsDir(input.tenantSlug);
     if (parcels.length > 0) {
-      this.writeAsset(join(outDir, 'parcels.geojson'), this.parcelsGeoJson(parcels));
+      await this.storage.upload(input.tenantSlug, 'parcels.geojson', this.parcelsGeoJson(parcels));
     }
     if (lines.length > 0) {
-      this.writeAsset(join(outDir, 'cadastre.geojson'), this.cadastreGeoJson(lines));
+      await this.storage.upload(input.tenantSlug, 'cadastre.geojson', this.cadastreGeoJson(lines));
     }
 
     // The upload carries lines and labels but no shapes; the zone editor needs
@@ -88,10 +86,18 @@ export class CadastreImportService {
       parcels,
     );
     if (geometry.parcelPolygonsGeoJson) {
-      this.writeAsset(join(outDir, 'parcel-polygons.geojson'), geometry.parcelPolygonsGeoJson);
+      await this.storage.upload(
+        input.tenantSlug,
+        'parcel-polygons.geojson',
+        geometry.parcelPolygonsGeoJson,
+      );
     }
     if (geometry.cityBoundaryGeoJson) {
-      this.writeAsset(join(outDir, 'city-boundary.geojson'), geometry.cityBoundaryGeoJson);
+      await this.storage.upload(
+        input.tenantSlug,
+        'city-boundary.geojson',
+        geometry.cityBoundaryGeoJson,
+      );
     }
 
     this.events.emit('cadastre.imported', {
@@ -244,10 +250,5 @@ export class CadastreImportService {
         geometry: { type: 'MultiLineString', coordinates },
       })),
     });
-  }
-
-  private writeAsset(path: string, contents: string): void {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, contents, 'utf8');
   }
 }

@@ -1,30 +1,41 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
-import { APP_CONFIG } from '../../presentation/config/app.config';
+import { CadastreStorageService } from './cadastre-storage.service';
 
 /**
  * Reads the derived cadastre layers the import writes — parcel shapes and the
  * municipality outline — for the code that has to reason about them rather than
  * merely draw them.
  *
- * These are static files rather than tables (see `cadastre:import`), so this is
- * where the rest of the backend gets at them. Parsed once and held per tenant:
- * a municipality's cadastre changes on import, which is a manual act performed
- * a handful of times in a deployment's life, but the zone editor reads these
- * shapes on every save. The file's mtime is the cache key, so a re-import is
- * picked up without a restart and without a cache-invalidation event to forget
- * to emit.
+ * Backed by Supabase Storage (`CadastreStorageService`) rather than local disk:
+ * the import endpoint and this read may run in different serverless
+ * invocations — even different deployments entirely, once the frontend and
+ * backend are separate Vercel projects — so nothing on this process's own
+ * filesystem can be trusted to hold what the last import wrote.
+ *
+ * Cached in memory per tenant, since the zone editor reads these shapes on
+ * every save. Invalidated on `cadastre.imported` rather than by a file mtime
+ * (there is no local file to stat any more) — the same event
+ * `CadastreImportService` already emits for the audit trail.
  */
 @Injectable()
 export class CadastreAssetsService {
   private readonly logger = new Logger(CadastreAssetsService.name);
-  private readonly cache = new Map<string, { mtimeMs: number; value: unknown }>();
+  private readonly cache = new Map<string, unknown>();
+
+  constructor(private readonly storage: CadastreStorageService) {}
+
+  @OnEvent('cadastre.imported')
+  handleImported(event: { tenantSlug: string }): void {
+    for (const key of [...this.cache.keys()]) {
+      if (key.startsWith(`${event.tenantSlug}:`)) this.cache.delete(key);
+    }
+  }
 
   /** Parcel shapes by رقم العقار. Empty when the tenant has no cadastre yet. */
-  getParcelPolygons(tenantSlug: string): Map<string, Feature<Polygon>> {
-    const collection = this.read<FeatureCollection>(tenantSlug, 'parcel-polygons.geojson');
+  async getParcelPolygons(tenantSlug: string): Promise<Map<string, Feature<Polygon>>> {
+    const collection = await this.read<FeatureCollection>(tenantSlug, 'parcel-polygons.geojson');
     if (!collection) return new Map();
 
     const byNumber = new Map<string, Feature<Polygon>>();
@@ -42,30 +53,29 @@ export class CadastreAssetsService {
    * as "nothing is inside the municipality" — the latter would reject every
    * parcel for a tenant whose cadastre predates this feature.
    */
-  getCityBoundary(tenantSlug: string): Feature<Polygon> | null {
-    const collection = this.read<FeatureCollection>(tenantSlug, 'city-boundary.geojson');
+  async getCityBoundary(tenantSlug: string): Promise<Feature<Polygon> | null> {
+    const collection = await this.read<FeatureCollection>(tenantSlug, 'city-boundary.geojson');
     const feature = collection?.features?.[0];
     if (!feature || feature.geometry?.type !== 'Polygon') return null;
     return feature as Feature<Polygon>;
   }
 
-  private read<T>(tenantSlug: string, fileName: string): T | null {
-    const path = join(APP_CONFIG.cadastre.mapAssetsDir(tenantSlug), fileName);
-    if (!existsSync(path)) return null;
-
+  private async read<T>(tenantSlug: string, fileName: string): Promise<T | null> {
     const key = `${tenantSlug}:${fileName}`;
-    const mtimeMs = statSync(path).mtimeMs;
     const hit = this.cache.get(key);
-    if (hit && hit.mtimeMs === mtimeMs) return hit.value as T;
+    if (hit !== undefined) return hit as T;
+
+    const raw = await this.storage.read(tenantSlug, fileName);
+    if (raw === null) return null;
 
     try {
-      const value = JSON.parse(readFileSync(path, 'utf8')) as T;
-      this.cache.set(key, { mtimeMs, value });
+      const value = JSON.parse(raw) as T;
+      this.cache.set(key, value);
       return value;
     } catch (error) {
       // A corrupt asset must not take the API down with it: the zone editor
       // degrades to "no shapes known", which its callers already handle.
-      this.logger.error(`Failed to parse ${path}: ${(error as Error).message}`);
+      this.logger.error(`Failed to parse ${key}: ${(error as Error).message}`);
       return null;
     }
   }
