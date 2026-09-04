@@ -31,6 +31,22 @@ function colorize(line, color) {
   return `${color}${line}${RESET}`;
 }
 
+function cleanupStaleProcesses() {
+  if (process.platform !== 'win32') return;
+  try {
+    const currentPid = process.pid;
+    execSync(
+      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name = 'node.exe'\\" | Where-Object { $_.ProcessId -ne ${currentPid} -and ($_.CommandLine -like '*@mechanization*' -or $_.CommandLine -like '*presentation\\\\main*' -or $_.CommandLine -like '*nest.js*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
+      { stdio: 'ignore' },
+    );
+  } catch {
+    // Ignore cleanup errors
+  }
+}
+
+// Clean up any stale background processes from prior aborted runs that might hold file locks on Prisma engine DLLs
+cleanupStaleProcesses();
+
 function dockerAvailable() {
   try {
     execSync('docker info', { stdio: 'ignore' });
@@ -211,8 +227,33 @@ function watchProcess(name, child, becameReady) {
   });
 }
 
+function killChildTree(child) {
+  if (!child || !child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+    } else {
+      child.kill('SIGTERM');
+    }
+  } catch {
+    // Process already terminated
+  }
+}
+
 const backend = runDevProcess('@mechanization/backend');
 watchProcess('backend', backend, () => backendBootedOnce);
+
+process.on('SIGINT', () => {
+  killChildTree(backend);
+  killChildTree(frontend);
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  killChildTree(backend);
+  killChildTree(frontend);
+  process.exit(0);
+});
 
 // Frontend's first render fetches from the API — start it only once the
 // backend is actually listening, rather than racing it and eating a burst of
