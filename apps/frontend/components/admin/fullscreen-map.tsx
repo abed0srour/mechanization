@@ -1143,17 +1143,19 @@ export function FullscreenMap({
       {/*
         Top Map Toolbar: Search + Controls.
 
-        Two rows on a phone — a full-width search field, then the tool cluster
+      {/*
+        Top Map Toolbar: Search + Controls.
+
+        Two rows on a phone — a full-width sleek search field, then the tool cluster
         when it is asked for — collapsing to the single centred row from `sm`
-        up via `sm:contents`, which dissolves the phone-only row wrapper so its
-        children negotiate width directly with the toolbar again.
+        up via `sm:contents`.
       */}
       <div className="absolute inset-x-2 top-2 z-20 flex flex-col gap-2 sm:inset-x-auto sm:left-1/2 sm:top-3 sm:w-auto sm:max-w-[calc(100%-1.5rem)] sm:-translate-x-1/2 sm:flex-row sm:flex-nowrap sm:items-center sm:justify-center sm:gap-2">
         <div className="flex items-center gap-2 sm:contents">
           {/* Search by رقم العقار */}
           <div className="relative min-w-0 flex-1 shrink sm:w-[15rem] sm:flex-none md:w-[17rem]">
-            <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/95 p-1 shadow-md backdrop-blur">
-              <Search className="ms-2 size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <div className="flex items-center gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1 shadow-lg backdrop-blur-md transition-all focus-within:ring-2 focus-within:ring-primary/20">
+              <Search className="ms-2.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
               <Input
                 value={query}
                 onChange={(e) => {
@@ -1165,7 +1167,7 @@ export function FullscreenMap({
                   if (e.key === 'Enter') void runSearch();
                   if (e.key === 'Escape') clearSearch();
                 }}
-                placeholder={locale === 'en' ? 'Search parcel number' : 'ابحث برقم العقار'}
+                placeholder={locale === 'en' ? 'Search parcel number…' : 'ابحث برقم العقار…'}
                 aria-label={locale === 'en' ? 'Search parcel number' : 'ابحث برقم العقار'}
                 className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:h-8"
               />
@@ -1175,7 +1177,7 @@ export function FullscreenMap({
                   size="icon"
                   onClick={clearSearch}
                   aria-label={locale === 'en' ? 'Clear search' : 'مسح البحث'}
-                  className="size-8 shrink-0 cursor-pointer sm:size-7"
+                  className="size-8 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground sm:size-7"
                 >
                   <X className="size-3.5" aria-hidden />
                 </Button>
@@ -1184,7 +1186,7 @@ export function FullscreenMap({
                 size="sm"
                 onClick={() => void runSearch()}
                 disabled={searchStatus === 'searching' || !query.trim()}
-                className="h-8 shrink-0 px-2.5 text-xs cursor-pointer sm:h-7"
+                className="h-8 shrink-0 px-3 text-xs font-semibold rounded-xl bg-primary text-primary-foreground shadow-xs cursor-pointer hover:bg-primary/90 transition-colors sm:h-7"
               >
                 {searchStatus === 'searching' ? (
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
@@ -1196,7 +1198,7 @@ export function FullscreenMap({
 
             {/* Typeahead match list */}
             {matchesOpen && localMatches.length > 0 ? (
-              <ul className="absolute left-0 right-0 top-full mt-1.5 overflow-hidden rounded-xl border bg-card/95 shadow-lg backdrop-blur z-50">
+              <ul className="absolute left-0 right-0 top-full mt-1.5 overflow-hidden rounded-2xl border bg-card/95 shadow-xl backdrop-blur-md z-50">
                 {localMatches.map((parcel) => (
                   <li key={parcel.propertyNumber}>
                     <button
@@ -1224,8 +1226,8 @@ export function FullscreenMap({
             ) : null}
 
             {searchStatus === 'not-found' ? (
-              <div className="absolute left-0 right-0 top-full mt-1.5 rounded-xl border bg-card/95 px-3 py-2 shadow-lg backdrop-blur z-50">
-                <p className="text-xs text-destructive">
+              <div className="absolute left-0 right-0 top-full mt-1.5 rounded-2xl border bg-card/95 px-3.5 py-2.5 shadow-xl backdrop-blur-md z-50">
+                <p className="text-xs font-medium text-destructive">
                   {locale === 'en' ? 'No parcel found with this number' : 'لا يوجد عقار بهذا الرقم'}
                 </p>
                 {suggestions.length > 0 ? (
@@ -1239,7 +1241,7 @@ export function FullscreenMap({
                         variant="outline"
                         size="sm"
                         onClick={() => void runSearch(suggestion)}
-                        className="h-6 px-2 text-xs cursor-pointer"
+                        className="h-6 px-2 text-xs rounded-lg cursor-pointer"
                       >
                         {suggestion}
                       </Button>
@@ -1262,23 +1264,23 @@ export function FullscreenMap({
             aria-expanded={toolsOpen}
             aria-label={locale === 'en' ? 'Map tools' : 'أدوات الخريطة'}
             className={cn(
-              'size-10 shrink-0 rounded-xl border border-border/80 bg-card/95 shadow-md backdrop-blur sm:hidden',
-              toolsOpen ? 'text-primary' : 'text-muted-foreground',
+              'size-11 shrink-0 rounded-2xl border border-border/80 bg-card/95 shadow-lg backdrop-blur-md sm:hidden transition-all flex items-center justify-center',
+              toolsOpen || colorMode !== 'default' || measureMode !== 'none' || !registeredVisible
+                ? 'border-primary/60 bg-primary/10 text-primary ring-2 ring-primary/20'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent',
             )}
           >
-            <SlidersHorizontal className="size-4" aria-hidden />
+            <SlidersHorizontal className="size-4.5" aria-hidden />
           </Button>
         </div>
 
         {/*
-          Toolbar Controls. `relative` sits here rather than on each button so
-          the two dropdowns can span the whole toolbar on a phone instead of
-          spilling off whichever edge their button happens to sit near.
+          Toolbar Controls.
         */}
         <div
           className={cn(
-            'relative flex-wrap items-center gap-1 rounded-xl border border-border/80 bg-card/95 p-1 shadow-md backdrop-blur',
-            'sm:flex sm:flex-nowrap sm:shrink-0',
+            'relative overflow-x-auto max-w-full items-center gap-1.5 rounded-2xl border border-border/80 bg-card/95 p-1.5 shadow-lg backdrop-blur-md no-scrollbar animate-in fade-in-0 slide-in-from-top-1 duration-200',
+            'sm:flex sm:flex-nowrap sm:shrink-0 sm:rounded-xl sm:p-1 sm:shadow-md sm:animate-none',
             toolsOpen ? 'flex' : 'hidden',
           )}
         >
@@ -1294,14 +1296,14 @@ export function FullscreenMap({
                 : (locale === 'en' ? 'Show Registered Points' : 'إظهار نقاط العقارات')
             }
             className={cn(
-              'h-9 shrink-0 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all sm:h-8',
+              'h-9 shrink-0 gap-1.5 px-2.5 text-xs font-semibold cursor-pointer rounded-xl transition-all sm:h-8 sm:rounded-lg',
               registeredVisible
                 ? 'bg-primary/10 text-primary hover:bg-primary/20'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
             {registeredVisible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5 text-muted-foreground" />}
-            <span className="hidden md:inline">
+            <span>
               {registeredVisible
                 ? (locale === 'en' ? 'Points' : 'النقاط')
                 : (locale === 'en' ? 'Hidden' : 'مخفية')}
@@ -1320,7 +1322,7 @@ export function FullscreenMap({
               }}
               title={locale === 'en' ? 'Point Color & Filter Mode' : 'وضع تلوين وتصفية النقاط'}
               className={cn(
-                'h-9 shrink-0 gap-1.5 px-2 text-xs font-semibold cursor-pointer rounded-lg transition-all sm:h-8',
+                'h-9 shrink-0 gap-1.5 px-2.5 text-xs font-semibold cursor-pointer rounded-xl transition-all sm:h-8 sm:rounded-lg',
                 colorMode !== 'default'
                   ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 border border-amber-500/30'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -1721,33 +1723,58 @@ export function FullscreenMap({
       {/* Top Right Corner Widgets */}
       <div
         className={cn(
-          'absolute right-2 top-[3.5rem] z-20 w-44 flex-col gap-1.5',
+          'absolute right-2 top-[3.75rem] z-20 flex flex-col gap-1.5',
           'sm:right-3 sm:top-3 sm:w-52',
           // The phone tool cluster drops down over exactly this corner.
           toolsOpen ? 'hidden sm:flex' : 'flex',
         )}
       >
-        <ZoneLegend
-          zones={zones}
-          visible={zonesVisible}
-          onVisibleChange={setZonesVisible}
-          labelsVisible={zoneLabelsVisible}
-          onLabelsVisibleChange={setZoneLabelsVisible}
-          activeZoneId={activeZoneId}
-          onSelectZone={setActiveZoneId}
-          onOpenZoneInfo={(zone) => {
-            setSelectedZoneInfo(zone);
-            setZoneInfoOpen(true);
-          }}
-          locale={locale}
-        />
+        {zones.length > 0 ? (
+          <div className="w-44 sm:w-52">
+            <ZoneLegend
+              zones={zones}
+              visible={zonesVisible}
+              onVisibleChange={setZonesVisible}
+              labelsVisible={zoneLabelsVisible}
+              onLabelsVisibleChange={setZoneLabelsVisible}
+              activeZoneId={activeZoneId}
+              onSelectZone={setActiveZoneId}
+              onOpenZoneInfo={(zone) => {
+                setSelectedZoneInfo(zone);
+                setZoneInfoOpen(true);
+              }}
+              locale={locale}
+            />
+          </div>
+        ) : (
+          <div className="hidden sm:block sm:w-52">
+            <ZoneLegend
+              zones={zones}
+              visible={zonesVisible}
+              onVisibleChange={setZonesVisible}
+              labelsVisible={zoneLabelsVisible}
+              onLabelsVisibleChange={setZoneLabelsVisible}
+              activeZoneId={activeZoneId}
+              onSelectZone={setActiveZoneId}
+              onOpenZoneInfo={(zone) => {
+                setSelectedZoneInfo(zone);
+                setZoneInfoOpen(true);
+              }}
+              locale={locale}
+            />
+          </div>
+        )}
 
-        <div className="rounded-xl border border-border/80 bg-card/95 px-3 py-1.5 shadow-md backdrop-blur">
-          <p className="text-xs font-bold text-foreground pointer-events-none">
-            {zoneParcelNumbers
-              ? parcels.filter((parcel) => zoneParcelNumbers.has(parcel.propertyNumber)).length
-              : parcels.length}{' '}
-            {locale === 'en' ? 'registered parcels' : 'عقار مسجّل'}
+        {/* Parcel count badge: Compact chip on mobile, full card on desktop */}
+        <div className="self-end rounded-2xl border border-border/80 bg-card/95 px-3 py-1.5 shadow-lg backdrop-blur-md sm:w-full sm:rounded-xl sm:shadow-md">
+          <p className="text-xs font-bold text-foreground pointer-events-none flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-primary inline-block shrink-0 sm:hidden" />
+            <span>
+              {zoneParcelNumbers
+                ? parcels.filter((parcel) => zoneParcelNumbers.has(parcel.propertyNumber)).length
+                : parcels.length}{' '}
+              {locale === 'en' ? 'registered parcels' : 'عقار مسجّل'}
+            </span>
           </p>
           {activeZoneId ? (
             <div className="flex items-center justify-between gap-1 pt-0.5 border-t border-border/40 mt-1">
@@ -1771,7 +1798,7 @@ export function FullscreenMap({
               </button>
             </div>
           ) : cadastreReady ? (
-            <p className="text-[11px] text-muted-foreground truncate pointer-events-none">
+            <p className="hidden sm:block text-[11px] text-muted-foreground truncate pointer-events-none">
               {locale === 'en' ? 'Pins on registered parcels' : 'النقاط على العقارات المسجّلة'}
             </p>
           ) : null}
