@@ -974,7 +974,15 @@ export function CitizenForm({
             </span>
           </div>
 
-          <div className="flex items-center gap-2.5 ms-auto">
+          {/*
+            `mx-auto` centres the pair when they are the only thing in this
+            row — on mobile the status text beside them is `hidden`, and
+            `ms-auto` alone would just push them to the row's end (the left
+            edge in RTL) instead of the middle. From `sm:` up the status text
+            is back, so the end-aligned pairing with `justify-between` above
+            takes over again.
+          */}
+          <div className="flex items-center gap-2.5 mx-auto sm:mx-0 sm:ms-auto">
             <Button
               type="button"
               variant="outline"
