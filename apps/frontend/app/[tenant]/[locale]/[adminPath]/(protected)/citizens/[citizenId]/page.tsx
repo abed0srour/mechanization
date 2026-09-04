@@ -69,7 +69,7 @@ import {
 } from '@/components/admin/settle-payment-dialog';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
-import { buildCitizenWelcomeMessage, buildWhatsappHref, formatWhatsappNumber } from '@/lib/whatsapp';
+import { buildCitizenWelcomeMessage, buildWhatsappHref } from '@/lib/whatsapp';
 
 /** One glyph per property branch, so a card's kind is readable before its text. */
 const PROPERTY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -1191,10 +1191,7 @@ function PhoneLink({ phone }: { phone: string }) {
 
 /** Click-to-chat WhatsApp link, kept LTR with emerald accent. */
 function WhatsAppPhoneLink({ phone, message }: { phone: string; message?: string }) {
-  const digits = formatWhatsappNumber(phone);
-  const href = digits
-    ? `https://web.whatsapp.com/send?phone=${digits}${message ? `&text=${encodeURIComponent(message)}` : ''}`
-    : `https://web.whatsapp.com/send?phone=${phone.replace(/\D/g, '')}`;
+  const href = buildWhatsappHref(phone, message ?? '') ?? `https://wa.me/${phone.replace(/\D/g, '')}`;
   return (
     <a
       href={href}
