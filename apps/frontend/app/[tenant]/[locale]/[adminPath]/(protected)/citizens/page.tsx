@@ -692,11 +692,7 @@ export default function CitizensPage({
       <PageHeader
         icon={Users}
         title={locale === 'en' ? 'Citizens' : 'المواطنون'}
-        subtitle={
-          locale === 'en'
-            ? 'Municipal citizens registry — personal records, registered properties, and fees'
-            : 'سجل المواطنين المسجّلين لدى البلدية — البيانات والعقارات والرسوم المستحقة'
-        }
+
         actions={
           canWrite ? (
             <>
@@ -798,11 +794,7 @@ export default function CitizensPage({
             <Users className="size-5" aria-hidden />
             {locale === 'en' ? 'Citizens Registry' : 'سجل المواطنين'}
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            {locale === 'en'
-              ? '"Overdue" reflects unpaid fees past their due date. Disabling halts new fees while preserving historical records. Permanent delete is only allowed for a citizen with no applications, payments, or fees on file.'
-              : '«المتأخرات» هي الرسوم غير المسدّدة التي تجاوزت تاريخ استحقاقها. التعطيل يوقف إصدار رسوم جديدة ويُبقي السجل كما هو. الحذف النهائي متاح فقط لمواطن ليس له طلبات أو مدفوعات أو رسوم مسجّلة.'}
-          </p>
+
         </CardHeader>
         <CardContent className="p-6">
           <DataTable

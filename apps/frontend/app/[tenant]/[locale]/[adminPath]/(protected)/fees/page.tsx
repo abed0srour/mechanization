@@ -639,13 +639,8 @@ export default function FeesPage({
       <PageHeader
         icon={Receipt}
         title={locale === 'en' ? 'Fees & Billing' : 'إدارة الرسوم والمدفوعات'}
-        subtitle={
-          locale === 'en'
-            ? 'Financial demands and fees register — issuance, collection, and receipts'
-            : 'سجل الرسوم والمطالبات المالية للمواطنين — الإصدار والتحصيل والوصولات'
-        }
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <Button
               variant="outline"
               size="sm"
@@ -671,7 +666,7 @@ export default function FeesPage({
                 </Button>
               </>
             ) : null}
-          </div>
+          </>
         }
       />
 
