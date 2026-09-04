@@ -48,6 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { cn, scopeErrors } from '@/lib/utils';
 
 export interface UnitDraft {
@@ -259,28 +260,22 @@ export function PropertyCard({
             </button>
           ) : null}
 
-          <div className="grid gap-3.5 sm:grid-cols-2">
+          <div className="space-y-4">
             <Field
               label={locale === 'en' ? 'Occupancy Type' : 'نوع الإشغال'}
               htmlFor={`occ-${index}`}
               required
               error={errors.occupancyType}
             >
-              <Select
+              <SegmentedControl
                 value={draft.occupancyType ?? ''}
-                onValueChange={(v) => set({ occupancyType: v as OccupancyType })}
-              >
-                <SelectTrigger id={`occ-${index}`} className={errors.occupancyType ? 'border-destructive' : ''}>
-                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {OCCUPANCY_TYPE.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {labels.occupancyType[option]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                invalid={Boolean(errors.occupancyType)}
+                onChange={(v) => set({ occupancyType: v as OccupancyType })}
+                options={OCCUPANCY_TYPE.map((option) => ({
+                  value: option,
+                  label: labels.occupancyType[option] ?? option,
+                }))}
+              />
             </Field>
 
             <Field
@@ -289,21 +284,15 @@ export function PropertyCard({
               required
               error={errors.propertyType}
             >
-              <Select
+              <SegmentedControl
                 value={draft.propertyType ?? ''}
-                onValueChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}
-              >
-                <SelectTrigger id={`pt-${index}`} className={errors.propertyType ? 'border-destructive' : ''}>
-                  <SelectValue placeholder={locale === 'en' ? 'Select…' : 'اختر…'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {allowedTypes.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {labels.propertyType[option]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                invalid={Boolean(errors.propertyType)}
+                onChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}
+                options={allowedTypes.map((option) => ({
+                  value: option,
+                  label: labels.propertyType[option] ?? option,
+                }))}
+              />
             </Field>
           </div>
 

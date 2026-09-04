@@ -378,11 +378,7 @@ export default function StaffDashboard({
               </Badge>
             ) : null}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {locale === 'en'
-              ? 'Municipality metrics: population, fees, collection, and records status.'
-              : 'مؤشرات البلدية: السكان، الرسوم والتحصيل، وحالة الطلبات'}
-          </p>
+
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
