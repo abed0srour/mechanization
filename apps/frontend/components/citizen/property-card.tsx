@@ -48,7 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChipGroup } from '@/components/ui/segmented-control';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { cn, scopeErrors } from '@/lib/utils';
 
 export interface UnitDraft {
@@ -267,7 +267,7 @@ export function PropertyCard({
               required
               error={errors.occupancyType}
             >
-              <ChipGroup
+              <SegmentedControl
                 value={draft.occupancyType ?? ''}
                 invalid={Boolean(errors.occupancyType)}
                 onChange={(v) => set({ occupancyType: v as OccupancyType })}
@@ -284,7 +284,7 @@ export function PropertyCard({
               required
               error={errors.propertyType}
             >
-              <ChipGroup
+              <SegmentedControl
                 value={draft.propertyType ?? ''}
                 invalid={Boolean(errors.propertyType)}
                 onChange={(v) => onChange(changePropertyType(draft, v as PropertyType))}

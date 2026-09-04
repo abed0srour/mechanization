@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChipGroup, SegmentedControl } from '@/components/ui/segmented-control';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 
 type Values = Record<string, unknown>;
 type Errors = Record<string, string>;
@@ -171,7 +171,7 @@ export function PersonalStep({
         </Field>
       </div>
 
-      {/* 3. Residency Status - Visual chip choices */}
+      {/* 3. Residency Status - Full-width 1-tap segment */}
       <Field
         label={locale === 'en' ? 'Residency Status' : 'صفة الإقامة'}
         htmlFor="residentStatus"
@@ -179,7 +179,7 @@ export function PersonalStep({
         required
         error={errors['personal.residentStatus']}
       >
-        <ChipGroup
+        <SegmentedControl
           value={str(value.residentStatus)}
           invalid={Boolean(errors['personal.residentStatus'])}
           onChange={(next) => set({ residentStatus: next })}
@@ -219,7 +219,7 @@ export function PersonalStep({
             required
             error={errors['personal.identityDocType']}
           >
-            <ChipGroup
+            <SegmentedControl
               size="sm"
               value={str(value.identityDocType)}
               invalid={Boolean(errors['personal.identityDocType'])}
@@ -429,7 +429,7 @@ export function ContactStep({
         required
         error={errors['contact.maritalStatus']}
       >
-        <ChipGroup
+        <SegmentedControl
           value={str(value.maritalStatus)}
           invalid={Boolean(errors['contact.maritalStatus'])}
           onChange={(next) => set({ maritalStatus: next })}
