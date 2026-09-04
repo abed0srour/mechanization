@@ -51,11 +51,22 @@ export function buildCitizenWelcomeMessage({
   );
 }
 
-/** The wa.me/web.whatsapp.com deep link for a pre-filled message, or null with no reachable number. */
+/**
+ * The wa.me deep link for a pre-filled message, or null with no reachable
+ * number.
+ *
+ * `wa.me` rather than `web.whatsapp.com`: the latter is the desktop web
+ * client specifically — opening it on a phone's browser shows a QR-pairing
+ * screen or a broken layout, not a chat, which is exactly the case that
+ * matters here since a clerk sharing a reference number is as often on a
+ * phone as at a desk. `wa.me` is WhatsApp's own universal click-to-chat link;
+ * it opens the native app when one is installed (mobile or desktop) and
+ * falls back to `web.whatsapp.com` itself only when it is not.
+ */
 export function buildWhatsappHref(
   destination: string | null | undefined,
   message: string,
 ): string | null {
   const digits = formatWhatsappNumber(destination);
-  return digits ? `https://web.whatsapp.com/send?phone=${digits}&text=${encodeURIComponent(message)}` : null;
+  return digits ? `https://wa.me/${digits}?text=${encodeURIComponent(message)}` : null;
 }
