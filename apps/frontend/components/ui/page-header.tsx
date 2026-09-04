@@ -28,33 +28,30 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('flex flex-wrap items-center gap-3 border-b pb-6', className)}>
-      <span
-        aria-hidden
-        className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-      >
-        <Icon className="size-5" />
-      </span>
-      <div className="min-w-0">
-        {/*
-          Wraps on a phone, truncates from `sm` up.
-
-          `truncate` at every width clipped «تسجيل مواطن جديد» to «تسجيل مواطن
-          ج…» on a 390px screen — the page's own name, cut mid-word, at the
-          one width where the reader has the least other context about where
-          they are. Two lines cost less than that. From `sm` there is room for
-          the full title anyway, and truncation goes back to being the guard
-          against an unusually long one.
-        */}
-        <h1 className="text-xl font-bold leading-tight tracking-tight sm:truncate md:text-2xl">
-          {title}
-        </h1>
-        {subtitle ? (
-          <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
-        ) : null}
+    <div
+      className={cn(
+        'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b pb-4 sm:pb-6',
+        className,
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span
+          aria-hidden
+          className="flex size-10 sm:size-11 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-primary/10 text-primary"
+        >
+          <Icon className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-bold leading-tight tracking-tight sm:truncate md:text-2xl">
+            {title}
+          </h1>
+          {subtitle ? (
+            <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">{subtitle}</p>
+          ) : null}
+        </div>
       </div>
       {actions ? (
-        <div className="ms-auto flex flex-wrap items-center gap-2">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0 sm:ms-auto">{actions}</div>
       ) : null}
     </div>
   );
