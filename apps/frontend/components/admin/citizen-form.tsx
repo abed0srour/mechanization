@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
+  ArrowRight,
   Building2,
   CloudOff,
   FileQuestion,
@@ -622,35 +624,13 @@ export function CitizenForm({
     });
   }, [values]);
 
-  // Live once a save has been attempted, silent before it: flagging fields a
-  // clerk has not reached yet turns a blank form red.
-  useEffect(() => {
-    if (!showErrors) return;
-    setFieldErrors(validate(values));
-  }, [showErrors, values]);
-
-  function handleSubmit() {
-    const errors = validate(values);
-    setFieldErrors(errors);
-    setShowErrors(true);
-
-    if (Object.keys(errors).length > 0) {
-      // Straight to the first thing that is wrong. On a page this long the
-      // banner alone can be off-screen from the field it is describing.
-      document
-        .querySelector('[data-section-invalid="true"]')
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    onSubmit(values);
-  }
-
-  const shown = showErrors ? fieldErrors : {};
+  const shown = useMemo(() => (showErrors ? fieldErrors : {}), [showErrors, fieldErrors]);
   const messages = [...new Set(Object.values(shown))];
 
-  const sectionInvalid = (prefix: string) =>
-    Object.keys(shown).some((key) => key.startsWith(`${prefix}.`));
+  const sectionInvalid = useCallback(
+    (prefix: string) => Object.keys(shown).some((key) => key.startsWith(`${prefix}.`)),
+    [shown],
+  );
 
   /**
    * The «غير مؤكَّد» fields, named, above the save button.
@@ -686,7 +666,7 @@ export function CitizenForm({
         id: 'personal',
         step: locale === 'en' ? '1' : '١',
         icon: IdCard,
-        title: locale === 'en' ? 'Personal Information' : 'البيانات الشخصية',
+        title: locale === 'en' ? 'Personal Info' : 'البيانات الشخصية',
         description:
           locale === 'en'
             ? 'Name as written on ID document, nationality, and residency status'
@@ -696,7 +676,7 @@ export function CitizenForm({
         id: 'contact',
         step: locale === 'en' ? '2' : '٢',
         icon: UsersRound,
-        title: locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة',
+        title: locale === 'en' ? 'Contact & Family' : 'التواصل والأسرة',
         description:
           locale === 'en'
             ? 'Phone number used by citizen for login and tracking submissions'
@@ -716,12 +696,57 @@ export function CitizenForm({
     [locale],
   );
 
+  const [mobileStep, setMobileStep] = useState<SectionId>('personal');
+
+  const stepIndex = useMemo(
+    () => sections.findIndex((s) => s.id === mobileStep),
+    [sections, mobileStep],
+  );
+
+  const goToNextStep = useCallback(() => {
+    const nextIdx = stepIndex + 1;
+    if (nextIdx < sections.length) {
+      setMobileStep(sections[nextIdx].id as SectionId);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [stepIndex, sections]);
+
+  const goToPrevStep = useCallback(() => {
+    const prevIdx = stepIndex - 1;
+    if (prevIdx >= 0) {
+      setMobileStep(sections[prevIdx].id as SectionId);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [stepIndex, sections]);
+
+  function handleSubmit() {
+    const errors = validate(values);
+    setFieldErrors(errors);
+    setShowErrors(true);
+
+    if (Object.keys(errors).length > 0) {
+      const firstInvalidSection = sections.find((s) => sectionInvalid(s.id));
+      if (firstInvalidSection) {
+        setMobileStep(firstInvalidSection.id as SectionId);
+      }
+      setTimeout(() => {
+        document
+          .querySelector('[data-section-invalid="true"]')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+      return;
+    }
+
+    onSubmit(values);
+  }
+
   return (
     <FieldFlagProvider value={flagging}>
-    <div className="space-y-5">
+    <div className="space-y-4 pb-20 sm:space-y-5 sm:pb-0">
+      {/* ── Desktop Section Nav (hidden on mobile) ── */}
       <nav
         aria-label={locale === 'en' ? 'Form sections' : 'أقسام النموذج'}
-        className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/80 bg-background/95 p-1.5 shadow-2xs backdrop-blur supports-[backdrop-filter]:bg-background/80"
+        className="sticky top-0 z-20 hidden sm:flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/80 bg-background/95 p-1.5 shadow-2xs backdrop-blur supports-[backdrop-filter]:bg-background/80"
       >
         <ul className="flex flex-wrap items-center gap-1.5">
           {sections.map((section) => {
@@ -799,104 +824,337 @@ export function CitizenForm({
         </Button>
       </nav>
 
-      <FormSection
-        id="personal"
-        step={locale === 'en' ? '1' : '١'}
-        icon={IdCard}
-        title={locale === 'en' ? 'Personal Information' : 'البيانات الشخصية'}
-        description={
-          locale === 'en'
-            ? 'Name as written on ID document, nationality, and residency status'
-            : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة'
-        }
-        invalid={sectionInvalid('personal')}
-      >
-        <PersonalStep
-          value={values.personal}
-          errors={shown}
-          onChange={(personal) => update({ personal })}
-          locale={locale}
-        />
-      </FormSection>
+      {/* ── Mobile Step Header (visible on mobile only) ── */}
+      <div className="sm:hidden space-y-2 sticky top-0 z-20 rounded-xl border border-border/80 bg-background/95 p-2 shadow-xs backdrop-blur">
+        <div className="flex items-center justify-between text-xs font-semibold px-1">
+          <span className="text-muted-foreground">
+            {locale === 'en' ? `Step ${stepIndex + 1} of 3` : `الخطوة ${sections[stepIndex].step} من ٣`}
+          </span>
+          <span className="text-primary font-bold">{sections[stepIndex].title}</span>
+        </div>
 
-      <FormSection
-        id="contact"
-        step={locale === 'en' ? '2' : '٢'}
-        icon={UsersRound}
-        title={locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة'}
-        description={
-          locale === 'en'
-            ? 'Phone number used by citizen for login and tracking submissions'
-            : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه'
-        }
-        invalid={sectionInvalid('contact')}
-      >
-        <ContactStep
-          value={values.contact}
-          errors={shown}
-          onChange={(contact) => update({ contact })}
-          locale={locale}
-        />
-      </FormSection>
+        <div className="grid grid-cols-3 gap-1.5">
+          {sections.map((section, idx) => {
+            const isCurrent = mobileStep === section.id;
+            const isCompleted = stepIndex > idx;
+            const invalid = sectionInvalid(section.id);
 
-      <FormSection
-        id="properties"
-        step={locale === 'en' ? '3' : '٣'}
-        icon={Building2}
-        title={
-          locale === 'en'
-            ? `Properties (${values.properties.length})`
-            : `العقارات (${values.properties.length})`
-        }
-        description={
-          locale === 'en'
-            ? 'Property parcel number verified against municipality records'
-            : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة'
-        }
-        invalid={sectionInvalid('properties')}
-      >
-        <div className="space-y-4">
-          {values.properties.map((property, index) => (
-            <PropertyCard
-              key={property.id ?? index}
-              tenant={tenant}
-              index={index}
-              draft={property}
-              allowedTypes={allowedTypes}
-              collapsed={collapsed.has(index)}
-              onToggleCollapse={() => toggleCollapsed(index)}
-              onChange={(next) => setProperty(index, next)}
-              onAddOnSameParcel={() => addProperty(index)}
-              onViewParcel={token ? setRosterParcel : undefined}
-              onRemove={() => removeProperty(index)}
-              canRemove={values.properties.length > 1}
-              errors={scopeErrors(shown, `properties.${index}`)}
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => setMobileStep(section.id as SectionId)}
+                className={cn(
+                  'flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-medium transition-all select-none',
+                  isCurrent
+                    ? 'bg-primary text-primary-foreground shadow-2xs font-semibold'
+                    : isCompleted
+                      ? 'bg-muted/70 text-foreground'
+                      : 'bg-muted/30 text-muted-foreground',
+                  invalid && !isCurrent && 'border border-destructive/40 text-destructive',
+                )}
+              >
+                <span>{section.step}.</span>
+                <span className="truncate">{section.title}</span>
+                {invalid ? (
+                  <TriangleAlert className="size-3 shrink-0 text-destructive" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Mobile View: Active Step Only ── */}
+      <div className="block sm:hidden">
+        {mobileStep === 'personal' && (
+          <FormSection
+            id="personal"
+            step={locale === 'en' ? '1' : '١'}
+            icon={IdCard}
+            title={locale === 'en' ? 'Personal Information' : 'البيانات الشخصية'}
+            description={
+              locale === 'en'
+                ? 'Name as written on ID document, nationality, and residency status'
+                : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة'
+            }
+            invalid={sectionInvalid('personal')}
+          >
+            <PersonalStep
+              value={values.personal}
+              errors={shown}
+              onChange={(personal) => update({ personal })}
               locale={locale}
             />
-          ))}
+          </FormSection>
+        )}
 
-          {mode === 'edit' && values.properties.some((property) => property.id) ? (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
-              {locale === 'en'
-                ? 'Deleting a registered property will also delete associated attachments (title deed or lease).'
-                : 'حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).'}
-            </p>
-          ) : null}
+        {mobileStep === 'contact' && (
+          <FormSection
+            id="contact"
+            step={locale === 'en' ? '2' : '٢'}
+            icon={UsersRound}
+            title={locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة'}
+            description={
+              locale === 'en'
+                ? 'Phone number used by citizen for login and tracking submissions'
+                : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه'
+            }
+            invalid={sectionInvalid('contact')}
+          >
+            <ContactStep
+              value={values.contact}
+              errors={shown}
+              onChange={(contact) => update({ contact })}
+              locale={locale}
+            />
+          </FormSection>
+        )}
+
+        {mobileStep === 'properties' && (
+          <FormSection
+            id="properties"
+            step={locale === 'en' ? '3' : '٣'}
+            icon={Building2}
+            title={
+              locale === 'en'
+                ? `Properties (${values.properties.length})`
+                : `العقارات (${values.properties.length})`
+            }
+            description={
+              locale === 'en'
+                ? 'Property parcel number verified against municipality records'
+                : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة'
+            }
+            invalid={sectionInvalid('properties')}
+          >
+            <div className="space-y-4">
+              {values.properties.map((property, index) => (
+                <PropertyCard
+                  key={property.id ?? index}
+                  tenant={tenant}
+                  index={index}
+                  draft={property}
+                  allowedTypes={allowedTypes}
+                  collapsed={collapsed.has(index)}
+                  onToggleCollapse={() => toggleCollapsed(index)}
+                  onChange={(next) => setProperty(index, next)}
+                  onAddOnSameParcel={() => addProperty(index)}
+                  onViewParcel={token ? setRosterParcel : undefined}
+                  onRemove={() => removeProperty(index)}
+                  canRemove={values.properties.length > 1}
+                  errors={scopeErrors(shown, `properties.${index}`)}
+                  locale={locale}
+                />
+              ))}
+
+              {mode === 'edit' && values.properties.some((property) => property.id) ? (
+                <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+                  {locale === 'en'
+                    ? 'Deleting a registered property will also delete associated attachments (title deed or lease).'
+                    : 'حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).'}
+                </p>
+              ) : null}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => addProperty()}
+                className="w-full border-dashed border-primary/60 text-primary hover:bg-primary/5 h-9 text-xs sm:text-sm font-medium"
+              >
+                <Plus className="size-4" aria-hidden />
+                {locale === 'en' ? 'Add Another Property' : 'إضافة عقار آخر'}
+              </Button>
+            </div>
+          </FormSection>
+        )}
+      </div>
+
+      {/* ── Desktop View: All Sections Sequentially ── */}
+      <div className="hidden sm:block space-y-5">
+        <FormSection
+          id="personal"
+          step={locale === 'en' ? '1' : '١'}
+          icon={IdCard}
+          title={locale === 'en' ? 'Personal Information' : 'البيانات الشخصية'}
+          description={
+            locale === 'en'
+              ? 'Name as written on ID document, nationality, and residency status'
+              : 'الاسم كما هو مدوّن على وثيقة الإثبات، والجنسية وصفة الإقامة'
+          }
+          invalid={sectionInvalid('personal')}
+        >
+          <PersonalStep
+            value={values.personal}
+            errors={shown}
+            onChange={(personal) => update({ personal })}
+            locale={locale}
+          />
+        </FormSection>
+
+        <FormSection
+          id="contact"
+          step={locale === 'en' ? '2' : '٢'}
+          icon={UsersRound}
+          title={locale === 'en' ? 'Contact & Household' : 'التواصل والأسرة'}
+          description={
+            locale === 'en'
+              ? 'Phone number used by citizen for login and tracking submissions'
+              : 'رقم الهاتف الذي يستخدمه المواطن للدخول ومتابعة طلبه'
+          }
+          invalid={sectionInvalid('contact')}
+        >
+          <ContactStep
+            value={values.contact}
+            errors={shown}
+            onChange={(contact) => update({ contact })}
+            locale={locale}
+          />
+        </FormSection>
+
+        <FormSection
+          id="properties"
+          step={locale === 'en' ? '3' : '٣'}
+          icon={Building2}
+          title={
+            locale === 'en'
+              ? `Properties (${values.properties.length})`
+              : `العقارات (${values.properties.length})`
+          }
+          description={
+            locale === 'en'
+              ? 'Property parcel number verified against municipality records'
+              : 'رقم العقار يُطابَق مع السجل العقاري للبلدية أثناء الكتابة'
+          }
+          invalid={sectionInvalid('properties')}
+        >
+          <div className="space-y-4">
+            {values.properties.map((property, index) => (
+              <PropertyCard
+                key={property.id ?? index}
+                tenant={tenant}
+                index={index}
+                draft={property}
+                allowedTypes={allowedTypes}
+                collapsed={collapsed.has(index)}
+                onToggleCollapse={() => toggleCollapsed(index)}
+                onChange={(next) => setProperty(index, next)}
+                onAddOnSameParcel={() => addProperty(index)}
+                onViewParcel={token ? setRosterParcel : undefined}
+                onRemove={() => removeProperty(index)}
+                canRemove={values.properties.length > 1}
+                errors={scopeErrors(shown, `properties.${index}`)}
+                locale={locale}
+              />
+            ))}
+
+            {mode === 'edit' && values.properties.some((property) => property.id) ? (
+              <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+                {locale === 'en'
+                  ? 'Deleting a registered property will also delete associated attachments (title deed or lease).'
+                  : 'حذف عقار مسجّل يحذف معه المستندات المرفقة به (سند الملكية أو عقد الإيجار).'}
+              </p>
+            ) : null}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => addProperty()}
+              className="w-full border-dashed border-primary/60 text-primary hover:bg-primary/5 h-9 text-xs sm:text-sm font-medium"
+            >
+              <Plus className="size-4" aria-hidden />
+              {locale === 'en' ? 'Add Another Property' : 'إضافة عقار آخر'}
+            </Button>
+          </div>
+        </FormSection>
+      </div>
+
+      {/* ── Mobile Sticky Bottom Action Bar ── */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 block sm:hidden border-t border-border/80 bg-background/95 p-2.5 shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-background/90">
+        <div className="flex items-center justify-between gap-2">
+          {stepIndex > 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={goToPrevStep}
+              className="h-10 px-3 text-xs font-semibold gap-1 shrink-0"
+            >
+              <ArrowRight className="size-4 rtl:rotate-180" />
+              <span>{locale === 'en' ? 'Back' : 'السابق'}</span>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onCancel}
+              className="h-10 px-3 text-xs text-muted-foreground shrink-0"
+            >
+              {locale === 'en' ? 'Cancel' : 'إلغاء'}
+            </Button>
+          )}
 
           <Button
+            type="button"
             variant="outline"
             size="sm"
-            onClick={() => addProperty()}
-            className="w-full border-dashed border-primary/60 text-primary hover:bg-primary/5 h-9 text-xs sm:text-sm font-medium"
+            onClick={() => setUnverifiedDialogOpen(true)}
+            className={cn(
+              'h-10 px-2.5 text-xs font-medium gap-1 flex-1 max-w-[150px] truncate',
+              values.flags.size > 0 && 'border-warning/50 bg-warning/10 text-warning',
+            )}
           >
-            <Plus className="size-4" aria-hidden />
-            {locale === 'en' ? 'Add Another Property' : 'إضافة عقار آخر'}
+            <FileQuestion className="size-3.5 shrink-0" />
+            <span className="truncate">{locale === 'en' ? 'Unverified' : 'غير مؤكَّد'}</span>
+            {values.flags.size > 0 ? (
+              <span className="rounded-full bg-warning/20 px-1.5 py-0.2 text-[10px] font-bold text-warning">
+                {values.flags.size}
+              </span>
+            ) : null}
           </Button>
-        </div>
-      </FormSection>
 
-      {/* Fixed Bottom Actions Bar */}
-      <div className="sticky bottom-0 z-30 -mx-4 -mb-6 mt-8 border-t border-border/80 bg-background/95 px-4 py-3 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          {stepIndex < sections.length - 1 ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={goToNextStep}
+              className="h-10 px-4 text-xs font-semibold gap-1 bg-primary text-primary-foreground shadow-sm shrink-0"
+            >
+              <span>{locale === 'en' ? 'Next' : 'التالي'}</span>
+              <ArrowLeft className="size-4 rtl:rotate-180" />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="h-10 px-4 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground shadow-sm shrink-0"
+            >
+              {submitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : offline ? (
+                <CloudOff className="size-4" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              <span>
+                {offline
+                  ? locale === 'en'
+                    ? 'Save'
+                    : 'حفظ'
+                  : locale === 'en'
+                    ? 'Save & Create'
+                    : 'حفظ وإنشاء'}
+              </span>
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Desktop Fixed Bottom Actions Bar ── */}
+      <div className="sticky bottom-0 z-30 hidden sm:block -mx-4 -mb-6 mt-8 border-t border-border/80 bg-background/95 px-4 py-3 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         {error ? (
           <p
             role="alert"
@@ -974,15 +1232,7 @@ export function CitizenForm({
             </span>
           </div>
 
-          {/*
-            `mx-auto` centres the pair when they are the only thing in this
-            row — on mobile the status text beside them is `hidden`, and
-            `ms-auto` alone would just push them to the row's end (the left
-            edge in RTL) instead of the middle. From `sm:` up the status text
-            is back, so the end-aligned pairing with `justify-between` above
-            takes over again.
-          */}
-          <div className="flex items-center gap-2.5 mx-auto sm:mx-0 sm:ms-auto">
+          <div className="flex items-center gap-2.5 ms-auto">
             <Button
               type="button"
               variant="outline"

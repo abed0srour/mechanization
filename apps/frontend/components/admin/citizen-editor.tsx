@@ -488,34 +488,34 @@ export function CitizenEditor({
   const Icon = isQueuedEdit ? CloudOff : editing ? UserRoundPen : UserPlus;
 
   return (
-    <div className="w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="w-full space-y-3.5 sm:space-y-6 px-3 py-3 sm:px-6 sm:py-6 lg:px-8 pb-20 sm:pb-8">
       <ShellLink
         href={cancelHref}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-xs sm:text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+        <ArrowRight className="size-3.5 sm:size-4 rtl:rotate-180" aria-hidden />
         {editing
           ? (locale === 'en' ? 'Back to Citizen Profile' : 'رجوع إلى ملف المواطن')
           : (locale === 'en' ? 'Back to Citizens Registry' : 'رجوع إلى سجل المواطنين')}
       </ShellLink>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 border-b pb-3 sm:pb-4">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <span
             aria-hidden
-            className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
+            className="flex size-8 sm:size-10 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
           >
-            <Icon className="size-5" />
+            <Icon className="size-4 sm:size-5" />
           </span>
           <div className="min-w-0 space-y-0.5">
-            <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl text-foreground">
+            <h1 className="truncate text-base sm:text-2xl font-bold tracking-tight text-foreground">
               {isQueuedEdit
                 ? (locale === 'en' ? 'Correct Unsent Record' : 'تصحيح سجل غير مُرسَل')
                 : editing
                   ? (locale === 'en' ? 'Edit Citizen Information' : 'تعديل بيانات مواطن')
                   : (locale === 'en' ? 'Register New Citizen' : 'تسجيل مواطن جديد')}
             </h1>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] sm:text-xs text-muted-foreground hidden sm:block">
               {isQueuedEdit
                 ? (locale === 'en'
                     ? 'This record is stored only on this device and has not reached the municipality. Saving here updates the local copy and retries sending it automatically.'
