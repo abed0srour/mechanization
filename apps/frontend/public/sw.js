@@ -31,7 +31,6 @@
 */
 
 /** Bump to retire every cache this worker wrote. */
-const VERSION = 'v3';
 const VERSION = 'v4';
 
 const SHELL_CACHE = `mechanization-shell-${VERSION}`;
