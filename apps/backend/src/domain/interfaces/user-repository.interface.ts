@@ -30,6 +30,22 @@ export interface CitizenIdentityInput {
   identityDocNumber?: string;
   /** رقم السجل — meaningless outside the Lebanese civil registry. */
   civilRecordNumber?: string;
+  /**
+   * محل القيد — the town the سجل above belongs to, and its قضاء.
+   *
+   * Carried beside the number rather than folded into it, because they are two
+   * facts a citizen reads off two lines of the same document — and because the
+   * number without the town is half a value: every village has a سجل ٤٥.
+   */
+  registrationPlaceTown?: string;
+  registrationPlaceDistrict?: string;
+  /** اسم الأم — the identity field that crosses the patriline. */
+  motherName?: string;
+  /** `YYYY-MM-DD` as the wire carries it; the column is a bare `DATE`. */
+  dateOfBirth?: string;
+  /** A second number the household can be reached on, and whose it is. */
+  altPhone?: string;
+  altPhoneRelation?: string;
   familySize?: number;
   maritalStatus?: string;
   bloodType?: string;

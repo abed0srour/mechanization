@@ -7,20 +7,102 @@ export function normalizeDigits(input: string): string {
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776));
 }
 
-/** Lebanese mobile numbers: +961 3/70/71/76/78/79/81 XXXXXX, stored E.164. */
-export const lebanesePhone = z
+/** Everything a person might type between the digits of a phone number. */
+const PHONE_SEPARATORS = /[\s\-().]/g;
+
+/**
+ * A Lebanese mobile, national form: `3XXXXXX`, `7XXXXXXX`, `81XXXXXX`.
+ *
+ * Kept narrow because the one caller left is the OTP route, and an SMS sent to
+ * a landline is a code that never arrives — a door that never opens, silently.
+ * Refusing the number is the honest failure.
+ */
+const LEBANESE_MOBILE_NATIONAL = /^(?:3\d{6}|7\d{7}|81\d{6})$/;
+
+/**
+ * A Lebanese landline, national form: an area code (1, 4–9) and six digits.
+ *
+ * `3` is absent because it is the mobile prefix; the two never collide. `7`
+ * appears in both and is separated by length — `07 740123` is a South Lebanon
+ * landline at seven digits, `70 740123` a mobile at eight.
+ */
+const LEBANESE_LANDLINE_NATIONAL = /^[14-9]\d{6}$/;
+
+/** E.164 as the ITU defines it: a country code that cannot start with zero. */
+const E164 = /^\+[1-9]\d{7,14}$/;
+
+/**
+ * A Lebanese mobile — the number an SMS can actually reach.
+ *
+ * Was `lebanesePhone`, and was the only phone shape the whole register accepted.
+ * It is now used exactly where a message has to be delivered; see `contactPhone`
+ * for the field that merely has to be *recorded*, which is most of them.
+ */
+export const lebaneseMobile = z
   .string({ required_error: 'رقم الهاتف مطلوب' })
   .trim()
-  .transform((v) => normalizeDigits(v).replace(/[\s-]/g, ''))
+  .transform((v) => normalizeDigits(v).replace(PHONE_SEPARATORS, ''))
   .pipe(
     z
       .string()
-      .regex(/^(\+961|00961|0)?(3|7[0-9]|8[1])\d{6}$/, 'رقم الهاتف غير صالح'),
+      .regex(/^(?:\+961|00961|0)?(?:3\d{6}|7\d{7}|81\d{6})$/, 'أدخل رقم خلوي لبناني صالح'),
   )
-  .transform((v) => {
-    const digits = v.replace(/^(\+961|00961|0)/, '');
-    return `+961${digits}`;
-  });
+  .transform((v) => `+961${v.replace(/^(\+961|00961|0)/, '')}`);
+
+/**
+ * Any number the municipality might need to write down, stored E.164.
+ *
+ * The register accepted Lebanese mobiles and nothing else, and that was not a
+ * strict validation — it was a refusal to record what the household actually
+ * gave the officer. Two groups fell through it, and both matter:
+ *
+ *  - **Landline-only households.** Disproportionately the elderly, who are
+ *    disproportionately who a municipality needs to reach. An officer standing
+ *    in the room could not enter `07-740123`.
+ *  - **Landlords abroad.** A tenant's card *requires* the owner's number, and a
+ *    great many Lebanese landlords are in Abidjan, Dubai or Michigan. The only
+ *    way to file that card was to flag the field «غير مؤكَّد» — filling the
+ *    review queue with records nobody will ever be able to resolve, because the
+ *    number is not missing, it is simply not Lebanese.
+ *
+ * A bare or `0`-prefixed number is read as Lebanese, which is what everyone
+ * types locally. Anything in international form is kept as given: this system
+ * has no business asserting what a valid subscriber number looks like in a
+ * country it knows nothing about, so beyond E.164's own shape it does not try.
+ */
+export const contactPhone = z
+  .string({ required_error: 'رقم الهاتف مطلوب' })
+  .trim()
+  .transform((v) => normalizeDigits(v).replace(PHONE_SEPARATORS, '').replace(/^00/, '+'))
+  .superRefine((value, ctx) => {
+    const invalid = () =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'رقم الهاتف غير صالح' });
+
+    if (value.startsWith('+')) {
+      if (!E164.test(value)) return invalid();
+      // A number written internationally but pointed at Lebanon still has to be
+      // a real Lebanese number — otherwise `+961` becomes a way past the check.
+      if (value.startsWith('+961')) {
+        const national = value.slice(4);
+        if (!LEBANESE_MOBILE_NATIONAL.test(national) && !LEBANESE_LANDLINE_NATIONAL.test(national)) {
+          return invalid();
+        }
+      }
+      return;
+    }
+
+    const national = value.replace(/^0/, '');
+    if (!LEBANESE_MOBILE_NATIONAL.test(national) && !LEBANESE_LANDLINE_NATIONAL.test(national)) {
+      invalid();
+    }
+  })
+  .transform((v) => (v.startsWith('+') ? v : `+961${v.replace(/^0/, '')}`));
+
+/**
+ * Kept as the old name so nothing that only ever meant "a Lebanese mobile"
+ * has to be found and edited. New code should say which it means.
+ */
+export const lebanesePhone = lebaneseMobile;
 
 export const arabicOrLatinName = z
   .string({ required_error: 'الاسم مطلوب' })

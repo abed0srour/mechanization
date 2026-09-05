@@ -13,6 +13,7 @@ import type {
   UnitType,
 } from './enums';
 import type { FeeBasis, FeeBearer, FeeTargetCategory } from './fee.schema';
+import type { HouseholdRelation } from './household.schema';
 
 /** Arabic display labels. Keep UI copy here, not inside the schemas. */
 export const ar = {
@@ -138,6 +139,21 @@ export const ar = {
   } satisfies Record<MaritalStatus, string>,
 
   /**
+   * صلة القرابة — always relative to رب الأسرة, which is why «ابن/ابنة» is one
+   * entry and not two: the gender is its own column on the same row, and a
+   * roster that could say SON and FEMALE at once is one no reader can resolve.
+   */
+  householdRelation: {
+    HEAD: 'رب الأسرة',
+    SPOUSE: 'الزوج/الزوجة',
+    CHILD: 'ابن/ابنة',
+    PARENT: 'أب/أم',
+    SIBLING: 'أخ/أخت',
+    RELATIVE: 'قريب',
+    OTHER: 'أخرى',
+  } satisfies Record<HouseholdRelation, string>,
+
+  /**
    * Never the bare word «شاغل».
    *
    * It differs from «شاغر» — the unit status below — by a single dot, and both
@@ -216,6 +232,10 @@ export const ar = {
     identityDocType: 'نوع وثيقة الإثبات',
     identityDocNumber: 'رقم وثيقة الإثبات',
     civilRecordNumber: 'رقم السجل',
+    registrationPlaceTown: 'محل القيد (البلدة)',
+    registrationPlaceDistrict: 'قضاء القيد',
+    motherName: 'اسم الأم',
+    dateOfBirth: 'تاريخ الولادة',
     nationality: 'الجنسية',
     isLebanese: 'الجنسية اللبنانية',
     residencyNumber: 'رقم الإقامة',
@@ -224,6 +244,9 @@ export const ar = {
     phone: 'رقم الهاتف',
     whatsapp: 'رقم الواتساب',
     whatsappSameAsPhone: 'واتساب نفس رقم الهاتف',
+    altPhone: 'رقم بديل',
+    altPhoneRelation: 'صلة صاحب الرقم البديل',
+    householdMembers: 'أفراد الأسرة',
     familySize: 'عدد أفراد الأسرة',
     occupancyType: 'نوع الإشغال',
     landlordName: 'اسم المالك',
@@ -349,6 +372,16 @@ export const en = {
     WIDOWED: 'Widowed',
   } satisfies Record<MaritalStatus, string>,
 
+  householdRelation: {
+    HEAD: 'Head of household',
+    SPOUSE: 'Spouse',
+    CHILD: 'Child',
+    PARENT: 'Parent',
+    SIBLING: 'Sibling',
+    RELATIVE: 'Relative',
+    OTHER: 'Other',
+  } satisfies Record<HouseholdRelation, string>,
+
   occupancyType: {
     OWNER: 'Owner',
     TENANT: 'Tenant',
@@ -405,6 +438,10 @@ export const en = {
     identityDocType: 'ID Document Type',
     identityDocNumber: 'ID Document Number',
     civilRecordNumber: 'Civil Record (Sijil) No.',
+    registrationPlaceTown: 'Place of Registration (Town)',
+    registrationPlaceDistrict: 'District (Caza)',
+    motherName: "Mother's Name",
+    dateOfBirth: 'Date of Birth',
     nationality: 'Nationality',
     isLebanese: 'Lebanese Nationality',
     residencyNumber: 'Residency Permit No.',
@@ -413,6 +450,9 @@ export const en = {
     phone: 'Phone Number',
     whatsapp: 'WhatsApp Number',
     whatsappSameAsPhone: 'WhatsApp Same As Phone',
+    altPhone: 'Alternate Number',
+    altPhoneRelation: 'Whose Number',
+    householdMembers: 'Household Members',
     familySize: 'Household Size',
     occupancyType: 'Occupancy Type',
     landlordName: 'Landlord Name',

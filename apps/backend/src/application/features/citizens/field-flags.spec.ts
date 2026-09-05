@@ -26,6 +26,11 @@ const complete = () => ({
     identityDocType: 'NATIONAL_ID',
     identityDocNumber: '12345',
     civilRecordNumber: '7',
+    // Both required of a Lebanese citizen alongside رقم السجل, and for the same
+    // reason: a سجل number without its محلة identifies nobody, and two cousins
+    // with one three-part name are told apart by their mothers or not at all.
+    registrationPlaceTown: 'دير قانون النهر',
+    motherName: 'مريم عواضه',
     nationality: 'لبناني',
     isLebanese: true,
     residentStatus: 'VILLAGE_RESIDENT',

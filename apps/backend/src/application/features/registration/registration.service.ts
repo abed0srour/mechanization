@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   cadastreFlags,
   isUnestablished,
+  residentCountOf,
   statusForFlags,
   type AdminCitizenSubmission,
   type CitizenRecordStatus,
@@ -211,10 +212,33 @@ export class RegistrationService {
           input.payload.personal.residencyNumber ||
           undefined,
         civilRecordNumber: input.payload.personal.civilRecordNumber || undefined,
-        familySize: input.payload.contact.familySize,
+        registrationPlaceTown: input.payload.personal.registrationPlaceTown || undefined,
+        registrationPlaceDistrict: input.payload.personal.registrationPlaceDistrict || undefined,
+        motherName: input.payload.personal.motherName || undefined,
+        dateOfBirth: input.payload.personal.dateOfBirth || undefined,
+        altPhone: input.payload.contact.altPhone || undefined,
+        altPhoneRelation: input.payload.contact.altPhoneRelation || undefined,
+        /*
+          Still written, and still what a record with no roster is counted by.
+
+          Where the officer *did* enumerate the household, `residentCountOf`
+          prefers the roster and this becomes a cache of it — one derived number
+          rather than a second, contradictable answer. See the note on that
+          function, and migration 0025 for why the column stays.
+        */
+        familySize:
+          residentCountOf(input.payload.contact) ?? input.payload.contact.familySize,
         maritalStatus: input.payload.contact.maritalStatus,
         bloodType: input.payload.personal.bloodType,
       },
+      householdReference: input.payload.contact.householdReference || undefined,
+      household: input.payload.contact.householdMembers?.map((member) => ({
+        fullName: member.fullName,
+        relationToHead: member.relationToHead,
+        birthYear: member.birthYear,
+        gender: member.gender,
+        residesHere: member.residesHere ?? true,
+      })),
       citizenReference,
       registrationReference,
       properties,

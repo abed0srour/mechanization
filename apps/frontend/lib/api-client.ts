@@ -606,12 +606,54 @@ export interface CitizenFeeTotals {
   pendingReviewCount: number;
 }
 
+export interface CitizenProfileHouseholdRosterMember {
+  id: string;
+  fullName: string;
+  relationToHead: string;
+  birthYear: number | null;
+  gender: string | null;
+  residesHere: boolean;
+  linkedCitizenId: string | null;
+  linkedCitizen?: {
+    id: string;
+    fullName: string;
+    referenceNumber: string | null;
+  } | null;
+}
+
+export interface CitizenProfileHouseholdMember {
+  id: string;
+  fullName: string;
+  referenceNumber: string | null;
+  isHead: boolean;
+}
+
+export interface CitizenProfileHousehold {
+  id: string;
+  label: string | null;
+  headId: string | null;
+  isHead: boolean;
+  head: {
+    id: string;
+    fullName: string;
+    referenceNumber: string | null;
+  } | null;
+  residentCount: number;
+  memberCount: number;
+  members: CitizenProfileHouseholdMember[];
+  roster: CitizenProfileHouseholdRosterMember[];
+}
+
 export interface CitizenProfile {
   id: string;
   fullName: string;
   phone: string | null;
   whatsapp: string | null;
+  altPhone: string | null;
+  altPhoneRelation: string | null;
   gender: string | null;
+  motherName: string | null;
+  dateOfBirth: string | null;
   nationality: string | null;
   isLebanese: boolean | null;
   residencyNumber: string | null;
@@ -619,6 +661,8 @@ export interface CitizenProfile {
   identityDocType: string | null;
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
+  registrationPlaceTown: string | null;
+  registrationPlaceDistrict: string | null;
   familySize: number | null;
   maritalStatus: string | null;
   bloodType: string | null;
@@ -626,6 +670,7 @@ export interface CitizenProfile {
   registeredAt: string;
   /** False for a deactivated record — kept for its history, refused a session. */
   isActive: boolean;
+  household: CitizenProfileHousehold | null;
   registrations: CitizenProfileRegistration[];
   payments: CitizenProfilePayment[];
   fees: CitizenFeeTotals;
@@ -655,7 +700,11 @@ export interface MyCitizenSummary {
 
   phone: string | null;
   whatsapp: string | null;
+  altPhone: string | null;
+  altPhoneRelation: string | null;
   gender: string | null;
+  motherName: string | null;
+  dateOfBirth: string | null;
   nationality: string | null;
   isLebanese: boolean | null;
   residentStatus: string | null;
@@ -663,6 +712,9 @@ export interface MyCitizenSummary {
   bloodType: string | null;
   familySize: number | null;
   identityDocType: string | null;
+  registrationPlaceTown: string | null;
+  registrationPlaceDistrict: string | null;
+  household: CitizenProfileHousehold | null;
   /**
    * Tail only — `•••567`. The full number is never sent to this route; see the
    * note on `CitizenController.mySummary` for why.
@@ -903,6 +955,13 @@ export function createCitizen(tenant: string, token: string, input: CitizenWrite
     propertyCount: number;
     status: CitizenRecordStatus;
     deduplicated: boolean;
+    /**
+     * Absent when no رقم مرجعي was given; `linked: false` when one was and did
+     * not resolve — the record is on the register either way.
+     */
+    householdLink?: { linked: boolean; reason?: string };
+    /** A roster was typed alongside a رقم مرجعي, so the existing household's was kept. */
+    rosterSkipped?: boolean;
   }>(tenant, '/citizens', { token, method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -917,10 +976,94 @@ export function updateCitizen(
   citizenId: string,
   input: CitizenWriteInput,
 ) {
-  return apiFetch<{ updated: boolean; citizenId: string; status: CitizenRecordStatus }>(
+  return apiFetch<{
+    updated: boolean;
+    citizenId: string;
+    status: CitizenRecordStatus;
+    householdLink?: { linked: boolean; reason?: string };
+  }>(
     tenant,
     `/citizens/${encodeURIComponent(citizenId)}`,
     { token, method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+/** What the resolver proposes, and never what it has done. */
+export interface HouseholdResolution {
+  household: {
+    outcome: 'LINK' | 'REVIEW' | 'NO_MATCH';
+    reason: 'CONFIDENT' | 'AMBIGUOUS' | 'BELOW_LINK' | 'NO_CANDIDATE';
+    best: {
+      householdId: string;
+      memberId: string;
+      relationToHead: string;
+      score: number;
+    } | null;
+    alternatives: number;
+  };
+  duplicate: {
+    outcome: 'LINK' | 'REVIEW' | 'NO_MATCH';
+    reason: string;
+    citizenId: string | null;
+    score: number | null;
+    alternatives: number;
+  };
+  landlord: {
+    outcome: 'LINK' | 'REVIEW' | 'NO_MATCH';
+    reason: string;
+    propertyEntryId: string | null;
+    propertyNumber: string | null;
+    score: number | null;
+    alternatives: number;
+  };
+}
+
+/**
+ * Asks whether this person might already be somewhere in the register.
+ *
+ * Read-only, and the response is deliberately thin: identifiers and scores, and
+ * *not* the candidate household's roster. A banner that showed an arriving man
+ * the names and ages of another family's children before he had confirmed any
+ * relationship to them would disclose a household to a stranger every time the
+ * match was wrong — so the confirming question is put to the citizen, and their
+ * رقم مرجعي is what answers it.
+ */
+export function resolveHousehold(
+  tenant: string,
+  token: string,
+  subject: Record<string, unknown>,
+  signal?: AbortSignal,
+) {
+  return apiFetch<HouseholdResolution>(tenant, '/households/resolve', {
+    token,
+    method: 'POST',
+    body: JSON.stringify(subject),
+    signal,
+  });
+}
+
+/** Whose رقم مرجعي this is, so an officer can read the name back before saving. */
+export type HouseholdReferencePreview =
+  | { found: false }
+  | {
+      found: true;
+      citizenId: string;
+      citizenName: string;
+      /** False for a relative filed before rosters existed — saving creates one. */
+      hasHousehold: boolean;
+      memberCount: number;
+    };
+
+export function lookupHouseholdReference(
+  tenant: string,
+  token: string,
+  reference: string,
+  signal?: AbortSignal,
+) {
+  return apiFetch<HouseholdReferencePreview>(
+    tenant,
+    `/households/by-reference/${encodeURIComponent(reference)}`,
+    { token, signal },
   );
 }
 

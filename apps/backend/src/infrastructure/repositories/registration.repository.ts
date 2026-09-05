@@ -63,15 +63,33 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
     const shared = {
       phone: input.citizen.phone ?? null,
       whatsapp: input.citizen.whatsapp ?? input.citizen.phone ?? null,
+      altPhone: input.citizen.altPhone ?? null,
+      altPhoneRelation: input.citizen.altPhoneRelation ?? null,
       firstName: input.citizen.firstName,
       middleName: input.citizen.middleName ?? null,
       lastName: input.citizen.lastName,
+      motherName: input.citizen.motherName ?? null,
+      /*
+        Parsed as UTC midnight, not with the bare `new Date('2001-04-17')`
+        the rest of this file would suggest.
+
+        Both produce the same instant, but only the explicit form says why it
+        must: the column is a `DATE`, and a value built from a local-midnight
+        parse on a server east of UTC lands on the previous day. A birthday that
+        moves by one day is the sort of defect that surfaces years later, in one
+        municipality, as two records that will not match.
+      */
+      dateOfBirth: input.citizen.dateOfBirth
+        ? new Date(`${input.citizen.dateOfBirth}T00:00:00Z`)
+        : null,
       gender: (input.citizen.gender ?? null) as never,
       nationality: input.citizen.nationality ?? null,
       isLebanese: input.citizen.isLebanese ?? null,
       residencyNumber: input.citizen.residencyNumber ?? null,
       residentStatus: (input.citizen.residentStatus ?? null) as never,
       civilRecordNumber: input.citizen.civilRecordNumber ?? null,
+      registrationPlaceTown: input.citizen.registrationPlaceTown ?? null,
+      registrationPlaceDistrict: input.citizen.registrationPlaceDistrict ?? null,
       familySize: input.citizen.familySize ?? null,
       maritalStatus: (input.citizen.maritalStatus ?? null) as never,
       bloodType: (input.citizen.bloodType ?? null) as never,
@@ -97,7 +115,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
                   identityDocNumber,
                   referenceNumber: input.citizenReference,
                 },
-                select: { id: true },
+                select: { id: true, householdId: true },
               })
             : await tx.user.create({
                 data: {
@@ -108,8 +126,78 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
                   identityDocNumber: null,
                   referenceNumber: input.citizenReference,
                 },
-                select: { id: true },
+                select: { id: true, householdId: true },
               });
+
+        /*
+          أفراد الأسرة, in the same transaction as the person who named them.
+
+          Skipped when the citizen already belongs to a household, and that
+          guard is the interesting half. This path also runs for a *returning*
+          citizen — the upsert above matches them on their identity document —
+          and a second filing that rebuilt the roster would either duplicate
+          every member or, worse, orphan the rows other citizens have already
+          been linked into. A household is described once; corrections to it go
+          through `HouseholdsService`, which can tell an unfilled slot from a
+          filled one.
+        */
+        /*
+          A named relative means the family is already on the register.
+
+          So no household is built from the roster the officer typed: joining
+          the existing one is what the citizen asked for, and creating a second
+          would both duplicate the family and make the join impossible — a
+          citizen already in a household cannot be moved into another without a
+          deliberate unlink. That was the defect this guard removes; the roster
+          is left to `HouseholdsService`, which can tell an unfilled slot from a
+          filled one and will not duplicate people already described.
+        */
+        if (!citizen.householdId && !input.householdReference && (input.household?.length ?? 0) > 0) {
+          const household = await tx.household.create({
+            data: { headId: citizen.id },
+            select: { id: true },
+          });
+
+          await tx.user.update({
+            where: { id: citizen.id },
+            data: { householdId: household.id },
+          });
+
+          await tx.householdMember.createMany({
+            data: [
+              // The registrant is a roster row like anyone else, so the roster
+              // is the household's whole population and no count needs a
+              // special case for the person at the top.
+              {
+                householdId: household.id,
+                fullName: [
+                  input.citizen.firstName,
+                  input.citizen.middleName,
+                  input.citizen.lastName,
+                ]
+                  .filter(Boolean)
+                  .join(' '),
+                relationToHead: 'HEAD' as never,
+                gender: (input.citizen.gender ?? null) as never,
+                birthYear: input.citizen.dateOfBirth
+                  ? Number(input.citizen.dateOfBirth.slice(0, 4))
+                  : null,
+                residesHere: true,
+                linkedCitizenId: citizen.id,
+                linkedVia: 'SELF',
+                linkedAt: new Date(),
+              },
+              ...(input.household ?? []).map((member) => ({
+                householdId: household.id,
+                fullName: member.fullName,
+                relationToHead: member.relationToHead as never,
+                birthYear: member.birthYear ?? null,
+                gender: (member.gender ?? null) as never,
+                residesHere: member.residesHere,
+              })),
+            ],
+          });
+        }
 
         const registration = await tx.registration.create({
           data: {

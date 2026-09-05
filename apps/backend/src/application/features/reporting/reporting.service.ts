@@ -284,13 +284,55 @@ export interface CitizenFeeTotals {
   pendingReviewCount: number;
 }
 
+export interface CitizenProfileHouseholdRosterMember {
+  id: string;
+  fullName: string;
+  relationToHead: string;
+  birthYear: number | null;
+  gender: string | null;
+  residesHere: boolean;
+  linkedCitizenId: string | null;
+  linkedCitizen?: {
+    id: string;
+    fullName: string;
+    referenceNumber: string | null;
+  } | null;
+}
+
+export interface CitizenProfileHouseholdMember {
+  id: string;
+  fullName: string;
+  referenceNumber: string | null;
+  isHead: boolean;
+}
+
+export interface CitizenProfileHousehold {
+  id: string;
+  label: string | null;
+  headId: string | null;
+  isHead: boolean;
+  head: {
+    id: string;
+    fullName: string;
+    referenceNumber: string | null;
+  } | null;
+  residentCount: number;
+  memberCount: number;
+  members: CitizenProfileHouseholdMember[];
+  roster: CitizenProfileHouseholdRosterMember[];
+}
+
 /** The staff-facing view of one citizen and everything they have filed. */
 export interface CitizenProfile {
   id: string;
   fullName: string;
   phone: string | null;
   whatsapp: string | null;
+  altPhone: string | null;
+  altPhoneRelation: string | null;
   gender: string | null;
+  motherName: string | null;
+  dateOfBirth: string | null;
   nationality: string | null;
   isLebanese: boolean | null;
   residencyNumber: string | null;
@@ -298,6 +340,8 @@ export interface CitizenProfile {
   identityDocType: string | null;
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
+  registrationPlaceTown: string | null;
+  registrationPlaceDistrict: string | null;
   familySize: number | null;
   maritalStatus: string | null;
   bloodType: string | null;
@@ -305,6 +349,7 @@ export interface CitizenProfile {
   registeredAt: string;
   /** False for a deactivated record — kept for its history, refused a session. */
   isActive: boolean;
+  household: CitizenProfileHousehold | null;
   registrations: CitizenProfileRegistration[];
   payments: CitizenProfilePayment[];
   fees: CitizenFeeTotals;
@@ -604,7 +649,11 @@ export class ReportingService {
         lastName: true,
         phone: true,
         whatsapp: true,
+        altPhone: true,
+        altPhoneRelation: true,
         gender: true,
+        motherName: true,
+        dateOfBirth: true,
         nationality: true,
         isLebanese: true,
         residencyNumber: true,
@@ -612,12 +661,61 @@ export class ReportingService {
         identityDocType: true,
         identityDocNumber: true,
         civilRecordNumber: true,
+        registrationPlaceTown: true,
+        registrationPlaceDistrict: true,
         familySize: true,
         maritalStatus: true,
         bloodType: true,
         referenceNumber: true,
         isActive: true,
         createdAt: true,
+        householdId: true,
+        household: {
+          select: {
+            id: true,
+            label: true,
+            headId: true,
+            head: {
+              select: {
+                id: true,
+                firstName: true,
+                middleName: true,
+                lastName: true,
+                referenceNumber: true,
+              },
+            },
+            members: {
+              select: {
+                id: true,
+                firstName: true,
+                middleName: true,
+                lastName: true,
+                referenceNumber: true,
+              },
+            },
+            roster: {
+              orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                fullName: true,
+                relationToHead: true,
+                birthYear: true,
+                gender: true,
+                residesHere: true,
+                linkedCitizenId: true,
+                linkedCitizen: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    middleName: true,
+                    lastName: true,
+                    referenceNumber: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         /**
          * The citizen's ledger, alongside their claims rather than a page
          * away. Staff reviewing a registration are routinely also the people
@@ -749,7 +847,13 @@ export class ReportingService {
         .join(' '),
       phone: citizen.phone,
       whatsapp: citizen.whatsapp,
+      altPhone: citizen.altPhone,
+      altPhoneRelation: citizen.altPhoneRelation,
       gender: citizen.gender,
+      motherName: citizen.motherName,
+      dateOfBirth: citizen.dateOfBirth
+        ? citizen.dateOfBirth.toISOString().slice(0, 10)
+        : null,
       nationality: citizen.nationality,
       isLebanese: citizen.isLebanese,
       residencyNumber: citizen.residencyNumber,
@@ -757,12 +861,65 @@ export class ReportingService {
       identityDocType: citizen.identityDocType,
       identityDocNumber: citizen.identityDocNumber,
       civilRecordNumber: citizen.civilRecordNumber,
+      registrationPlaceTown: citizen.registrationPlaceTown,
+      registrationPlaceDistrict: citizen.registrationPlaceDistrict,
       familySize: citizen.familySize,
       maritalStatus: citizen.maritalStatus,
       bloodType: citizen.bloodType,
       referenceNumber: citizen.referenceNumber,
       registeredAt: citizen.createdAt.toISOString(),
       isActive: citizen.isActive,
+      household: citizen.household
+        ? {
+            id: citizen.household.id,
+            label: citizen.household.label,
+            headId: citizen.household.headId,
+            isHead: citizen.household.headId === citizen.id,
+            head: citizen.household.head
+              ? {
+                  id: citizen.household.head.id,
+                  fullName: [
+                    citizen.household.head.firstName,
+                    citizen.household.head.middleName,
+                    citizen.household.head.lastName,
+                  ]
+                    .filter(Boolean)
+                    .join(' '),
+                  referenceNumber: citizen.household.head.referenceNumber,
+                }
+              : null,
+            residentCount: citizen.household.roster.filter((m) => m.residesHere).length,
+            memberCount: citizen.household.roster.length,
+            members: citizen.household.members.map((m) => ({
+              id: m.id,
+              fullName: [m.firstName, m.middleName, m.lastName].filter(Boolean).join(' '),
+              referenceNumber: m.referenceNumber,
+              isHead: m.id === citizen.household?.headId,
+            })),
+            roster: citizen.household.roster.map((r) => ({
+              id: r.id,
+              fullName: r.fullName,
+              relationToHead: r.relationToHead,
+              birthYear: r.birthYear,
+              gender: r.gender,
+              residesHere: r.residesHere,
+              linkedCitizenId: r.linkedCitizenId,
+              linkedCitizen: r.linkedCitizen
+                ? {
+                    id: r.linkedCitizen.id,
+                    fullName: [
+                      r.linkedCitizen.firstName,
+                      r.linkedCitizen.middleName,
+                      r.linkedCitizen.lastName,
+                    ]
+                      .filter(Boolean)
+                      .join(' '),
+                    referenceNumber: r.linkedCitizen.referenceNumber,
+                  }
+                : null,
+            })),
+          }
+        : null,
       payments,
       fees: {
         feesTotal: sum(payments, 'amount'),

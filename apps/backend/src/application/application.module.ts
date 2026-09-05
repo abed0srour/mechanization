@@ -8,6 +8,7 @@ import { BackupService } from './features/backup/backup.service';
 import { CadastreImportService } from './features/cadastre/cadastre-import.service';
 import { CitizensService } from './features/citizens/citizens.service';
 import { DocumentService } from './features/documents/document.service';
+import { HouseholdsService } from './features/households/households.service';
 import { IdentityService } from './features/identity/identity.service';
 import { OtpService } from './features/identity/otp.service';
 import { SessionRevocationService } from './features/identity/session-revocation.service';
@@ -46,6 +47,7 @@ import { ZonesService } from './features/zones/zones.service';
     ReportingService,
     CadastreImportService,
     CitizensService,
+    HouseholdsService,
     FeesService,
     PaymentLedgerService,
     StaffService,
@@ -65,6 +67,7 @@ import { ZonesService } from './features/zones/zones.service';
     ReportingService,
     CadastreImportService,
     CitizensService,
+    HouseholdsService,
     FeesService,
     PaymentLedgerService,
     StaffService,

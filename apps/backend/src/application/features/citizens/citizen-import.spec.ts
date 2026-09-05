@@ -31,6 +31,8 @@ const BASE: ImportRow = {
   identityDocType: 'هوية',
   identityDocNumber: '1234567',
   civilRecordNumber: '12',
+  registrationPlaceTown: 'بنت جبيل',
+  motherName: 'زينب بزي',
   maritalStatus: 'متزوج',
   phone: '03123456',
   familySize: '5',

@@ -17,6 +17,40 @@ export interface SubmitRegistrationInput {
   flaggedFields: ReadonlyArray<{ path: string; reason: string }>;
   /** The browser's own id for this submission, when it was filed offline. */
   clientSubmissionId?: string;
+  /**
+   * أفراد الأسرة, when the officer enumerated them.
+   *
+   * Written in the *same transaction* as the citizen and their properties, and
+   * that is the whole reason it travels here rather than through
+   * `HouseholdsService.createFor`. A household created afterwards, in a second
+   * transaction, has two ways to go wrong that this has none of: a citizen with
+   * no household when the second call fails, and a household with no citizen
+   * when the first one is rolled back by a retry.
+   *
+   * `createFor` remains the path for a citizen already on file who is only now
+   * being grouped. This is the path for a household described at the door.
+   */
+  household?: ReadonlyArray<{
+    fullName: string;
+    relationToHead: string;
+    birthYear?: number;
+    gender?: string;
+    residesHere: boolean;
+  }>;
+  /**
+   * Whether the citizen named an already-registered relative.
+   *
+   * Carried here — rather than only being acted on after the transaction —
+   * because it decides whether a household should be created *at all*, and that
+   * decision has to be made before the roster is written.
+   *
+   * Getting this wrong produced the failure it now prevents: an officer who
+   * both typed a family and gave a رقم مرجعي had a household built from the
+   * roster first, which then made the link impossible — the citizen was already
+   * in a household of their own, so joining their father's was refused, and one
+   * family ended up described twice under two heads.
+   */
+  householdReference?: string;
 }
 
 export interface SubmitRegistrationResult {

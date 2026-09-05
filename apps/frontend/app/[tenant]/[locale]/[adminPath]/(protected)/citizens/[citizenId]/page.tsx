@@ -306,6 +306,17 @@ export default function CitizenProfilePage({
                   {labels.residentStatus[citizen.residentStatus as never] ?? citizen.residentStatus}
                 </Badge>
               ) : null}
+              {citizen.household ? (
+                <Badge
+                  variant={citizen.household.isHead ? 'default' : 'secondary'}
+                  className="gap-1 font-medium"
+                >
+                  <Users className="size-3" />
+                  {citizen.household.isHead
+                    ? (locale === 'en' ? 'Head of Household' : 'رب الأسرة')
+                    : (locale === 'en' ? 'Household Member' : 'فرد من أسرة')}
+                </Badge>
+              ) : null}
             </div>
           </div>
         </div>
@@ -379,6 +390,17 @@ export default function CitizenProfilePage({
               },
               {
                 icon: User,
+                label: locale === 'en' ? "Mother's Name" : 'اسم الأم',
+                value: citizen.motherName,
+              },
+              {
+                icon: Calendar,
+                label: locale === 'en' ? 'Date of Birth' : 'تاريخ الولادة',
+                value: citizen.dateOfBirth ? formatDate(citizen.dateOfBirth) : undefined,
+                ltr: true,
+              },
+              {
+                icon: User,
                 label: locale === 'en' ? 'Gender' : 'الجنس',
                 value: labels.gender[citizen.gender as never] ?? citizen.gender,
               },
@@ -423,6 +445,16 @@ export default function CitizenProfilePage({
                     value: citizen.residencyNumber,
                     ltr: true,
                   },
+              {
+                icon: MapPin,
+                label: locale === 'en' ? 'Place of Registry' : 'محل القيد (البلدة / القضاء)',
+                value:
+                  citizen.isLebanese && (citizen.registrationPlaceTown || citizen.registrationPlaceDistrict)
+                    ? [citizen.registrationPlaceTown, citizen.registrationPlaceDistrict]
+                        .filter(Boolean)
+                        .join(' — ')
+                    : null,
+              },
             ]}
           />
 
@@ -443,6 +475,21 @@ export default function CitizenProfilePage({
                     <WhatsAppPhoneLink phone={citizen.whatsapp} message={waMessage} />
                   ) : null,
                 },
+                {
+                  icon: Phone,
+                  label: locale === 'en' ? 'Alternative Phone' : 'رقم بديل',
+                  value: citizen.altPhone ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <PhoneLink phone={citizen.altPhone} />
+                      {citizen.altPhoneRelation ? (
+                        <Badge variant="outline" className="text-xs font-normal">
+                          {labels.householdRelation?.[citizen.altPhoneRelation as never] ??
+                            citizen.altPhoneRelation}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  ) : null,
+                },
               ]}
             />
 
@@ -459,8 +506,49 @@ export default function CitizenProfilePage({
                 },
                 {
                   icon: Users,
+                  label: locale === 'en' ? 'Household Role' : 'الموقع في الأسرة',
+                  value: citizen.household ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge
+                        variant={citizen.household.isHead ? 'default' : 'secondary'}
+                        className="text-xs font-medium"
+                      >
+                        {citizen.household.isHead
+                          ? (locale === 'en' ? 'Head of Household' : 'رب الأسرة')
+                          : (locale === 'en' ? 'Household Member' : 'فرد من الأسرة')}
+                      </Badge>
+                      {!citizen.household.isHead && citizen.household.head ? (
+                        <Link
+                          href={`${base}/citizens/${citizen.household.head.id}`}
+                          className="text-xs text-primary underline-offset-4 hover:underline"
+                        >
+                          ({locale === 'en' ? 'Head:' : 'الرب:'} {citizen.household.head.fullName})
+                        </Link>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {locale === 'en' ? 'Not linked to a household' : 'غير مرتبط بأسرة بعد'}
+                    </span>
+                  ),
+                },
+                {
+                  icon: Users,
                   label: locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة',
-                  value: citizen.familySize?.toString(),
+                  value: citizen.household ? (
+                    <span className="text-sm">
+                      <strong className="font-semibold text-foreground">
+                        {citizen.household.residentCount}
+                      </strong>{' '}
+                      <span className="text-xs text-muted-foreground">
+                        {locale === 'en'
+                          ? `resident (${citizen.household.memberCount} on roster)`
+                          : `مقيم في المنزل (${citizen.household.memberCount} في القائمة)`}
+                      </span>
+                    </span>
+                  ) : (
+                    citizen.familySize?.toString()
+                  ),
                 },
               ]}
             />
@@ -485,6 +573,170 @@ export default function CitizenProfilePage({
           </div>
         </div>
       </CollapsibleSection>
+
+      {/* ── Household & Family Roster Section ─────────────────────────────────── */}
+      {citizen.household ? (
+        <CollapsibleSection
+          id="household-roster"
+          title={locale === 'en' ? 'Household & Family Members' : 'الأسرة وأفراد العائلة'}
+          icon={Users}
+          defaultOpen={true}
+          summary={
+            <span className="text-muted-foreground">
+              {citizen.household.memberCount}{' '}
+              {locale === 'en' ? 'members on roster' : 'أفراد في السجل'}
+              {citizen.household.label ? ` · ${citizen.household.label}` : ''}
+            </span>
+          }
+        >
+          <div className="space-y-4">
+            {/* Household metadata bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-semibold">
+                    {citizen.household.label ||
+                      (locale === 'en'
+                        ? `Household of ${citizen.household.head?.fullName || citizen.fullName}`
+                        : `أسرة ${citizen.household.head?.fullName || citizen.fullName}`)}
+                  </h4>
+                  <Badge variant={citizen.household.isHead ? 'default' : 'outline'}>
+                    {citizen.household.isHead
+                      ? (locale === 'en' ? 'Head of Household' : 'رب الأسرة')
+                      : (locale === 'en' ? 'Member' : 'فرد')}
+                  </Badge>
+                </div>
+                {!citizen.household.isHead && citizen.household.head ? (
+                  <p className="text-xs text-muted-foreground">
+                    {locale === 'en' ? 'Head of household:' : 'رب الأسرة:'}{' '}
+                    <Link
+                      href={`${base}/citizens/${citizen.household.head.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {citizen.household.head.fullName}
+                      {citizen.household.head.referenceNumber
+                        ? ` (${citizen.household.head.referenceNumber})`
+                        : ''}
+                    </Link>
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex items-center gap-3 text-xs">
+                <div className="rounded-md border bg-background px-3 py-1.5 text-center">
+                  <span className="block text-muted-foreground">
+                    {locale === 'en' ? 'Residents' : 'المقيمين في البلدة'}
+                  </span>
+                  <span className="text-sm font-bold text-foreground">
+                    {citizen.household.residentCount}
+                  </span>
+                </div>
+                <div className="rounded-md border bg-background px-3 py-1.5 text-center">
+                  <span className="block text-muted-foreground">
+                    {locale === 'en' ? 'Total Roster' : 'إجمالي المسجلين'}
+                  </span>
+                  <span className="text-sm font-bold text-foreground">
+                    {citizen.household.memberCount}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Roster table */}
+            <div className="overflow-hidden rounded-lg border bg-background">
+              <div className="border-b bg-muted/40 px-4 py-3">
+                <h5 className="text-sm font-semibold">
+                  {locale === 'en' ? 'Family Members on Roster' : 'جدول أفراد الأسرة'}
+                </h5>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-start text-sm">
+                  <thead className="border-b bg-muted/20 text-xs text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-2.5 text-start font-medium">
+                        {locale === 'en' ? 'Name' : 'الاسم الكامل'}
+                      </th>
+                      <th className="px-4 py-2.5 text-start font-medium">
+                        {locale === 'en' ? 'Relation to Head' : 'صلة القرابة'}
+                      </th>
+                      <th className="px-4 py-2.5 text-start font-medium">
+                        {locale === 'en' ? 'Birth Year' : 'سنة الولادة'}
+                      </th>
+                      <th className="px-4 py-2.5 text-start font-medium">
+                        {locale === 'en' ? 'Sex' : 'الجنس'}
+                      </th>
+                      <th className="px-4 py-2.5 text-start font-medium">
+                        {locale === 'en' ? 'Residency' : 'الإقامة'}
+                      </th>
+                      <th className="px-4 py-2.5 text-start font-medium">
+                        {locale === 'en' ? 'Registered File' : 'الملف البلدي'}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {citizen.household.roster.map((member) => (
+                      <tr key={member.id} className="hover:bg-muted/10">
+                        <td className="px-4 py-3 font-medium">
+                          {member.fullName}
+                          {member.linkedCitizenId === citizen.id ? (
+                            <Badge variant="outline" className="ms-2 text-[10px]">
+                              {locale === 'en' ? 'This Citizen' : 'المواطن الحالي'}
+                            </Badge>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {labels.householdRelation?.[member.relationToHead as never] ??
+                            member.relationToHead}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground" dir="ltr">
+                          {member.birthYear ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {member.gender
+                            ? (labels.gender[member.gender as never] ?? member.gender)
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          {member.residesHere ? (
+                            <Badge
+                              variant="outline"
+                              className="border-emerald-500/30 bg-emerald-50 text-[11px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                            >
+                              {locale === 'en' ? 'Resides here' : 'مقيم في المنزل'}
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-[11px] text-muted-foreground">
+                              {locale === 'en' ? 'Abroad / Living away' : 'مسافر / غير مقيم'}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {member.linkedCitizenId ? (
+                            <Link
+                              href={`${base}/citizens/${member.linkedCitizenId}`}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                            >
+                              <span>
+                                {member.linkedCitizen?.referenceNumber ||
+                                  (locale === 'en' ? 'View Profile' : 'عرض الملف')}
+                              </span>
+                              <ExternalLink className="size-3" aria-hidden />
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {locale === 'en' ? 'Not registered' : 'غير مسجّل منفصلاً'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </CollapsibleSection>
+      ) : null}
 
       <FeesPanel
         citizen={citizen}

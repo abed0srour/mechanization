@@ -10,6 +10,7 @@ import { CitizenController } from './controllers/citizen.controller';
 import { DashboardController } from './controllers/dashboard.controller';
 import { DocumentController } from './controllers/document.controller';
 import { HealthController } from './controllers/health.controller';
+import { HouseholdsController } from './controllers/households.controller';
 import { InternalCronController } from './controllers/internal-cron.controller';
 import { RegistrationController } from './controllers/registration.controller';
 import { TenantController } from './controllers/tenant.controller';
@@ -34,6 +35,7 @@ import { TenantMiddleware } from './middleware/tenant.middleware';
     AuditController,
     DashboardController,
     CitizenController,
+    HouseholdsController,
     CadastreController,
     FeesController,
     StaffController,

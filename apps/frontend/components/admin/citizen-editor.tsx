@@ -213,7 +213,18 @@ export function CitizenEditor({
 
           setInitial({
             personal: queued.payload.personal,
-            contact: queued.payload.contact,
+            contact: {
+              ...queued.payload.contact,
+              householdMembers: Array.isArray(queued.payload.contact.householdMembers)
+                ? (queued.payload.contact.householdMembers as Array<Record<string, unknown>>).map((member) => ({
+                    ...member,
+                    birthYear:
+                      member.birthYear != null && member.birthYear !== ''
+                        ? String(member.birthYear)
+                        : '',
+                  }))
+                : [],
+            },
             properties:
               queued.payload.properties.length > 0
                 ? queued.payload.properties.map(toDraft)
@@ -272,6 +283,15 @@ export function CitizenEditor({
             // familySize would render as an empty box and then fail
             // validation as "required" on a field that was never blank.
             familySize: text(form.contact.familySize) ?? '',
+            householdMembers: Array.isArray(form.contact.householdMembers)
+              ? (form.contact.householdMembers as Array<Record<string, unknown>>).map((member) => ({
+                  ...member,
+                  birthYear:
+                    member.birthYear != null && member.birthYear !== ''
+                      ? String(member.birthYear)
+                      : '',
+                }))
+              : [],
           },
           properties:
             form.properties.length > 0 ? form.properties.map(toDraft) : emptyCitizen().properties,
@@ -402,11 +422,39 @@ export function CitizenEditor({
       }
 
       try {
+        /*
+          The household link is reported, never silent.
+
+          It is attempted after the record is written and is allowed to fail
+          without taking it down — a mistyped رقم مرجعي must not cost a
+          household everything they just said. But a clerk who typed a number
+          and hears nothing would reasonably believe the family was joined, so
+          the one case that needs saying is said.
+        */
+        const reportLink = (link?: { linked: boolean; reason?: string }) => {
+          if (!link || link.linked) return;
+          toast.warning(
+            link.reason ??
+              (locale === 'en'
+                ? 'The record was saved, but the family could not be linked.'
+                : 'حُفظ السجل، لكن تعذّر ربطه بالأسرة.'),
+          );
+        };
+
         if (citizenId) {
-          await updateCitizen(tenant, token, citizenId, payload);
+          const updated = await updateCitizen(tenant, token, citizenId, payload);
+          reportLink(updated.householdLink);
           router.push(`${base}/citizens/${citizenId}`);
         } else {
           const created = await createCitizen(tenant, token, payload);
+          reportLink(created.householdLink);
+          if (created.rosterSkipped && created.householdLink?.linked) {
+            toast.info(
+              locale === 'en'
+                ? 'Joined the existing household — the family list you typed was not added, because that family is already on file.'
+                : 'تم الانضمام إلى الأسرة المسجّلة — لم تُضَف قائمة الأفراد التي أدخلتها لأن الأسرة مسجّلة أصلاً.',
+            );
+          }
           router.push(`${base}/citizens/${created.citizenId}`);
         }
         router.refresh();

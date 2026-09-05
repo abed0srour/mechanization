@@ -94,10 +94,42 @@ model User {
   phone    String?
   whatsapp String?
 
+  /// A second number, and whose it is.
+  ///
+  /// A household commonly shares one phone — the `@@unique` below says so — and
+  /// when that number dies the municipality has no route to the household left
+  /// except the رقم مرجعي on a slip somebody may have thrown away. The relation
+  /// («ابنه», «الجارة») is stored with it because a bare second number nobody
+  /// can place is one a clerk will not dare ring.
+  ///
+  /// It also does real work in `household-linkage.ts`: a wife who gives her
+  /// husband's mobile here has, weeks before he ever registers, left
+  /// third-party corroboration that the two belong together.
+  altPhone         String?
+  altPhoneRelation String?
+
   firstName  String
   middleName String?
   lastName   String
   gender     Gender?
+
+  /// اسم الأم — the field that crosses the patriline.
+  ///
+  /// Two brothers share a father, a شهرة and a سجل. Two first cousins share the
+  /// first two and, in a village, routinely a full three-part name. Neither pair
+  /// shares a mother, which makes this the one identity field that discriminates
+  /// in exactly the case where every other one agrees. It carries the heaviest
+  /// weight in `duplicateCitizenSpec` for that reason.
+  motherName String?
+
+  /// تاريخ الولادة, as printed on the identity document.
+  ///
+  /// A full date rather than a year, because unlike a roster entry this is read
+  /// off a paper in the person's hand rather than recalled about somebody else.
+  /// `@db.Date` and not a timestamp: nobody is born at a time of day this system
+  /// has any business storing, and a timestamp would drag a timezone into a
+  /// comparison that must be exact.
+  dateOfBirth DateTime? @db.Date
 
   nationality       String?
   isLebanese        Boolean?
@@ -106,6 +138,21 @@ model User {
   identityDocType   IdentityDocType?
   identityDocNumber String?
   civilRecordNumber String?
+
+  /// محل القيد — the town and قضاء the سجل above belongs to.
+  ///
+  /// Without these, `civilRecordNumber` is half a value. A سجل number is unique
+  /// only inside its own محلة, and every village in Lebanon has a سجل ٤٥ — so
+  /// storing the number alone guarantees collisions between people who have
+  /// nothing to do with each other, and makes the field useless for telling two
+  /// records apart.
+  ///
+  /// Free text rather than a lookup, for the same reason `SystemSettings.district`
+  /// is: Lebanon's caza boundaries are a political fact this system has no
+  /// business asserting a canonical list of.
+  registrationPlaceTown     String?
+  registrationPlaceDistrict String?
+
   familySize        Int?
   maritalStatus     MaritalStatus?
   bloodType         BloodType?
@@ -152,6 +199,32 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// الأسرة this citizen belongs to. Null until somebody groups them.
+  ///
+  /// A foreign key to a `Household` row rather than a self-reference to whoever
+  /// leads it. A `headOfHouseholdId` pointing at another `User` was the obvious
+  /// shape and is the wrong one: nothing stops it forming a cycle, it cannot
+  /// describe two co-equal adults, and promoting a newly-arrived husband to head
+  /// means re-pointing every dependent row — with a window in which the graph
+  /// disagrees with itself. Membership is a key to a thing; headship is one
+  /// nullable field on that thing, moved without touching a single member.
+  ///
+  /// It also makes merging two households a single `updateMany` over this
+  /// column, which is what allows a wrong link to be undone at all.
+  householdId String?    @db.Uuid
+  household   Household? @relation("HouseholdMembers", fields: [householdId], references: [id], onDelete: SetNull)
+
+  /// The household this citizen leads, when they lead one.
+  headedHousehold Household? @relation("HouseholdHead")
+
+  /// The roster row this citizen turned out to be.
+  ///
+  /// A wife describing her husband writes a `HouseholdMember` with no citizen
+  /// behind it. When he registers, the resolver's job is to decide whether he
+  /// *is* that row — and linking sets this, rather than writing a second record
+  /// of the same man. Unlinking nulls it, which is the whole reversal.
+  rosterEntry HouseholdMember? @relation("MemberIdentity")
+
   registrations         Registration[]
   reviewedRegistrations Registration[]       @relation("ReviewedBy")
   payments              CitizenPayment[]
@@ -190,6 +263,148 @@ model OtpChallenge {
 
   @@index([phone, createdAt])
   @@map("otp_challenges")
+}
+
+// ────────────────────────────  Household  ────────────────────────────
+
+/// صلة القرابة, stated relative to رب الأسرة.
+///
+/// Anchored on the head because that is how every census in the world anchors
+/// it, and because the alternative — relative to whoever happened to register
+/// first — produces a roster that is wrong the moment anybody else is made head.
+///
+/// `HEAD` is a value rather than an absence, so the roster is the household's
+/// whole population and a count needs no special case for the person at the top.
+///
+/// There is deliberately no `SON` / `DAUGHTER` pair: `Gender` is its own column
+/// on the same row, and splitting the relation by it would let one row say `SON`
+/// and `FEMALE` at once — a contradiction the storage would keep and no reader
+/// could resolve.
+enum HouseholdRelation {
+  HEAD
+  SPOUSE
+  CHILD
+  PARENT
+  SIBLING
+  RELATIVE
+  OTHER
+}
+
+/// الأسرة — one dwelling's worth of people.
+///
+/// Exists as a row of its own rather than as a pointer between citizens for the
+/// reasons set out on `User.householdId`. The practical consequence is that the
+/// two operations this feature exists to support are both cheap and both
+/// reversible: joining is one column on one citizen, and merging two households
+/// is one `updateMany` plus a re-anchoring of the roster.
+model Household {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// رب الأسرة. Nullable, and it is a real state rather than an oversight: a
+  /// roster filed by a field officer for a house whose head was not at home is
+  /// a household with members and nobody yet designated.
+  ///
+  /// Every `HouseholdMember.relationToHead` is written against this citizen, so
+  /// moving it relabels the roster — which is why it moves only through
+  /// `HouseholdsService.setHead` and never as a side effect of a link.
+  headId String? @unique @db.Uuid
+  head   User?   @relation("HouseholdHead", fields: [headId], references: [id], onDelete: SetNull)
+
+  /// Free text as the municipality words it — «آل خليل - الحي الشرقي». Never
+  /// derived from the head's name, which would silently rename the household
+  /// every time headship moved.
+  label String?
+
+  /// Registered citizens in this household. Distinct from `roster` below: this
+  /// is who has a file of their own, that is who lives here.
+  members User[] @relation("HouseholdMembers")
+
+  /// Everyone in the household, registered or not.
+  roster HouseholdMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("households")
+}
+
+/// One person on a household's roster — أفراد الأسرة.
+///
+/// This is what replaced `User.familySize`, and the replacement is the point
+/// rather than a normalisation. An integer records that six people live here and
+/// destroys the only chance anyone will get to learn who they are: the officer is
+/// at the door once, and «٦» cannot be reopened without knocking again. It also
+/// cannot be deduplicated — a husband and a wife who each register are two rows
+/// each claiming the same six, which is how the dashboard's population figure
+/// came to be roughly twice the town.
+///
+/// `familySize` is kept on `User` and is not the authority any more: where a
+/// roster exists, it is the count. See the note in migration 0025 about why the
+/// column is not dropped.
+model HouseholdMember {
+  id          String    @id @default(uuid()) @db.Uuid
+  householdId String    @db.Uuid
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  /// As recited, undivided.
+  ///
+  /// Not the three-part الاسم / اسم الأب / الشهرة split the citizen form uses,
+  /// because this name is given by somebody else about somebody else, and
+  /// demanding it be broken into three at the door produces a guess in the
+  /// middle field. The linkage features tokenise it and compare token sets, so
+  /// an undivided name costs nothing there.
+  fullName String
+
+  relationToHead HouseholdRelation
+
+  /// A year, not a date — see the note on `User.dateOfBirth` for the asymmetry.
+  /// A relative reliably knows the year and reliably invents the day.
+  birthYear Int?
+  gender    Gender?
+
+  /// Whether this person is actually in the dwelling.
+  ///
+  /// A son in Abidjan is on the family roster and is not in the town, and a
+  /// municipality planning collection rounds, school places or aid needs the
+  /// difference. Every population figure filters on it; the roster itself does
+  /// not, because the family is the family.
+  residesHere Boolean @default(true)
+
+  /// The citizen this roster row turned out to be, once one registered.
+  ///
+  /// Null is the normal state — most of a roster is children and relatives who
+  /// will never have a file. A non-null value is a resolved identity, and it is
+  /// `@unique` so one citizen cannot occupy two slots: a man is at most one
+  /// person in one household, and two rows claiming him is precisely the merge
+  /// error the resolver exists to avoid committing quietly.
+  linkedCitizenId String? @unique @db.Uuid
+  linkedCitizen   User?   @relation("MemberIdentity", fields: [linkedCitizenId], references: [id], onDelete: SetNull)
+
+  /// How this row came to name a citizen: `CLERK`, `REFERENCE`, or `DOCUMENT`.
+  ///
+  /// Stored beside the link and never inferred from it, because six months later
+  /// a correct link and a wrong one look identical. A score says the system
+  /// thought two records matched; this, with the audit entry it is written
+  /// alongside, says a named person asked and was told. Null while unlinked.
+  linkedVia  String?
+  linkedAt   DateTime?
+  linkedById String?   @db.Uuid
+
+  /// Read-only, generated — the same fold and the same schema-local
+  /// `search_normalize` as `User.searchText`. **Never write to it.**
+  ///
+  /// It carries more weight here than on any other table: this name was recited
+  /// by a relative rather than copied off a document, so «علي» for عليّ and
+  /// «نصر الله» for نصرالله are the normal case, and this column is the primary
+  /// blocking key the resolver uses to find candidate slots at all.
+  searchText String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The roster read, and the "unfilled slots" query the resolver blocks on.
+  @@index([householdId, linkedCitizenId])
+  @@map("household_members")
 }
 
 // ────────────────────────────  Registration  ────────────────────────────

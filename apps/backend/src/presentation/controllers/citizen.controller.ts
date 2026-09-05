@@ -124,7 +124,11 @@ export class CitizenController {
       //    just a balance. All of it is theirs; none of it is anyone else's.
       phone: citizen.phone,
       whatsapp: citizen.whatsapp,
+      altPhone: citizen.altPhone,
+      altPhoneRelation: citizen.altPhoneRelation,
       gender: citizen.gender,
+      motherName: citizen.motherName,
+      dateOfBirth: citizen.dateOfBirth,
       nationality: citizen.nationality,
       isLebanese: citizen.isLebanese,
       residentStatus: citizen.residentStatus,
@@ -132,6 +136,9 @@ export class CitizenController {
       bloodType: citizen.bloodType,
       familySize: citizen.familySize,
       identityDocType: citizen.identityDocType,
+      registrationPlaceTown: citizen.registrationPlaceTown,
+      registrationPlaceDistrict: citizen.registrationPlaceDistrict,
+      household: citizen.household,
 
       /**
        * Masked to its last three characters, and deliberately not sent whole.

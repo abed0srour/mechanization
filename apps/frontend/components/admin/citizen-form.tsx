@@ -24,6 +24,8 @@ import type { PublicTenantConfig } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ContactStep, PersonalStep } from '@/components/citizen/steps';
+import { HouseholdMatchBanner } from '@/components/admin/household-match-banner';
+import { HouseholdReferenceField } from '@/components/admin/household-reference-field';
 import {
   PropertyCard,
   type PropertyDraft,
@@ -34,6 +36,9 @@ import { UnverifiedFieldsDialog } from './unverified-fields-dialog';
 import { ParcelRosterDialog } from './parcel-roster-dialog';
 import { cn, scopeErrors } from '@/lib/utils';
 import { useSectionNav } from '@/lib/use-section-nav';
+
+/** A form value that may be anything, as the string a field or lookup reads. */
+const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 export interface CitizenFormValues {
   personal: Record<string, unknown>;
@@ -147,6 +152,15 @@ export function askableFields(values: CitizenFormValues): AskableField[] {
     { path: 'personal.gender', field: 'gender', section: 'personal' },
     { path: 'personal.bloodType', field: 'bloodType', section: 'personal' },
     { path: 'personal.residentStatus', field: 'residentStatus', section: 'personal' },
+    /*
+      Asked of everyone, so listed before the nationality branch.
+
+      Only their *requirement* is gated on nationality — a date of birth is on
+      every identity document in the world and a mother's name on most, so both
+      are asked of a passport holder too and both must be flaggable there.
+    */
+    { path: 'personal.motherName', field: 'motherName', section: 'personal' },
+    { path: 'personal.dateOfBirth', field: 'dateOfBirth', section: 'personal' },
   ];
 
   if (values.personal.isLebanese !== false) {
@@ -154,6 +168,15 @@ export function askableFields(values: CitizenFormValues): AskableField[] {
       { path: 'personal.identityDocType', field: 'identityDocType', section: 'personal' },
       { path: 'personal.identityDocNumber', field: 'identityDocNumber', section: 'personal' },
       { path: 'personal.civilRecordNumber', field: 'civilRecordNumber', section: 'personal' },
+      // محل القيد is asked only where رقم السجل is, and is flaggable for the
+      // same reason: the إخراج قيد is with a relative in another town more
+      // often than anyone would like.
+      { path: 'personal.registrationPlaceTown', field: 'registrationPlaceTown', section: 'personal' },
+      {
+        path: 'personal.registrationPlaceDistrict',
+        field: 'registrationPlaceDistrict',
+        section: 'personal',
+      },
     );
   } else {
     fields.push(
@@ -166,8 +189,21 @@ export function askableFields(values: CitizenFormValues): AskableField[] {
   fields.push(
     { path: 'contact.phone', field: 'phone', section: 'contact' },
     { path: 'contact.maritalStatus', field: 'maritalStatus', section: 'contact' },
-    { path: 'contact.familySize', field: 'familySize', section: 'contact' },
   );
+
+  /*
+    عدد أفراد الأسرة is only askable while nobody has been named.
+
+    Once a roster exists the number is derived from it and the input is gone
+    from the screen, so offering a flag on it would put «غير مؤكَّد» under a
+    field the form has stopped asking — which is precisely the drift this whole
+    list exists to prevent. The roster rows are not flaggable either: a member
+    left out is left out, and a household half-enumerated is a shorter roster
+    rather than a flagged one.
+  */
+  if (!Array.isArray(values.contact.householdMembers) || values.contact.householdMembers.length === 0) {
+    fields.push({ path: 'contact.familySize', field: 'familySize', section: 'contact' });
+  }
 
   if (values.contact.whatsappSameAsPhone === false) {
     fields.push({ path: 'contact.whatsapp', field: 'whatsapp', section: 'contact' });
@@ -411,6 +447,40 @@ export function CitizenForm({
    */
   const { active, jumpTo } = useSectionNav(SECTION_IDS, [values.properties.length]);
 
+  /**
+   * «قد يكون هذا الشخص مسجّلاً بالفعل», rendered inside the الأسرة section.
+   *
+   * Built here rather than inside `ContactStep` because that component is
+   * shared with the citizen-facing wizard, which has no staff session and must
+   * not be able to ask the register about other households. Only a form holding
+   * a `token` gets the banner; without one it is simply absent, and the officer
+   * can still type a رقم مرجعي by hand.
+   *
+   * `mode` gates it too: on an edit the citizen is already on the register, so
+   * the resolver would spend every keystroke matching them against themselves.
+   */
+  const householdMatch =
+    mode === 'create' && token ? (
+      <HouseholdMatchBanner
+        tenant={tenant}
+        token={token}
+        locale={locale}
+        subject={{
+          firstName: str(values.personal.firstName),
+          middleName: str(values.personal.middleName),
+          lastName: str(values.personal.lastName),
+          motherName: str(values.personal.motherName),
+          dateOfBirth: str(values.personal.dateOfBirth),
+          gender: str(values.personal.gender),
+          civilRecordNumber: str(values.personal.civilRecordNumber),
+          registrationPlaceTown: str(values.personal.registrationPlaceTown),
+          phone: str(values.contact.phone),
+          altPhone: str(values.contact.altPhone),
+        }}
+      />
+    ) : null;
+
+
   // Re-seeds when the record finishes loading. Keyed on the object identity,
   // so a parent that fetches once does not clobber what has been typed since.
   useEffect(() => {
@@ -625,6 +695,25 @@ export function CitizenForm({
   }, [values]);
 
   const shown = useMemo(() => (showErrors ? fieldErrors : {}), [showErrors, fieldErrors]);
+
+  /**
+   * The رقم مرجعي input, verified against the register as it is typed.
+   *
+   * Declared after `shown` because it reads the error map — and offered on the
+   * edit path too, unlike the match banner: an officer correcting a record who
+   * learns the person's father is registered should be able to link them then
+   * and there, and `CitizensService.update` honours the field.
+   */
+  const householdReferenceField = token ? (
+    <HouseholdReferenceField
+      tenant={tenant}
+      token={token}
+      locale={locale}
+      value={str(values.contact.householdReference)}
+      error={shown['contact.householdReference']}
+      onChange={(next) => update({ contact: { ...values.contact, householdReference: next } })}
+    />
+  ) : null;
   const messages = [...new Set(Object.values(shown))];
 
   const sectionInvalid = useCallback(
@@ -907,6 +996,8 @@ export function CitizenForm({
               errors={shown}
               onChange={(contact) => update({ contact })}
               locale={locale}
+              householdMatch={householdMatch}
+              householdReferenceField={householdReferenceField}
             />
           </FormSection>
         )}
@@ -1009,6 +1100,8 @@ export function CitizenForm({
             errors={shown}
             onChange={(contact) => update({ contact })}
             locale={locale}
+            householdMatch={householdMatch}
+            householdReferenceField={householdReferenceField}
           />
         </FormSection>
 

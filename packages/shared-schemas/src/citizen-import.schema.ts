@@ -50,10 +50,16 @@ export const IMPORT_COLUMN_KEYS = [
   'identityDocType',
   'identityDocNumber',
   'civilRecordNumber',
+  'registrationPlaceTown',
+  'registrationPlaceDistrict',
+  'motherName',
+  'dateOfBirth',
   'residencyNumber',
   'maritalStatus',
   'phone',
   'whatsapp',
+  'altPhone',
+  'altPhoneRelation',
   'familySize',
   'occupancyType',
   'landlordName',
@@ -123,6 +129,16 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   },
   { key: 'identityDocNumber', header: 'رقم الوثيقة', hint: 'إلزامي للبنانيين' },
   { key: 'civilRecordNumber', header: 'رقم السجل', hint: 'إلزامي للبنانيين، أرقام فقط' },
+  {
+    key: 'registrationPlaceTown',
+    header: 'محل القيد',
+    // Required alongside رقم السجل and for the same reason: every village has a
+    // سجل ٤٥, so the number without the town cannot identify anybody.
+    hint: 'إلزامي للبنانيين — بلدة القيد',
+  },
+  { key: 'registrationPlaceDistrict', header: 'قضاء القيد', hint: 'اختياري' },
+  { key: 'motherName', header: 'اسم الأم', hint: 'إلزامي للبنانيين' },
+  { key: 'dateOfBirth', header: 'تاريخ الولادة', hint: 'YYYY-MM-DD' },
   { key: 'residencyNumber', header: 'رقم الإقامة', hint: 'لغير اللبنانيين — يكفي هذا أو رقم الوثيقة' },
   {
     key: 'maritalStatus',
@@ -132,6 +148,8 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   },
   { key: 'phone', header: 'رقم الهاتف', hint: 'مثال: 03123456', always: true },
   { key: 'whatsapp', header: 'رقم الواتساب', hint: 'اتركه فارغاً إن كان نفس الهاتف' },
+  { key: 'altPhone', header: 'رقم بديل', hint: 'اختياري — أرضي أو دولي مقبول' },
+  { key: 'altPhoneRelation', header: 'صلة صاحب الرقم البديل', hint: 'مثال: ابنه' },
   { key: 'familySize', header: 'عدد أفراد الأسرة', hint: 'رقم، بمن فيهم المواطن', always: true },
   {
     key: 'occupancyType',
@@ -337,6 +355,18 @@ export function buildCitizenPayload(row: ImportRow): unknown {
       civilRecordNumber: text(row.civilRecordNumber)
         ? normalizeDigits(text(row.civilRecordNumber)!)
         : undefined,
+      registrationPlaceTown: text(row.registrationPlaceTown),
+      registrationPlaceDistrict: text(row.registrationPlaceDistrict),
+      motherName: text(row.motherName),
+      /*
+        Digits folded, as everywhere a number arrives from a spreadsheet.
+
+        A register typed in Arabic produces ٢٠٠١-٠٤-١٧, which is the same date
+        and a different string — and the schema's `YYYY-MM-DD` check would
+        reject it as malformed rather than as what it is. The shape itself is
+        left to that check; this only puts both sides in one alphabet.
+      */
+      dateOfBirth: text(row.dateOfBirth) ? normalizeDigits(text(row.dateOfBirth)!) : undefined,
       nationality: text(row.nationality),
       isLebanese: toBoolean(row.isLebanese ?? ''),
       residencyNumber: text(row.residencyNumber),
@@ -349,6 +379,18 @@ export function buildCitizenPayload(row: ImportRow): unknown {
       // WhatsApp": the contact schema copies the phone across when this is on.
       whatsappSameAsPhone: whatsapp === undefined,
       whatsapp,
+      altPhone: text(row.altPhone),
+      altPhoneRelation: text(row.altPhoneRelation),
+      /*
+        No roster column, and that is deliberate rather than an omission.
+
+        أفراد الأسرة is a repeating structure and a spreadsheet row is flat, so
+        carrying it would mean either forty columns or a delimiter convention
+        for a municipality to mistype. A bulk import is a paper register
+        arriving in one file — it has a household *size* and never a household
+        *list* — so the integer is what it can honestly supply, and
+        `residentCountOf` falls back to exactly that.
+      */
       familySize: text(row.familySize) ? normalizeDigits(text(row.familySize)!) : undefined,
     },
     properties: [property],

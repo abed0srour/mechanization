@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   adminCreateCitizenSchema,
@@ -6,6 +6,7 @@ import {
   cadastreFlags,
   FIELD_FLAG_KINDS,
   IMPORT_COLUMNS,
+  residentCountOf,
   statusForFlags,
 } from '@mechanization/shared-schemas';
 import type {
@@ -34,6 +35,7 @@ import {
   unestablishedOnCard,
 } from '../registration/registration.service';
 import { TenantService } from '../tenant/tenant.service';
+import { HouseholdsService } from '../households/households.service';
 
 /** A page of the registry beyond this is a report, not a screen. */
 const MAX_LIST_ROWS = 500;
@@ -201,10 +203,13 @@ interface CitizenListAggregate {
  */
 @Injectable()
 export class CitizensService {
+  private readonly logger = new Logger(CitizensService.name);
+
   constructor(
     private readonly tenantContext: TenantContextService,
     private readonly registrations: RegistrationService,
     private readonly tenants: TenantService,
+    private readonly households: HouseholdsService,
     @Inject(PARCEL_REPOSITORY) private readonly parcels: ParcelRepository,
     private readonly events: EventEmitter2,
   ) {}
@@ -477,11 +482,34 @@ export class CitizensService {
           identityDocType: true,
           identityDocNumber: true,
           civilRecordNumber: true,
+          registrationPlaceTown: true,
+          registrationPlaceDistrict: true,
+          motherName: true,
+          dateOfBirth: true,
           phone: true,
           whatsapp: true,
+          altPhone: true,
+          altPhoneRelation: true,
           maritalStatus: true,
           familySize: true,
           bloodType: true,
+          household: {
+            select: {
+              id: true,
+              roster: {
+                orderBy: { createdAt: 'asc' },
+                select: {
+                  id: true,
+                  fullName: true,
+                  relationToHead: true,
+                  birthYear: true,
+                  gender: true,
+                  residesHere: true,
+                  linkedCitizenId: true,
+                },
+              },
+            },
+          },
           registrations: {
             orderBy: { submittedAt: 'desc' },
             take: 1,
@@ -528,6 +556,18 @@ export class CitizensService {
         identityDocType: citizen.identityDocType,
         identityDocNumber: citizen.identityDocNumber ?? '',
         civilRecordNumber: citizen.civilRecordNumber ?? '',
+        registrationPlaceTown: citizen.registrationPlaceTown ?? '',
+        registrationPlaceDistrict: citizen.registrationPlaceDistrict ?? '',
+        motherName: citizen.motherName ?? '',
+        /**
+         * Back to `YYYY-MM-DD`, which is both what the date input reads and
+         * what the schema validates. `toISOString().slice(0, 10)` is safe here
+         * precisely because the column is a `DATE` and Prisma hands it back at
+         * UTC midnight — the same instant the write path put in.
+         */
+        dateOfBirth: citizen.dateOfBirth
+          ? citizen.dateOfBirth.toISOString().slice(0, 10)
+          : '',
       },
       contact: {
         phone: citizen.phone,
@@ -535,9 +575,36 @@ export class CitizensService {
         // The stored pair is what it is; the form re-derives its own checkbox
         // from whether the two numbers currently match.
         whatsappSameAsPhone: citizen.whatsapp === citizen.phone,
+        altPhone: citizen.altPhone ?? '',
+        altPhoneRelation: citizen.altPhoneRelation ?? '',
         maritalStatus: citizen.maritalStatus,
         familySize: citizen.familySize,
+        /**
+         * The roster, minus the registrant's own `HEAD` row.
+         *
+         * That row is this citizen, and the form already edits them at the top
+         * of the page — showing it again would offer a second, divergent place
+         * to change one person's name. It is re-derived on save from the
+         * citizen's own fields.
+         *
+         * Rows belonging to *other registered citizens* are carried with their
+         * `citizenId` set so the form can render them read-only. An edit here
+         * must not be able to rename or delete somebody who has a file of their
+         * own; that is what `HouseholdsService.unlink` is for.
+         */
+        householdMembers: (citizen.household?.roster ?? [])
+          .filter((member) => member.linkedCitizenId !== citizen.id)
+          .map((member) => ({
+            id: member.id,
+            fullName: member.fullName,
+            relationToHead: member.relationToHead,
+            birthYear: member.birthYear,
+            gender: member.gender,
+            residesHere: member.residesHere,
+            citizenId: member.linkedCitizenId,
+          })),
       },
+      householdId: citizen.household?.id ?? null,
       properties: (registration?.properties ?? []).map((property) => ({
         id: property.id,
         occupancyType: property.occupancyType,
@@ -607,6 +674,56 @@ export class CitizensService {
       });
     }
 
+    /*
+      The household link the citizen themselves supplied.
+
+      Attempted after the registration rather than inside it, and allowed to
+      fail without taking the record with it. The ordering is the point: a
+      citizen on the register with no family attached is a link a clerk can add
+      in ten seconds, while a registration refused because a رقم مرجعي was
+      mistyped sends a household away and loses everything they just said.
+
+      Reported rather than swallowed, in the same shape `issue` reports the
+      citizens it could not assess — the officer is told, in the response, that
+      this one thing did not happen.
+    */
+    let householdLink: { linked: boolean; reason?: string } | undefined;
+    const reference = input.payload.contact.householdReference;
+
+    if (reference && !result.deduplicated) {
+      try {
+        await this.households.claimByReference({
+          citizenId: result.citizenId,
+          referenceNumber: reference,
+          actor: input.actor,
+        });
+        householdLink = { linked: true };
+      } catch (caught) {
+        this.logger.warn(
+          `Household reference ${reference} could not be claimed for ${result.citizenId}: ${
+            caught instanceof Error ? caught.message : caught
+          }`,
+        );
+        /*
+          The reason is carried through, not flattened.
+
+          A generic «تعذّر ربط المواطن بالأسرة» is what an officer saw when the
+          record had in fact been given a household of its own moments earlier —
+          which told them nothing about what to do next. Every refusal this can
+          produce is one a person can act on, so each says which it was.
+        */
+        householdLink = {
+          linked: false,
+          reason:
+            caught instanceof ConflictError
+              ? caught.message
+              : caught instanceof NotFoundError
+                ? 'لم يُعثر على مواطن بهذا الرقم المرجعي — تأكّد من الرقم كما هو مطبوع على وصله'
+                : 'تعذّر ربط المواطن بالأسرة',
+        };
+      }
+    }
+
     return {
       citizenId: result.citizenId,
       registrationId: result.registrationId,
@@ -615,6 +732,20 @@ export class CitizensService {
       status: result.status,
       /** The queue reads this to tell "created" from "already had it". */
       deduplicated: result.deduplicated,
+      /** Absent when no رقم مرجعي was given; `linked: false` when one was and did not resolve. */
+      householdLink,
+      /**
+       * The officer typed a roster *and* named a registered relative, so the
+       * roster was not written.
+       *
+       * Reported rather than dropped quietly. The family is already described
+       * in the household they were joined to — writing it again would put every
+       * one of those people on the register twice — but somebody typed six rows
+       * and is owed the sentence explaining where they went.
+       */
+      rosterSkipped: Boolean(
+        reference && (input.payload.contact.householdMembers?.length ?? 0) > 0,
+      ),
     };
   }
 
@@ -861,13 +992,83 @@ export class CitizensService {
             input.payload.personal.residencyNumber ||
             null,
           civilRecordNumber: input.payload.personal.civilRecordNumber || null,
+          registrationPlaceTown: input.payload.personal.registrationPlaceTown || null,
+          registrationPlaceDistrict: input.payload.personal.registrationPlaceDistrict || null,
+          motherName: input.payload.personal.motherName || null,
+          // UTC midnight, for the reason set out in the repository's write path:
+          // a `DATE` built from a local-midnight parse moves by a day east of UTC.
+          dateOfBirth: input.payload.personal.dateOfBirth
+            ? new Date(`${input.payload.personal.dateOfBirth}T00:00:00Z`)
+            : null,
           phone: input.payload.contact.phone ?? null,
           whatsapp: input.payload.contact.whatsapp ?? input.payload.contact.phone ?? null,
+          altPhone: input.payload.contact.altPhone || null,
+          altPhoneRelation: input.payload.contact.altPhoneRelation || null,
           maritalStatus: (input.payload.contact.maritalStatus ?? null) as never,
-          familySize: input.payload.contact.familySize ?? null,
+          // Derived from the roster wherever there is one — see `residentCountOf`.
+          familySize:
+            residentCountOf(input.payload.contact) ?? input.payload.contact.familySize ?? null,
           bloodType: (input.payload.personal.bloodType ?? null) as never,
         },
       });
+
+      /*
+        The roster, reconciled — but never across the line that separates a
+        described person from a registered one.
+
+        Rows carrying a `linkedCitizenId` belong to somebody with a file of
+        their own, and this form edits *one* citizen. A save that omitted such a
+        row would otherwise delete a person out of a household because the clerk
+        was looking at a different screen, and a save that renamed one would let
+        one citizen's record rewrite another's. Both are refused here by simply
+        never selecting them: only unlinked rows are reconciled, and removing a
+        registered member is `HouseholdsService.unlink`, which is its own act
+        with its own reason.
+      */
+      const household = await tx.household.findFirst({
+        where: { members: { some: { id: citizen.id } } },
+        select: { id: true, roster: { select: { id: true, linkedCitizenId: true } } },
+      });
+
+      if (household) {
+        const editable = new Set(
+          household.roster
+            .filter((member) => member.linkedCitizenId === null)
+            .map((member) => member.id),
+        );
+        const submitted = input.payload.contact.householdMembers ?? [];
+        const kept = new Set(
+          submitted
+            .map((member) => (member as { id?: string }).id)
+            .filter((id): id is string => Boolean(id) && editable.has(id!)),
+        );
+
+        const removed = [...editable].filter((id) => !kept.has(id));
+        if (removed.length > 0) {
+          await tx.householdMember.deleteMany({
+            where: { id: { in: removed }, householdId: household.id, linkedCitizenId: null },
+          });
+        }
+
+        for (const member of submitted) {
+          const id = (member as { id?: string }).id;
+          const data = {
+            fullName: member.fullName,
+            relationToHead: member.relationToHead as never,
+            birthYear: member.birthYear ?? null,
+            gender: (member.gender ?? null) as never,
+            residesHere: member.residesHere ?? true,
+          };
+
+          if (id && editable.has(id)) {
+            await tx.householdMember.update({ where: { id }, data });
+          } else if (!id) {
+            await tx.householdMember.create({
+              data: { householdId: household.id, ...data },
+            });
+          }
+        }
+      }
 
       // A citizen with no registration at all (never expected from this form,
       // but reachable if their only claim was deleted) gets one rather than
@@ -960,6 +1161,48 @@ export class CitizensService {
       }
     });
 
+    /*
+      The same رقم مرجعي the create path honours, honoured here too.
+
+      Left out, the field would render on the edit form and do nothing — a
+      clerk who learns mid-correction that this person's brother is on the
+      register would type the number, save, and be told nothing at all. A field
+      that silently discards what is typed into it is worse than one that is
+      absent.
+
+      Refusals are reported rather than thrown, exactly as on create: moving a
+      citizen between households is a deliberate act with its own reason, and
+      `link` says so — but not at the cost of losing the rest of the edit.
+    */
+    let householdLink: { linked: boolean; reason?: string } | undefined;
+    const reference = input.payload.contact.householdReference;
+
+    if (reference) {
+      try {
+        await this.households.claimByReference({
+          citizenId: citizen.id,
+          referenceNumber: reference,
+          actor: input.actor,
+        });
+        householdLink = { linked: true };
+      } catch (caught) {
+        this.logger.warn(
+          `Household reference ${reference} could not be claimed for ${citizen.id}: ${
+            caught instanceof Error ? caught.message : caught
+          }`,
+        );
+        householdLink = {
+          linked: false,
+          reason:
+            caught instanceof ConflictError
+              ? caught.message
+              : caught instanceof NotFoundError
+                ? 'لم يُعثر على مواطن بهذا الرقم المرجعي'
+                : 'تعذّر ربط المواطن بالأسرة',
+        };
+      }
+    }
+
     this.events.emit('citizen.changed', {
       tenantSlug: input.tenantSlug,
       citizenId: citizen.id,
@@ -969,12 +1212,13 @@ export class CitizensService {
         propertiesRemoved: removedIds.length,
         status: nextStatus,
         unestablishedFields: flags.length,
+        ...(householdLink ? { householdLinked: householdLink.linked } : {}),
       },
       actorId: input.actor.id,
       actorRole: input.actor.role,
     });
 
-    return { updated: true, citizenId: citizen.id, status: nextStatus };
+    return { updated: true, citizenId: citizen.id, status: nextStatus, householdLink };
   }
 
   /**
