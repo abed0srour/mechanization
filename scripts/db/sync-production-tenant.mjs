@@ -179,10 +179,10 @@ async function main() {
       await prodClient.query(`TRUNCATE TABLE "${SCHEMA_NAME}"."${table}" CASCADE;`);
 
       if (count > 0) {
-        // Query target columns so we only insert valid schema columns
+        // Query target columns so we only insert valid schema columns (excluding generated columns)
         const targetColsRes = await prodClient.query(
           `SELECT column_name FROM information_schema.columns 
-           WHERE table_schema = $1 AND table_name = $2`,
+           WHERE table_schema = $1 AND table_name = $2 AND is_generated = 'NEVER'`,
           [SCHEMA_NAME, table],
         );
         const validCols = new Set(targetColsRes.rows.map((r) => r.column_name));
@@ -239,10 +239,9 @@ async function main() {
     console.log(`\n4. Copying auth.users and auth.identities to production...`);
     const targetUserColsRes = await prodClient.query(
       `SELECT column_name FROM information_schema.columns 
-       WHERE table_schema = 'auth' AND table_name = 'users'`,
+       WHERE table_schema = 'auth' AND table_name = 'users' AND is_generated = 'NEVER'`,
     );
     const validUserCols = new Set(targetUserColsRes.rows.map((r) => r.column_name));
-    validUserCols.delete('confirmed_at'); // generated column
 
     const usersRes = await stagingClient.query('SELECT * FROM auth.users');
     console.log(`  Found ${usersRes.rows.length} users in staging auth.users`);
@@ -268,10 +267,9 @@ async function main() {
 
     const targetIdentColsRes = await prodClient.query(
       `SELECT column_name FROM information_schema.columns 
-       WHERE table_schema = 'auth' AND table_name = 'identities'`,
+       WHERE table_schema = 'auth' AND table_name = 'identities' AND is_generated = 'NEVER'`,
     );
     const validIdentCols = new Set(targetIdentColsRes.rows.map((r) => r.column_name));
-    validIdentCols.delete('email'); // generated column
 
     const identitiesRes = await stagingClient.query('SELECT * FROM auth.identities');
     console.log(`  Found ${identitiesRes.rows.length} identities in staging auth.identities`);
