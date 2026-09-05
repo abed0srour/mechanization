@@ -25,28 +25,7 @@ const MIGRATIONS_DIR = join(
   'apps/backend/src/infrastructure/prisma/tenant/migrations',
 );
 
-const TABLES = [
-  'zones',
-  'users',
-  'households',
-  'parcels',
-  'building_units',
-  'registrations',
-  'property_entries',
-  'household_members',
-  'documents',
-  'field_visits',
-  'field_assignments',
-  'field_drafts',
-  'fee_notices',
-  'citizen_payments',
-  'payment_transactions',
-  'inspector_payouts',
-  'expenses',
-  'otp_challenges',
-  'audit_log_entries',
-  'system_settings',
-];
+
 
 function getRef(url) {
   if (!url) return null;
@@ -171,7 +150,27 @@ async function main() {
     await stagingClient.query(`SET search_path TO "${SCHEMA_NAME}", public;`);
     await prodClient.query("SET session_replication_role = 'replica';");
 
-    for (const table of TABLES) {
+    // Discover tables present in the production schema
+    const targetTablesRes = await prodClient.query(
+      `SELECT table_name FROM information_schema.tables 
+       WHERE table_schema = $1 AND table_type = 'BASE TABLE' AND table_name != '_tenant_migrations'
+       ORDER BY table_name`,
+      [SCHEMA_NAME],
+    );
+    const tablesToSync = targetTablesRes.rows.map((r) => r.table_name);
+
+    for (const table of tablesToSync) {
+      // Check if table exists in staging
+      const stagingTableCheck = await stagingClient.query(
+        `SELECT 1 FROM information_schema.tables 
+         WHERE table_schema = $1 AND table_name = $2`,
+        [SCHEMA_NAME, table],
+      );
+      if (stagingTableCheck.rows.length === 0) {
+        console.log(`  · ${table}: not present in source, skipping`);
+        continue;
+      }
+
       const sourceCountRes = await stagingClient.query(
         `SELECT count(*)::int as count FROM "${SCHEMA_NAME}"."${table}"`,
       );
