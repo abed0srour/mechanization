@@ -243,15 +243,17 @@ function killChildTree(child) {
 const backend = runDevProcess('@mechanization/backend');
 watchProcess('backend', backend, () => backendBootedOnce);
 
+let frontend;
+
 process.on('SIGINT', () => {
   killChildTree(backend);
-  killChildTree(frontend);
+  if (frontend) killChildTree(frontend);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   killChildTree(backend);
-  killChildTree(frontend);
+  if (frontend) killChildTree(frontend);
   process.exit(0);
 });
 
@@ -267,5 +269,5 @@ await new Promise((resolve) => {
   }, 200);
 });
 
-const frontend = runDevProcess('@mechanization/frontend');
+frontend = runDevProcess('@mechanization/frontend');
 watchProcess('frontend', frontend, () => frontendLocalShown);

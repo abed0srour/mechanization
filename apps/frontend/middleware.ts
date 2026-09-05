@@ -106,7 +106,6 @@ export function middleware(request: NextRequest) {
 
   if (
     pathname.startsWith('/_next') ||
-    pathname.startsWith('/api') ||
     pathname.includes('.')
   ) {
     return withCsp(NextResponse.next({ request: { headers } }));
@@ -121,7 +120,7 @@ export function middleware(request: NextRequest) {
 
   const [tenant, maybeLocale] = segments;
 
-  if (maybeLocale === 'dashboard' || maybeLocale === 'admin') {
+  if (tenant === 'api' || maybeLocale === 'dashboard' || maybeLocale === 'admin') {
     /**
      * Reserved segments that would otherwise shadow a municipality slug.
      *
