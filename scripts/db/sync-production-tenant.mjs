@@ -167,6 +167,8 @@ async function main() {
 
     // 4. Copy tenant table data
     console.log(`\n3. Copying tenant table data from staging to production...`);
+    await prodClient.query(`SET search_path TO "${SCHEMA_NAME}", public;`);
+    await stagingClient.query(`SET search_path TO "${SCHEMA_NAME}", public;`);
     await prodClient.query("SET session_replication_role = 'replica';");
 
     for (const table of TABLES) {
