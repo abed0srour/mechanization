@@ -195,6 +195,9 @@ export function visibleGroups(role: string | undefined): NavGroup[] {
  * landing nowhere.
  */
 export function defaultPathFor(role: string | undefined): string {
+  if (role === 'FIELD_INSPECTOR') {
+    return '/inspector/profile';
+  }
   const groups = visibleGroups(role);
   return groups[0]?.items[0]?.path ?? '/citizens';
 }

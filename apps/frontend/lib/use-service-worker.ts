@@ -24,6 +24,26 @@ export function useServiceWorker(base: string): void {
     // before — online-only, with the queue still on disk.
     if (!('serviceWorker' in navigator)) return;
 
+    // In development, unregister any active service worker and clear old caches
+    // so that hot module replacement and code updates are never masked by stale caches.
+    if (process.env.NODE_ENV === 'development') {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const reg of registrations) {
+          void reg.unregister();
+        }
+      });
+      if ('caches' in window) {
+        caches.keys().then((keys) => {
+          for (const key of keys) {
+            if (key.startsWith('mechanization-')) {
+              void caches.delete(key);
+            }
+          }
+        });
+      }
+      return;
+    }
+
     let cancelled = false;
 
     const install = async () => {
