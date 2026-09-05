@@ -343,11 +343,18 @@ export class PrismaUserRepository implements UserRepository {
     for (const reg of registrations) {
       if (!reg.createdById) continue;
       let stat = inspectorStats.get(reg.createdById);
+      if (typeof reg.createdById !== 'string' || typeof reg.citizenId !== 'string') continue;
+      const createdById: string = reg.createdById;
+      const citizenId: string = reg.citizenId;
+      let stat = inspectorStats.get(createdById);
       if (!stat) {
         stat = { citizens: new Set(), propertyCount: 0 };
         inspectorStats.set(reg.createdById, stat);
+        stat = { citizens: new Set<string>(), propertyCount: 0 };
+        inspectorStats.set(createdById, stat);
       }
       stat.citizens.add(reg.citizenId);
+      stat.citizens.add(citizenId);
       for (const p of reg.properties) {
         if (p.propertyType === 'BUILDING' && p.units.length > 0) {
           stat.propertyCount += p.units.length;

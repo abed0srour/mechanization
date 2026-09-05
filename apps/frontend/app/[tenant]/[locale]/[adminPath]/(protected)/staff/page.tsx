@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   Clock,
   Copy,
-  HandCoins,
   Home,
   KeyRound,
   Loader2,
@@ -23,7 +22,6 @@ import {
   UserPlus,
   Users,
   UsersRound,
-  Wallet,
 } from 'lucide-react';
 import { getLabels } from '@mechanization/shared-schemas';
 import {
@@ -479,7 +477,7 @@ export default function StaffPage({
         },
       },
     ],
-    [selfId, busyId, toggleActive, locale, labels],
+    [selfId, busyId, toggleActive, locale, labels, base, router],
   );
 
   if (!token) return null;

@@ -1,6 +1,5 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
 import { use, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
@@ -26,7 +25,6 @@ import {
   Plus,
   Receipt,
   RefreshCw,
-  ShieldCheck,
   Store,
   Tent,
   TrendingUp,
@@ -204,7 +202,6 @@ export default function InspectorProfilePage({
             <Skeleton className="h-4 w-96" />
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Skeleton className="h-28 rounded-xl" />
           <Skeleton className="h-28 rounded-xl" />
@@ -252,8 +249,6 @@ export default function InspectorProfilePage({
         }
         subtitle={
           isAr
-            ? 'متابعة إحصاءات العقارات المسجلة، احتساب العمولات ($1 لكل عقار)، وتتبع المستحقات والمدفوعات'
-            : 'Track field registered properties, calculate commissions ($1/property), and monitor payouts'
             ? 'متابعة إحصاءات كل مفتش ميداني على حدة، عدد المواطنين والعقارات المسجلة، واحتساب العمولات ($1 لكل عقار)'
             : 'Track individual performance per inspector, total citizens & properties registered, and commission earnings'
         }
@@ -399,22 +394,16 @@ export default function InspectorProfilePage({
         </CardContent>
       </Card>
 
-      {/* 4 Financial & Activity Stat KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Card 1: Total Registered Properties */}
       {/* 5 Distinct Financial & Activity Stat KPI Cards */}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-5">
         {/* Card 1: Total Registered Citizens by this inspector */}
         <Card className="relative overflow-hidden border-border/70 hover:shadow-md transition-shadow">
-          <CardContent className="p-5">
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">
-                  {isAr ? 'إجمالي العقارات المسجلة' : 'Total Registered Properties'}
                   {isAr ? 'المواطنون المسجلون' : 'Citizens Registered'}
                 </p>
-                <div className="text-3xl font-extrabold tracking-tight">
                 <div className="text-3xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400">
                   {data.totalCitizens.toLocaleString(locale)}
                 </div>
@@ -452,37 +441,30 @@ export default function InspectorProfilePage({
           </CardContent>
         </Card>
 
-        {/* Card 2: Total Commission Earnings */}
         {/* Card 3: Total Commission Earnings */}
         <Card className="relative overflow-hidden border-border/70 hover:shadow-md transition-shadow">
-          <CardContent className="p-5">
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">
                   {isAr ? 'إجمالي الأرباح المستحقة' : 'Total Commission Earned'}
                 </p>
-                <div className="text-3xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400" dir="ltr">
                 <div className="text-3xl font-extrabold tracking-tight text-purple-600 dark:text-purple-400" dir="ltr">
                   ${data.totalEarnings.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
-              <div className="flex size-11 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400">
               <div className="flex size-11 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400">
                 <TrendingUp className="size-6" />
               </div>
             </div>
             <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>{isAr ? 'المجموع الكلي المكتسب' : 'Gross earnings earned'}</span>
               <span>{data.totalProperties} {isAr ? 'عقار × $1.00' : 'prop. × $1.00'}</span>
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 3: Paid Balance */}
         {/* Card 4: Paid Balance */}
         <Card className="relative overflow-hidden border-border/70 hover:shadow-md transition-shadow">
-          <CardContent className="p-5">
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
@@ -501,16 +483,13 @@ export default function InspectorProfilePage({
               <span className="font-semibold text-cyan-600 dark:text-cyan-400">
                 {data.payouts.length}
               </span>
-              <span>{isAr ? 'دفعات مسجلة ومستلمة' : 'payouts recorded'}</span>
               <span>{isAr ? 'دفعات مسجلة' : 'payouts'}</span>
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 4: Pending Balance */}
         {/* Card 5: Pending Balance */}
         <Card className="relative overflow-hidden border-border/70 hover:shadow-md transition-shadow">
-          <CardContent className="p-5">
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
@@ -526,7 +505,6 @@ export default function InspectorProfilePage({
               </div>
             </div>
             <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>{isAr ? 'المبلغ المتبقي قيد الصرف' : 'Awaiting payout'}</span>
               <span>{isAr ? 'المتبقي قيد الصرف' : 'Awaiting payout'}</span>
             </div>
           </CardContent>
