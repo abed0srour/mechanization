@@ -76,6 +76,19 @@ export interface DashboardAnalytics {
   unitsByType: Record<string, number>;
   unitTotal: number;
 
+  /**
+   * How many property_entries / building_units rows this payload already
+   * excluded as duplicate filings: a TENANT or FREE_OCCUPANT registration of
+   * a unit an OWNER already registered under the same رقم العقار — the same
+   * apartment filed twice, once by whoever owns it and once by whoever rents
+   * it. Surfaced so staff can see the correction happened, not just a smaller
+   * number in `propertyTotal`/`unitTotal`.
+   */
+  duplicateFilingsExcluded: {
+    properties: number;
+    units: number;
+  };
+
   billedTotal: number;
   collectedTotal: number;
   outstandingTotal: number;
@@ -448,8 +461,31 @@ export class ReportingService {
    * rather than widening the pool to tolerate it.
    */
   private async computeAnalytics(): Promise<DashboardAnalytics> {
+    type AnalyticsRow = Omit<DashboardAnalytics, 'duplicateFilingsExcluded'> & {
+      duplicatePropertiesExcluded: number;
+      duplicateUnitsExcluded: number;
+    };
+
     const [row] = await withConnectionRetry(() =>
-      this.db.$queryRaw<DashboardAnalytics[]>`
+      this.db.$queryRaw<AnalyticsRow[]>`
+        WITH owned_parcels AS (
+          SELECT DISTINCT "propertyNumber" FROM property_entries
+           WHERE "occupancyType" = 'OWNER' AND "propertyNumber" IS NOT NULL
+        ),
+        -- A TENANT/FREE_OCCUPANT filing of a unit whose رقم العقار some OWNER
+        -- already registered under: the same apartment, filed twice — once by
+        -- whoever owns it, once by whoever rents it. Excluded from every
+        -- property/unit count below so it counts once, not twice.
+        excluded_entries AS (
+          SELECT pe.* FROM property_entries pe
+           WHERE pe."occupancyType" <> 'OWNER'
+             AND pe."propertyNumber" IS NOT NULL
+             AND EXISTS (SELECT 1 FROM owned_parcels op WHERE op."propertyNumber" = pe."propertyNumber")
+        ),
+        countable_entries AS (
+          SELECT pe.* FROM property_entries pe
+           WHERE pe.id NOT IN (SELECT id FROM excluded_entries)
+        )
         SELECT
           (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN')
             AS "citizenRecords",
@@ -475,9 +511,9 @@ export class ReportingService {
             AS "familySizes",
           (SELECT COALESCE(json_object_agg("propertyType", cnt), '{}'::json)
              FROM (SELECT "propertyType", count(*)::int AS cnt
-                     FROM property_entries GROUP BY 1) p)
+                     FROM countable_entries GROUP BY 1) p)
             AS "propertiesByType",
-          (SELECT count(*)::int FROM property_entries)
+          (SELECT count(*)::int FROM countable_entries)
             AS "propertyTotal",
           -- Unit types live in two tables: a unit inside a registered building
           -- is a building_units row, while a property registered as a single
@@ -487,16 +523,25 @@ export class ReportingService {
           --  would close the string and take the rest of the query with it.)
           (SELECT COALESCE(json_object_agg(t, n), '{}'::json)
              FROM (SELECT type AS t, sum(n)::int AS n
-                     FROM (SELECT "unitType"::text AS type, count(*)::int AS n
-                             FROM building_units GROUP BY 1
+                     FROM (SELECT bu."unitType"::text AS type, count(*)::int AS n
+                             FROM building_units bu
+                             JOIN countable_entries ce ON ce.id = bu."propertyEntryId"
+                            GROUP BY 1
                            UNION ALL
                            SELECT "unitType"::text, count(*)::int
-                             FROM property_entries WHERE "unitType" IS NOT NULL GROUP BY 1) u
+                             FROM countable_entries WHERE "unitType" IS NOT NULL GROUP BY 1) u
                     GROUP BY 1) x)
             AS "unitsByType",
-          (SELECT ((SELECT count(*) FROM building_units)
-                 + (SELECT count(*) FROM property_entries WHERE "unitType" IS NOT NULL))::int)
+          (SELECT ((SELECT count(*) FROM building_units bu
+                      JOIN countable_entries ce ON ce.id = bu."propertyEntryId")
+                 + (SELECT count(*) FROM countable_entries WHERE "unitType" IS NOT NULL))::int)
             AS "unitTotal",
+          (SELECT count(*)::int FROM excluded_entries)
+            AS "duplicatePropertiesExcluded",
+          (SELECT (SELECT count(*)::int FROM excluded_entries WHERE "unitType" IS NOT NULL)
+                + (SELECT count(*)::int FROM building_units bu
+                     JOIN excluded_entries ee ON ee.id = bu."propertyEntryId"))
+            AS "duplicateUnitsExcluded",
           COALESCE((SELECT sum(amount) FROM citizen_payments), 0)::float8
             AS "billedTotal",
           COALESCE((SELECT sum("paidAmount") FROM citizen_payments), 0)::float8
@@ -538,7 +583,14 @@ export class ReportingService {
       `,
     );
 
-    return row;
+    const { duplicatePropertiesExcluded, duplicateUnitsExcluded, ...rest } = row;
+    return {
+      ...rest,
+      duplicateFilingsExcluded: {
+        properties: duplicatePropertiesExcluded,
+        units: duplicateUnitsExcluded,
+      },
+    };
   }
 
   /**

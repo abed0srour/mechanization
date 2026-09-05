@@ -696,6 +696,15 @@ export default function StaffDashboard({
               ? 'Units inside registered buildings and standalone units are counted together. Registered buildings counts each property once regardless of unit count.'
               : 'تُحتسب الوحدات داخل المباني المسجّلة والوحدات المسجّلة بذاتها معاً. «مبانٍ مسجّلة» تعدّ العقار الواحد مرة واحدة مهما بلغ عدد وحداته.'}
           </p>
+          {data &&
+          (data.duplicateFilingsExcluded.properties > 0 ||
+            data.duplicateFilingsExcluded.units > 0) ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {locale === 'en'
+                ? `${count(data.duplicateFilingsExcluded.properties)} duplicate property filing(s) and ${count(data.duplicateFilingsExcluded.units)} duplicate unit filing(s) already excluded — a unit rented from its registered owner is counted once, not twice.`
+                : `تم استبعاد ${count(data.duplicateFilingsExcluded.properties)} عقار و${count(data.duplicateFilingsExcluded.units)} وحدة مسجّلة مرتين — الوحدة المؤجَّرة من مالكها المسجَّل تُحتسب مرة واحدة فقط.`}
+            </p>
+          ) : null}
         </FoldSection>
 
         {/* ── Charts ────────────────────────────────────────────────── */}

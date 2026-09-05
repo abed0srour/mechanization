@@ -336,6 +336,16 @@ export interface DashboardAnalytics {
   unitsByType: Record<string, number>;
   unitTotal: number;
 
+  /**
+   * How many property/unit rows were already excluded as duplicate filings —
+   * a TENANT/FREE_OCCUPANT registration of a unit an OWNER already registered
+   * under the same رقم العقار (the same apartment, filed twice).
+   */
+  duplicateFilingsExcluded: {
+    properties: number;
+    units: number;
+  };
+
   billedTotal: number;
   collectedTotal: number;
   outstandingTotal: number;
