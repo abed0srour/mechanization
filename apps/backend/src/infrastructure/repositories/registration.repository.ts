@@ -127,6 +127,7 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
             */
             status: input.status,
             flaggedFields: input.flaggedFields as never,
+            createdById: input.createdById ?? null,
             clientSubmissionId: input.clientSubmissionId ?? null,
           },
           select: { id: true, referenceNumber: true },

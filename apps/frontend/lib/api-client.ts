@@ -11,7 +11,10 @@ import type {
   FeeFrequency,
   FieldFlag,
   ImportRow,
+  InspectorPayoutItem,
+  InspectorProfileResponse,
   NumberingSequence,
+  RecordInspectorPayoutInput,
   SequenceKey,
 } from '@mechanization/shared-schemas';
 
@@ -972,6 +975,12 @@ export interface StaffSummary {
   hasConfirmedTotp?: boolean;
   /** Audit entries + reviewed registrations. A permanent delete needs zero. */
   historyCount: number;
+  /** Performance & commission metrics for field inspectors */
+  registeredCitizensCount?: number;
+  registeredPropertiesCount?: number;
+  totalEarnings?: number;
+  paidBalance?: number;
+  pendingBalance?: number;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -1038,6 +1047,49 @@ export function deleteStaff(tenant: string, token: string, id: string) {
     token,
     method: 'DELETE',
   });
+}
+
+/** Field Inspector self-service dashboard & performance summary */
+export function getMyInspectorProfile(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<InspectorProfileResponse>(tenant, '/staff/inspector/me/profile', {
+    token,
+    signal,
+  });
+}
+
+/** Super Admin (or Inspector) viewing an inspector profile dashboard */
+export function getInspectorProfile(
+  tenant: string,
+  token: string,
+  id: string,
+  signal?: AbortSignal,
+) {
+  return apiFetch<InspectorProfileResponse>(
+    tenant,
+    `/staff/inspectors/${encodeURIComponent(id)}/profile`,
+    {
+      token,
+      signal,
+    },
+  );
+}
+
+/** Super Admin records a commission payment made to an inspector */
+export function recordInspectorPayout(
+  tenant: string,
+  token: string,
+  id: string,
+  input: RecordInspectorPayoutInput,
+) {
+  return apiFetch<InspectorPayoutItem>(
+    tenant,
+    `/staff/inspectors/${encodeURIComponent(id)}/payouts`,
+    {
+      token,
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export interface AuditEntry {

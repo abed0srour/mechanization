@@ -318,6 +318,93 @@ export class PrismaUserRepository implements UserRepository {
       createdAt: row.createdAt.toISOString(),
       lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
     }));
+    const staffIds = rows.map((r) => r.id);
+
+    // Query registrations created by each staff member (field inspector)
+    const registrations = await this.db.registration.findMany({
+      where: { createdById: { in: staffIds } },
+      select: {
+        id: true,
+        createdById: true,
+        citizenId: true,
+        properties: {
+          select: {
+            id: true,
+            propertyType: true,
+            units: {
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+
+    const inspectorStats = new Map<string, { citizens: Set<string>; propertyCount: number }>();
+    for (const reg of registrations) {
+      if (!reg.createdById) continue;
+      let stat = inspectorStats.get(reg.createdById);
+      if (!stat) {
+        stat = { citizens: new Set(), propertyCount: 0 };
+        inspectorStats.set(reg.createdById, stat);
+      }
+      stat.citizens.add(reg.citizenId);
+      for (const p of reg.properties) {
+        if (p.propertyType === 'BUILDING' && p.units.length > 0) {
+          stat.propertyCount += p.units.length;
+        } else {
+          stat.propertyCount += 1;
+        }
+      }
+    }
+
+    // Query recorded payouts for each inspector
+    const payouts = await this.db.inspectorPayout.findMany({
+      where: { inspectorId: { in: staffIds } },
+      select: {
+        inspectorId: true,
+        amount: true,
+      },
+    });
+
+    const payoutSums = new Map<string, number>();
+    for (const p of payouts) {
+      payoutSums.set(p.inspectorId, (payoutSums.get(p.inspectorId) ?? 0) + Number(p.amount));
+    }
+
+    return rows.map((row) => {
+      const stats = inspectorStats.get(row.id);
+      const regCitizens = stats ? stats.citizens.size : 0;
+      const regProperties = stats ? stats.propertyCount : 0;
+      const totalEarnings = regProperties * 1.0;
+      const paid = payoutSums.get(row.id) ?? 0;
+      const pending = Math.max(0, totalEarnings - paid);
+
+      return {
+        id: row.id,
+        email: row.email ?? '',
+        fullName: `${row.firstName} ${row.lastName}`,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        role: row.role as StaffRole,
+        isActive: row.isActive,
+        hasConfirmedTotp: Boolean(row.totpConfirmedAt),
+        historyCount:
+          row._count.reviewedRegistrations +
+          row._count.reviewedPayments +
+          row._count.collectedPayments +
+          row._count.collectedTransactions +
+          row._count.recordedTransactions +
+          row._count.issuedFeeNotices +
+          (auditByActor.get(row.id) ?? 0),
+        registeredCitizensCount: regCitizens,
+        registeredPropertiesCount: regProperties,
+        totalEarnings,
+        paidBalance: paid,
+        pendingBalance: pending,
+        createdAt: row.createdAt.toISOString(),
+        lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+      };
+    });
   }
 
   async createStaff(input: {

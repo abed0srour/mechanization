@@ -5,18 +5,25 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
+  BadgeDollarSign,
   Ban,
   Check,
   CheckCircle2,
+  Clock,
   Copy,
+  HandCoins,
+  Home,
   KeyRound,
   Loader2,
   Mail,
   Pencil,
   RotateCcw,
   Trash2,
+  TrendingUp,
   UserPlus,
+  Users,
   UsersRound,
+  Wallet,
 } from 'lucide-react';
 import { getLabels } from '@mechanization/shared-schemas';
 import {
@@ -343,6 +350,36 @@ export default function StaffPage({
           ),
       },
       {
+        id: 'fieldStats',
+        header: locale === 'en' ? 'Field Registrations' : 'المسح الميداني والعقارات',
+        cell: ({ row }) => {
+          const staff = row.original;
+          if (staff.role !== 'FIELD_INSPECTOR') {
+            return <span className="text-muted-foreground text-xs">—</span>;
+          }
+          const citizens = staff.registeredCitizensCount ?? 0;
+          const properties = staff.registeredPropertiesCount ?? 0;
+          const earnings = staff.totalEarnings ?? 0;
+
+          return (
+            <div className="flex flex-col gap-1 text-xs">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {citizens} {locale === 'en' ? 'citizens' : 'مواطن'}
+                </span>
+                <span className="text-muted-foreground">•</span>
+                <span className="text-blue-600 dark:text-blue-400">
+                  {properties} {locale === 'en' ? 'properties' : 'عقار'}
+                </span>
+              </div>
+              <div className="text-[11px] text-muted-foreground font-medium" dir="ltr">
+                ${earnings.toFixed(2)} USD
+              </div>
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: 'lastLoginAt',
         header: locale === 'en' ? 'Last Login' : 'آخر دخول',
         cell: ({ row }) =>
@@ -363,6 +400,20 @@ export default function StaffPage({
 
           return (
             <div className="flex items-center gap-1.5">
+              {staff.role === 'FIELD_INSPECTOR' ? (
+                <ActionTooltip label={locale === 'en' ? 'Performance & Earnings Dashboard' : 'لوحة الأداء والعمولات ($1/عقار)'}>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    className="border-emerald-600/30 text-emerald-700 bg-emerald-600/5 hover:bg-emerald-600/15 dark:text-emerald-400 dark:border-emerald-500/30"
+                    aria-label={locale === 'en' ? 'Performance & Earnings' : 'لوحة الأداء والعمولات'}
+                    onClick={() => router.push(`${base}/inspector/profile?inspectorId=${staff.id}`)}
+                  >
+                    <BadgeDollarSign className="size-4" aria-hidden />
+                  </Button>
+                </ActionTooltip>
+              ) : null}
+
               <ActionTooltip label={locale === 'en' ? 'Edit' : 'تعديل'}>
                 <Button
                   variant="secondary"
@@ -469,6 +520,128 @@ export default function StaffPage({
           {error}
         </p>
       ) : null}
+
+      {/* Field Inspectors Individual Performance Overview */}
+      {(() => {
+        const inspectors = items.filter((s) => s.role === 'FIELD_INSPECTOR');
+        if (inspectors.length === 0) return null;
+
+        return (
+          <Card className="border-border/70 overflow-hidden">
+            <CardHeader className="border-b pb-4 bg-muted/20">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base font-bold">
+                    <BadgeDollarSign className="size-5 text-primary" />
+                    {locale === 'en'
+                      ? 'Field Inspectors Performance & Commissions ($1/Property)'
+                      : 'أداء المفتشين الميدانيين وإحصاءات المسح والعمولات (1$ لكل عقار)'}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {locale === 'en'
+                      ? 'Individual counts of registered citizens and properties per inspector'
+                      : 'عدد المواطنين والعقارات المسجلة لكل مفتش ميداني على حدة مع تفاصيل العمولات المستحقة'}
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+                {inspectors.map((insp) => {
+                  const citizens = insp.registeredCitizensCount ?? 0;
+                  const properties = insp.registeredPropertiesCount ?? 0;
+                  const earnings = insp.totalEarnings ?? 0;
+                  const pending = insp.pendingBalance ?? 0;
+
+                  return (
+                    <div
+                      key={insp.id}
+                      className="flex flex-col justify-between rounded-xl border bg-card p-4 hover:shadow-sm transition-shadow space-y-3"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary font-bold">
+                            {insp.firstName.charAt(0)}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-sm">{insp.fullName}</h3>
+                            <p className="text-[11px] text-muted-foreground" dir="ltr">
+                              {insp.email}
+                            </p>
+                          </div>
+                        </div>
+                        {insp.isActive ? (
+                          <Badge variant="outline" className="text-[10px] border-emerald-600/30 text-emerald-700 bg-emerald-600/10">
+                            {locale === 'en' ? 'Active' : 'فعّال'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-destructive">
+                            {locale === 'en' ? 'Disabled' : 'معطّل'}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t text-xs">
+                        <div className="flex flex-col bg-muted/30 p-2 rounded-lg">
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            <Users className="size-3 text-emerald-600" />
+                            {locale === 'en' ? 'Citizens' : 'المواطنون'}
+                          </span>
+                          <span className="font-bold text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
+                            {citizens} {locale === 'en' ? 'cit.' : 'مواطن'}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col bg-muted/30 p-2 rounded-lg">
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            <Home className="size-3 text-blue-600" />
+                            {locale === 'en' ? 'Properties' : 'العقارات'}
+                          </span>
+                          <span className="font-bold text-sm text-blue-600 dark:text-blue-400 mt-0.5">
+                            {properties} {locale === 'en' ? 'prop.' : 'عقار'}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col bg-muted/30 p-2 rounded-lg">
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            <TrendingUp className="size-3 text-purple-600" />
+                            {locale === 'en' ? 'Earnings' : 'الأرباح'}
+                          </span>
+                          <span className="font-bold text-xs mt-0.5" dir="ltr">
+                            ${earnings.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col bg-muted/30 p-2 rounded-lg">
+                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            <Clock className="size-3 text-amber-600" />
+                            {locale === 'en' ? 'Pending' : 'المتبقي'}
+                          </span>
+                          <span className="font-bold text-xs text-amber-600 dark:text-amber-400 mt-0.5" dir="ltr">
+                            ${pending.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs gap-1.5 border-primary/20 hover:bg-primary/5 text-primary"
+                          onClick={() => router.push(`${base}/inspector/profile?inspectorId=${insp.id}`)}
+                        >
+                          <BadgeDollarSign className="size-3.5" />
+                          {locale === 'en' ? 'View Dashboard & Payouts' : 'عرض لوحة الأرباح والدفعات'}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Card className="overflow-hidden">
         <CardHeader className="border-b">

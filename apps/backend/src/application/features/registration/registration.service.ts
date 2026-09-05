@@ -107,6 +107,7 @@ export class RegistrationService {
   async submit(input: {
     tenantSlug: string;
     payload: AdminCitizenSubmission;
+    createdById?: string;
   }): Promise<SubmitResult> {
     const tenant = await this.tenants.resolve(input.tenantSlug);
 
@@ -220,6 +221,7 @@ export class RegistrationService {
       properties,
       status: statusForFlags(flags),
       flaggedFields: flags,
+      createdById: input.createdById,
       clientSubmissionId: input.payload.clientSubmissionId,
     });
 

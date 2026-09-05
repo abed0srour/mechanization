@@ -1,13 +1,16 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   createStaffUserSchema,
+  recordInspectorPayoutSchema,
   staffActiveSchema,
   updateStaffUserSchema,
 } from '@mechanization/shared-schemas';
+import type { RecordInspectorPayoutInput } from '@mechanization/shared-schemas';
 import { StaffService } from '../../application/features/staff/staff.service';
 import { ZodValidationPipe } from '../../application/common/pipes/zod-validation.pipe';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { Roles } from '../decorators/roles.decorator';
+import { ForbiddenError } from '../../application/common/exceptions';
 import type { SessionClaims } from '../../application/features/identity/identity.service';
 import type { StaffRole } from '../../domain/entities/user.entity';
 
@@ -104,5 +107,54 @@ export class StaffController {
       actor: { id: user.sub, role: user.role ?? '' },
     });
     return { deleted: true };
+  }
+
+  /**
+   * Field Inspector self-service dashboard: stats, $1 commission earnings,
+   * balance breakdown, recent registrations, and payout history.
+   */
+  @Roles('FIELD_INSPECTOR', 'SUPER_ADMIN')
+  @Get('inspector/me/profile')
+  async getMyProfile(
+    @Param('tenantSlug') tenantSlug: string,
+    @CurrentUser() user: SessionClaims,
+  ) {
+    return this.staff.getInspectorProfile(tenantSlug, user.sub);
+  }
+
+  /**
+   * Super Admin (or the Inspector themselves) viewing an inspector's dashboard.
+   */
+  @Roles('SUPER_ADMIN', 'FIELD_INSPECTOR')
+  @Get('inspectors/:id/profile')
+  async getInspectorProfile(
+    @Param('tenantSlug') tenantSlug: string,
+    @Param('id') id: string,
+    @CurrentUser() user: SessionClaims,
+  ) {
+    if (user.role !== 'SUPER_ADMIN' && user.sub !== id) {
+      throw new ForbiddenError('You do not have permission to view this inspector profile');
+    }
+    return this.staff.getInspectorProfile(tenantSlug, id);
+  }
+
+  /**
+   * Super Admin records a commission payout made to a Field Inspector.
+   */
+  @Roles('SUPER_ADMIN')
+  @Post('inspectors/:id/payouts')
+  async recordPayout(
+    @Param('tenantSlug') tenantSlug: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(recordInspectorPayoutSchema))
+    body: RecordInspectorPayoutInput,
+    @CurrentUser() user: SessionClaims,
+  ) {
+    return this.staff.recordInspectorPayout({
+      tenantSlug,
+      inspectorId: id,
+      payload: body,
+      actor: { id: user.sub, role: user.role ?? '' },
+    });
   }
 }

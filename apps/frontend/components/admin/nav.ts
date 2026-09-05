@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  BadgeDollarSign,
   KeyRound,
   LayoutDashboard,
   Layers,
@@ -65,6 +66,14 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: LayoutDashboard,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
         keywords: ['مؤشرات', 'تحليلات', 'إحصاءات', 'dashboard', 'analytics'],
+      },
+      {
+        path: '/inspector/profile',
+        label: 'أرباحي والمسح الميداني',
+        labelEn: 'Inspector Earnings',
+        icon: BadgeDollarSign,
+        roles: ['FIELD_INSPECTOR', 'SUPER_ADMIN'],
+        keywords: ['أرباح', 'عمولة', 'مفتش', 'مسح', 'عقارات', 'inspector', 'earnings'],
       },
       // Directly under the dashboard: the dashboard reports on the register,
       // and this is the register itself — one row per person.

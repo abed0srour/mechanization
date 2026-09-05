@@ -124,6 +124,12 @@ export interface StaffSummary {
   hasConfirmedTotp?: boolean;
   /** Drives whether the UI may offer a permanent delete. */
   historyCount: number;
+  /** Performance & commission metrics for field inspectors */
+  registeredCitizensCount?: number;
+  registeredPropertiesCount?: number;
+  totalEarnings?: number;
+  paidBalance?: number;
+  pendingBalance?: number;
   createdAt: string;
   lastLoginAt: string | null;
 }

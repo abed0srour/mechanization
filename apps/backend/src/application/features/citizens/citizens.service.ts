@@ -585,6 +585,7 @@ export class CitizensService {
     const result = await this.registrations.submit({
       tenantSlug: input.tenantSlug,
       payload: input.payload,
+      createdById: input.actor.id,
     });
 
     // A re-delivered offline submission created nothing, so it is not a change
