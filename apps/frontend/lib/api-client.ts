@@ -307,14 +307,19 @@ export interface DashboardAnalytics {
   /** Household records on file — one row per registered citizen. */
   citizenRecords: number;
   /**
-   * عدد السكان: the sum of every household's عدد أفراد الأسرة, i.e. the
-   * population as declared rather than a headcount of portal accounts.
+   * العدد الفعلي لسكان البلدة — sum of every household's actual household
+   * members, i.e. the real, deduplicated population as declared (excluding
+   * married children counted under their own branched-off household).
    */
   populationTotal: number;
+  /** إجمالي المسجلين في سجلات النفوس — sum of totalRegisteredMembers (gross). */
+  grossRegisteredTotal: number;
+  /** إجمالي الأبناء المتزوجين المؤسسين لأسر — sum(total - actual). */
+  marriedOffspringTotal: number;
   /**
-   * Households with no declared family size. They contribute nothing to
-   * `populationTotal`, so it is understated by at least this many people —
-   * surfaced in the UI rather than silently rounded to zero.
+   * Households with no declared actual household size. They contribute
+   * nothing to `populationTotal`, so it is understated by at least this many
+   * people — surfaced in the UI rather than silently rounded to zero.
    */
   householdsWithoutSize: number;
   familySizes: Array<{ size: number; households: number }>;
@@ -622,7 +627,9 @@ export interface CitizenProfile {
   identityDocType: string | null;
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
-  familySize: number | null;
+  totalRegisteredMembers: number | null;
+  actualHouseholdMembers: number | null;
+  marriedChildrenCount: number | null;
   maritalStatus: string | null;
   bloodType: string | null;
   referenceNumber: string | null;
@@ -664,7 +671,9 @@ export interface MyCitizenSummary {
   residentStatus: string | null;
   maritalStatus: string | null;
   bloodType: string | null;
-  familySize: number | null;
+  totalRegisteredMembers: number | null;
+  actualHouseholdMembers: number | null;
+  marriedChildrenCount: number | null;
   identityDocType: string | null;
   /**
    * Tail only — `•••567`. The full number is never sent to this route; see the

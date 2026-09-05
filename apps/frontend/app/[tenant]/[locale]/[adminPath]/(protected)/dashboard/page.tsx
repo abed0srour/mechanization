@@ -552,6 +552,14 @@ export default function StaffDashboard({
                 label={tDashboard('kpiCommonFamily')}
                 value={household ? (locale === 'en' ? `${household.mode} members` : `${household.mode} أفراد`) : '—'}
               />
+              <DetailRow
+                label={tDashboard('kpiGrossRegistered')}
+                value={count(data?.grossRegisteredTotal)}
+              />
+              <DetailRow
+                label={tDashboard('kpiMarriedOffspring')}
+                value={count(data?.marriedOffspringTotal)}
+              />
             </dl>
             {data && data.householdsWithoutSize > 0 ? (
               <p className="text-xs leading-relaxed text-muted-foreground">

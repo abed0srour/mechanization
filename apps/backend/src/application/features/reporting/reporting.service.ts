@@ -25,7 +25,9 @@ export interface DashboardAnalytics {
   /** Household records on file — one row per registered citizen. */
   citizenRecords: number;
   /**
-   * عدد السكان: the sum of every household's عدد أفراد الأسرة.
+   * العدد الفعلي لسكان البلدة — sum(actualHouseholdMembers): the real, deduplicated
+   * population, excluding married children who have branched into their own
+   * household (and so are counted once, under that household, not twice).
    *
    * This is the municipality's population as it has actually been declared,
    * not a headcount of portal accounts — one registration speaks for a whole
@@ -34,13 +36,25 @@ export interface DashboardAnalytics {
    */
   populationTotal: number;
   /**
-   * Households whose family size was never recorded. Reported rather than
-   * hidden: they contribute nothing to `populationTotal`, so the figure is
-   * understated by at least this many people, and a dashboard that quietly
-   * rounded them to zero would be lying by omission.
+   * إجمالي المسجلين في سجلات النفوس — sum(totalRegisteredMembers): the gross
+   * civil-registry headcount, including every married child still listed on
+   * their parents' إخراج قيد. Always >= `populationTotal`.
+   */
+  grossRegisteredTotal: number;
+  /**
+   * إجمالي الأبناء المتزوجين المؤسسين لأسر — sum(totalRegisteredMembers -
+   * actualHouseholdMembers): how much of the gross registry total is married
+   * children who no longer live in the household they're still filed under.
+   */
+  marriedOffspringTotal: number;
+  /**
+   * Households whose actual household size was never recorded. Reported
+   * rather than hidden: they contribute nothing to `populationTotal`, so the
+   * figure is understated by at least this many people, and a dashboard that
+   * quietly rounded them to zero would be lying by omission.
    */
   householdsWithoutSize: number;
-  /** One entry per distinct declared household size. */
+  /** One entry per distinct actual household size. */
   familySizes: Array<{ size: number; households: number }>;
 
   /**
@@ -298,7 +312,9 @@ export interface CitizenProfile {
   identityDocType: string | null;
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
-  familySize: number | null;
+  totalRegisteredMembers: number | null;
+  actualHouseholdMembers: number | null;
+  marriedChildrenCount: number | null;
   maritalStatus: string | null;
   bloodType: string | null;
   referenceNumber: string | null;
@@ -437,16 +453,24 @@ export class ReportingService {
         SELECT
           (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN')
             AS "citizenRecords",
-          (SELECT COALESCE(sum("familySize"), 0)::int FROM users WHERE kind = 'CITIZEN')
+          (SELECT COALESCE(sum("actualHouseholdMembers"), 0)::int FROM users WHERE kind = 'CITIZEN')
             AS "populationTotal",
-          (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN' AND "familySize" IS NULL)
+          (SELECT COALESCE(sum("totalRegisteredMembers"), 0)::int FROM users WHERE kind = 'CITIZEN')
+            AS "grossRegisteredTotal",
+          (SELECT COALESCE(sum("totalRegisteredMembers" - "actualHouseholdMembers"), 0)::int
+             FROM users
+            WHERE kind = 'CITIZEN'
+              AND "totalRegisteredMembers" IS NOT NULL
+              AND "actualHouseholdMembers" IS NOT NULL)
+            AS "marriedOffspringTotal",
+          (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN' AND "actualHouseholdMembers" IS NULL)
             AS "householdsWithoutSize",
           (SELECT COALESCE(
                     json_agg(json_build_object('size', size, 'households', c) ORDER BY size),
                     '[]'::json)
-             FROM (SELECT "familySize" AS size, count(*)::int AS c
+             FROM (SELECT "actualHouseholdMembers" AS size, count(*)::int AS c
                      FROM users
-                    WHERE kind = 'CITIZEN' AND "familySize" IS NOT NULL
+                    WHERE kind = 'CITIZEN' AND "actualHouseholdMembers" IS NOT NULL
                     GROUP BY 1) f)
             AS "familySizes",
           (SELECT COALESCE(json_object_agg("propertyType", cnt), '{}'::json)
@@ -612,7 +636,8 @@ export class ReportingService {
         identityDocType: true,
         identityDocNumber: true,
         civilRecordNumber: true,
-        familySize: true,
+        totalRegisteredMembers: true,
+        actualHouseholdMembers: true,
         maritalStatus: true,
         bloodType: true,
         referenceNumber: true,
@@ -757,7 +782,12 @@ export class ReportingService {
       identityDocType: citizen.identityDocType,
       identityDocNumber: citizen.identityDocNumber,
       civilRecordNumber: citizen.civilRecordNumber,
-      familySize: citizen.familySize,
+      totalRegisteredMembers: citizen.totalRegisteredMembers,
+      actualHouseholdMembers: citizen.actualHouseholdMembers,
+      marriedChildrenCount:
+        citizen.totalRegisteredMembers != null && citizen.actualHouseholdMembers != null
+          ? citizen.totalRegisteredMembers - citizen.actualHouseholdMembers
+          : null,
       maritalStatus: citizen.maritalStatus,
       bloodType: citizen.bloodType,
       referenceNumber: citizen.referenceNumber,
@@ -1100,7 +1130,8 @@ export class ReportingService {
       'citizen_name',
       'phone',
       'resident_status',
-      'family_size',
+      'total_registered_members',
+      'actual_household_members',
       'property_number',
       'property_type',
       'occupancy_type',
@@ -1132,7 +1163,8 @@ export class ReportingService {
               lastName: true,
               phone: true,
               residentStatus: true,
-              familySize: true,
+              totalRegisteredMembers: true,
+              actualHouseholdMembers: true,
             },
           },
           properties: {
@@ -1181,7 +1213,8 @@ export class ReportingService {
                 name,
                 row.citizen.phone ?? '',
                 row.citizen.residentStatus ?? '',
-                row.citizen.familySize ?? '',
+                row.citizen.totalRegisteredMembers ?? '',
+                row.citizen.actualHouseholdMembers ?? '',
                 property?.propertyNumber ?? '',
                 property?.propertyType ?? '',
                 property?.occupancyType ?? '',

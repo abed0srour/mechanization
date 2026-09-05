@@ -106,7 +106,8 @@ model User {
   identityDocType   IdentityDocType?
   identityDocNumber String?
   civilRecordNumber String?
-  familySize        Int?
+  totalRegisteredMembers Int?
+  actualHouseholdMembers Int?
   maritalStatus     MaritalStatus?
   bloodType         BloodType?
 

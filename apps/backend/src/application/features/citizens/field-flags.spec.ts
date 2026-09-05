@@ -34,7 +34,8 @@ const complete = () => ({
     maritalStatus: 'MARRIED',
     phone: '03 123456',
     whatsappSameAsPhone: true,
-    familySize: '4',
+    totalRegisteredMembers: '4',
+    actualHouseholdMembers: '4',
   } as Record<string, unknown>,
   properties: [
     {
@@ -64,7 +65,8 @@ describe('citizen submission — no flags', () => {
 
     // The strict schema's own coercions still happen on the flag-aware path.
     expect(result.data.contact.phone).toBe('+9613123456');
-    expect(result.data.contact.familySize).toBe(4);
+    expect(result.data.contact.totalRegisteredMembers).toBe(4);
+    expect(result.data.contact.actualHouseholdMembers).toBe(4);
     expect(result.data.properties[0]?.unitArea).toBe(250);
   });
 

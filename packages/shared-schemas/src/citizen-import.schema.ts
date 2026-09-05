@@ -54,7 +54,8 @@ export const IMPORT_COLUMN_KEYS = [
   'maritalStatus',
   'phone',
   'whatsapp',
-  'familySize',
+  'totalRegisteredMembers',
+  'actualHouseholdMembers',
   'occupancyType',
   'landlordName',
   'landlordPhone',
@@ -132,7 +133,18 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   },
   { key: 'phone', header: 'رقم الهاتف', hint: 'مثال: 03123456', always: true },
   { key: 'whatsapp', header: 'رقم الواتساب', hint: 'اتركه فارغاً إن كان نفس الهاتف' },
-  { key: 'familySize', header: 'عدد أفراد الأسرة', hint: 'رقم، بمن فيهم المواطن', always: true },
+  {
+    key: 'totalRegisteredMembers',
+    header: 'عدد أفراد الأسرة الإجمالي',
+    hint: 'شاملاً الأبناء المتزوجين',
+    always: true,
+  },
+  {
+    key: 'actualHouseholdMembers',
+    header: 'عدد أفراد الأسرة الفعليين',
+    hint: 'باستثناء الأبناء المتزوجين المستقلين',
+    always: true,
+  },
   {
     key: 'occupancyType',
     header: 'نوع الإشغال',
@@ -349,7 +361,12 @@ export function buildCitizenPayload(row: ImportRow): unknown {
       // WhatsApp": the contact schema copies the phone across when this is on.
       whatsappSameAsPhone: whatsapp === undefined,
       whatsapp,
-      familySize: text(row.familySize) ? normalizeDigits(text(row.familySize)!) : undefined,
+      totalRegisteredMembers: text(row.totalRegisteredMembers)
+        ? normalizeDigits(text(row.totalRegisteredMembers)!)
+        : undefined,
+      actualHouseholdMembers: text(row.actualHouseholdMembers)
+        ? normalizeDigits(text(row.actualHouseholdMembers)!)
+        : undefined,
     },
     properties: [property],
   };

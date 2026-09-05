@@ -72,7 +72,8 @@ export class PrismaRegistrationRepository implements RegistrationRepository {
       residencyNumber: input.citizen.residencyNumber ?? null,
       residentStatus: (input.citizen.residentStatus ?? null) as never,
       civilRecordNumber: input.citizen.civilRecordNumber ?? null,
-      familySize: input.citizen.familySize ?? null,
+      totalRegisteredMembers: input.citizen.totalRegisteredMembers ?? null,
+      actualHouseholdMembers: input.citizen.actualHouseholdMembers ?? null,
       maritalStatus: (input.citizen.maritalStatus ?? null) as never,
       bloodType: (input.citizen.bloodType ?? null) as never,
     };

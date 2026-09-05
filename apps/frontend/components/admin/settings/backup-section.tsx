@@ -205,7 +205,8 @@ function nextRunAt(schedule: ScheduleSettings, from: Date): Date | null {
  * Restore is real, and lives in its own card on the restorable snapshot — not
  * on the CSV archive, which is a report: it exports what the API returns (a
  * joined `fullName`, computed totals) and cannot be written back into tables
- * that want `firstName`/`middleName`/`lastName`, `gender` and `familySize`.
+ * that want `firstName`/`middleName`/`lastName`, `gender` and
+ * `totalRegisteredMembers`/`actualHouseholdMembers`.
  * The CSV panel says so where the file is dropped.
  *
  * The snapshot flow rehearses before it writes. The rehearsal is a real request

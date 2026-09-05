@@ -33,7 +33,8 @@ const BASE: ImportRow = {
   civilRecordNumber: '12',
   maritalStatus: 'متزوج',
   phone: '03123456',
-  familySize: '5',
+  totalRegisteredMembers: '5',
+  actualHouseholdMembers: '5',
   occupancyType: 'مالك',
   neighborhood: 'الحي الشرقي',
   propertyNumber: '1024',
@@ -153,8 +154,15 @@ describe('buildCitizenPayload — how a register is actually typed', () => {
   });
 
   it('reads Arabic-Indic digits in numeric columns', () => {
-    const data = expectAccepted({ ...BASE, ...house, familySize: '٤', unitArea: '١٥٠' });
-    expect(data.contact.familySize).toBe(4);
+    const data = expectAccepted({
+      ...BASE,
+      ...house,
+      totalRegisteredMembers: '٤',
+      actualHouseholdMembers: '٤',
+      unitArea: '١٥٠',
+    });
+    expect(data.contact.totalRegisteredMembers).toBe(4);
+    expect(data.contact.actualHouseholdMembers).toBe(4);
     expect(data.properties[0]).toMatchObject({ unitArea: 150 });
   });
 
@@ -193,7 +201,11 @@ describe('buildCitizenPayload — rows the form would reject', () => {
     ['a missing name', { ...BASE, ...house, firstName: '' }],
     ['a missing father name', { ...BASE, ...house, middleName: '' }],
     ['a missing blood type', { ...BASE, ...house, bloodType: '' }],
-    ['a household size of zero', { ...BASE, ...house, familySize: '0' }],
+    ['a total registered members of zero', { ...BASE, ...house, totalRegisteredMembers: '0' }],
+    [
+      'actual household members exceeding total registered',
+      { ...BASE, ...house, totalRegisteredMembers: '3', actualHouseholdMembers: '5' },
+    ],
   ])('rejects %s', (_label, row) => {
     expect(parse(row as ImportRow).success).toBe(false);
   });

@@ -30,7 +30,8 @@ export interface CitizenIdentityInput {
   identityDocNumber?: string;
   /** رقم السجل — meaningless outside the Lebanese civil registry. */
   civilRecordNumber?: string;
-  familySize?: number;
+  totalRegisteredMembers?: number;
+  actualHouseholdMembers?: number;
   maritalStatus?: string;
   bloodType?: string;
 }

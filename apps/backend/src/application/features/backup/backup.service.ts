@@ -119,7 +119,7 @@ export interface RestoreReport {
  * the browser is a *report* — it exports what the API returns (a joined
  * `fullName`, computed totals like `feesTotal`) and cannot be read back into
  * tables that want `firstName`/`middleName`/`lastName`, `gender` and
- * `familySize`. Both are worth having, and confusing them is how a
+ * `totalRegisteredMembers`/`actualHouseholdMembers`. Both are worth having, and confusing them is how a
  * municipality discovers at the worst moment that its backups restore nothing.
  * This one reads and writes table rows.
  *
