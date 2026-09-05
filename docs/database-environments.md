@@ -36,7 +36,7 @@ that reads ambient configuration and guesses.
 Authoring a migration is unchanged:
 
 ```bash
-pnpm db:migrate               # registry: prisma migrate dev
+pnpm db:migrate               # registry: prisma migrate dev --create-only
 pnpm db:migrate:tenant        # tenant:  prisma migrate dev --create-only
 ```
 
@@ -203,6 +203,34 @@ including the step everyone forgets, which is deleting the file afterwards.
 
 `JWT_SECRET` **must differ between staging and production.** Sharing it means a
 token minted by staging is accepted by production.
+
+### Vercel
+
+The deployed API reads its configuration from Vercel's environment variables,
+not from anything in this repository or in GitHub secrets. That is a third
+surface, and it is the one that decides which database real traffic reaches.
+
+Every variable on `mechanization-api` used to be scoped `[production, preview]`,
+which meant every pull-request preview deployment read and wrote the production
+database. These five are now split, and must stay split:
+
+| Variable | Production scope | Preview scope |
+| --- | --- | --- |
+| `DATABASE_URL` | `thbgwfbcqdougbjvgvyw` | `lzgbjcwtzqyrbeoolvdz` |
+| `DIRECT_URL` | `thbgwfbcqdougbjvgvyw` | `lzgbjcwtzqyrbeoolvdz` |
+| `SUPABASE_URL` | `thbgwfbcqdougbjvgvyw` | `lzgbjcwtzqyrbeoolvdz` |
+| `SUPABASE_SERVICE_ROLE_KEY` | production key | staging key |
+| `JWT_SECRET` | production secret | staging secret |
+
+When adding any new variable that names a database, a bucket or a signing
+secret, scope it to one environment. Ticking both boxes is the same mistake as
+pointing `.env` at production — and unlike that one, no script here can catch
+it, because Vercel's configuration is not visible from the repository.
+
+Still shared, and lower stakes but not zero: `CORS_ORIGINS`, `PUBLIC_API_URL`,
+`PUBLIC_PORTAL_URL`, `CRON_SECRET`. On `mechanization-web`,
+`NEXT_PUBLIC_API_URL` is also shared, so preview builds of the portal call the
+production API.
 
 ---
 
