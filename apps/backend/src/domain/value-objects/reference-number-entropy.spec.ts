@@ -35,11 +35,31 @@ describe('ReferenceNumber.generate — the suffix is a credential', () => {
   it('does not repeat across a batch the size of an import', () => {
     // The citizen import mints these in a loop; a generator seeded once per
     // process would show up here long before it showed up in production.
+    const BATCH = 5_000;
     const seen = new Set<string>();
-    for (let i = 0; i < 5_000; i += 1) {
+    for (let i = 0; i < BATCH; i += 1) {
       seen.add(ReferenceNumber.generate('BZR').value);
     }
-    expect(seen.size).toBe(5_000);
+
+    /**
+     * A threshold, not equality, and the arithmetic is the reason.
+     *
+     * The suffix is six characters from a 32-symbol alphabet: 32^6 ≈ 1.07e9.
+     * Drawing 5,000 values from that space collides with probability
+     * 1 - e^(-5000²/2·1.07e9) ≈ 1.2% — so `toBe(5_000)` fails roughly one run in
+     * eighty-five *while the generator is working perfectly*. Measured over 400
+     * runs of this exact batch: 1.00% produced a duplicate. This suite went red
+     * in CI on 2026-09-05 for precisely that reason.
+     *
+     * A flaky gate is worse than a missing one: it trains people to re-run the
+     * job, and the day it catches something real it gets re-run too. What this
+     * test is actually for is a *broken* generator — one seeded once per
+     * process, or drawing from a fraction of the space — and that does not
+     * produce one duplicate, it produces hundreds. Five is far above the noise
+     * floor (P(≥5) ≈ 2e-12 for a correct generator) and far below anything a
+     * regression would show.
+     */
+    expect(seen.size).toBeGreaterThanOrEqual(BATCH - 5);
   });
 
   it('uses the whole alphabet rather than a slice of it', () => {

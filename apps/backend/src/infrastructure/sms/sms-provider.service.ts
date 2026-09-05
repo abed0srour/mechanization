@@ -27,7 +27,18 @@ export class SmsProviderService implements SmsSender {
     this.fallbackKey = this.config.get<string>('SMS_PROVIDER_FALLBACK_API_KEY');
     this.isProduction = this.config.get<string>('NODE_ENV') === 'production';
 
-    if (!this.hasFallback) {
+    if (this.isProduction && !this.primaryKey) {
+      // `env.schema.ts` no longer refuses to boot over a missing provider — the
+      // keys guaranteed nothing while `deliver()` is unimplemented — so this
+      // line is now the only thing that says it out loud. Logged at error level
+      // on purpose: the system is running with citizen sign-in non-functional,
+      // and that should be visible in the first page of production logs rather
+      // than discovered by a citizen who never receives a code.
+      this.logger.error(
+        'No SMS provider configured in production — every citizen OTP sign-in will fail. ' +
+          'Staff login is unaffected.',
+      );
+    } else if (!this.hasFallback) {
       // Warn at boot, not at 2am on the first outage.
       this.logger.warn(
         'No fallback SMS route configured — a primary-provider outage will block citizen login entirely.',

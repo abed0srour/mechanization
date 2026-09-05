@@ -133,27 +133,29 @@ export const envSchema = z
     }
 
     /**
-     * Lebanese SMS delivery fails often enough that a single provider is a
-     * single point of failure on the login path — and the people locked out are
-     * exactly the ones this system exists to serve. Production refuses to start
-     * without a second route configured.
+     * SMS_PROVIDER_API_KEY and SMS_PROVIDER_FALLBACK_API_KEY used to be demanded
+     * here. They are not any more, and the reason is worth writing down so the
+     * check is restored for the right reason rather than reflexively.
+     *
+     * The original rule — two routes required, because Lebanese SMS delivery
+     * fails often enough that one provider makes the login page a coin flip —
+     * is still the right rule. What it was not is *true*. No provider has been
+     * chosen (docs/open-decisions.md #2), and `SmsProviderService.deliver()`
+     * throws unconditionally: with both keys set, an OTP is no more deliverable
+     * than with neither. The check demanded credentials for a route that cannot
+     * carry a message, so all it actually enforced was that production refused
+     * to boot — which is not the property anyone wanted from it.
+     *
+     * What that leaves, deliberately, is a system that fails closed: OTP is
+     * still mandatory in production (above), so a citizen sign-in attempt errors
+     * instead of succeeding without verification. Citizen login does not work in
+     * production until a provider exists. Staff login is unaffected — it is
+     * password + TOTP and never touches this path.
+     *
+     * Restore both checks in the same change that implements `deliver()`. At
+     * that point the keys mean something, and a deploy without them is once
+     * again a mistake worth refusing to start over.
      */
-    if (!env.SMS_PROVIDER_API_KEY) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['SMS_PROVIDER_API_KEY'],
-        message: 'An SMS provider is required in production — citizen login depends on it',
-      });
-    }
-    if (!env.SMS_PROVIDER_FALLBACK_API_KEY) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['SMS_PROVIDER_FALLBACK_API_KEY'],
-        message:
-          'A fallback SMS route is required in production (see docs/open-decisions.md). ' +
-          'Set it, or deliberately set it equal to the primary key to accept the risk.',
-      });
-    }
   });
 
 export type Env = z.infer<typeof envSchema>;

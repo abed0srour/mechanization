@@ -9,7 +9,7 @@
     "prisma:generate": "pnpm prisma:generate:registry && pnpm prisma:generate:tenant",
     "prisma:generate:registry": "prisma generate --schema src/infrastructure/prisma/registry/schema.prisma",
     "prisma:generate:tenant": "prisma generate --schema src/infrastructure/prisma/tenant/schema.prisma",
-    "prisma:migrate:registry": "prisma migrate dev --schema src/infrastructure/prisma/registry/schema.prisma",
+    "prisma:migrate:registry": "prisma migrate dev --schema src/infrastructure/prisma/registry/schema.prisma --create-only",
     "prisma:migrate:tenant": "prisma migrate dev --schema src/infrastructure/prisma/tenant/schema.prisma --create-only",
     "prisma:deploy:registry": "prisma migrate deploy --schema src/infrastructure/prisma/registry/schema.prisma",
     "tenant:provision": "ts-node -r tsconfig-paths/register src/scripts/provision-tenant.ts",
