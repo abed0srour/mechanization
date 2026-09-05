@@ -5,7 +5,7 @@
  *
  * Runs inside GitHub Actions with the `db-production` environment secrets.
  */
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
