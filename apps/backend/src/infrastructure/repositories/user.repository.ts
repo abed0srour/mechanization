@@ -341,19 +341,15 @@ export class PrismaUserRepository implements UserRepository {
 
     const inspectorStats = new Map<string, { citizens: Set<string>; propertyCount: number }>();
     for (const reg of registrations) {
-      if (!reg.createdById) continue;
-      let stat = inspectorStats.get(reg.createdById);
-      if (typeof reg.createdById !== 'string' || typeof reg.citizenId !== 'string') continue;
-      const createdById: string = reg.createdById;
-      const citizenId: string = reg.citizenId;
-      let stat = inspectorStats.get(createdById);
-      if (!stat) {
-        stat = { citizens: new Set(), propertyCount: 0 };
-        inspectorStats.set(reg.createdById, stat);
-        stat = { citizens: new Set<string>(), propertyCount: 0 };
-        inspectorStats.set(createdById, stat);
-      }
-      stat.citizens.add(reg.citizenId);
+      if (reg.createdById === null) continue;
+      // Prisma's payload type keeps createdById as `string | null` here even after the
+      // guard above, since it's resolved through a deferred generic index type that CFA
+      // can't narrow — the runtime check is still valid, so assert it explicitly.
+      const createdById = reg.createdById as string;
+      const citizenId = reg.citizenId;
+      const existing = inspectorStats.get(createdById);
+      const stat = existing ?? { citizens: new Set<string>(), propertyCount: 0 };
+      if (!existing) inspectorStats.set(createdById, stat);
       stat.citizens.add(citizenId);
       for (const p of reg.properties) {
         if (p.propertyType === 'BUILDING' && p.units.length > 0) {

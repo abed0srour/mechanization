@@ -72,7 +72,6 @@ export const NAV_GROUPS: NavGroup[] = [
         label: 'أرباحي والمسح الميداني',
         labelEn: 'Inspector Earnings',
         icon: BadgeDollarSign,
-        roles: ['FIELD_INSPECTOR', 'SUPER_ADMIN'],
         keywords: ['أرباح', 'عمولة', 'مفتش', 'مسح', 'عقارات', 'inspector', 'earnings'],
       },
       // Directly under the dashboard: the dashboard reports on the register,

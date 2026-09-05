@@ -113,7 +113,7 @@ export class StaffController {
    * Field Inspector self-service dashboard: stats, $1 commission earnings,
    * balance breakdown, recent registrations, and payout history.
    */
-  @Roles('FIELD_INSPECTOR', 'SUPER_ADMIN')
+  @Roles('FIELD_INSPECTOR', 'SUPER_ADMIN', 'ADMINISTRATIVE_OFFICER', 'AUDITOR', 'COLLECTOR', 'ACCOUNTANT')
   @Get('inspector/me/profile')
   async getMyProfile(
     @Param('tenantSlug') tenantSlug: string,

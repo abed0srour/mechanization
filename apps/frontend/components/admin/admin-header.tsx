@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  BadgeDollarSign,
   ChevronLeft,
   Languages,
   LogOut,
@@ -227,6 +228,11 @@ export function AdminHeader({
             ) : null}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+
+          <DropdownMenuItem onSelect={() => router.push(`${base}/inspector/profile`)}>
+            <BadgeDollarSign className="size-4" aria-hidden />
+            <span>{locale === 'en' ? 'My Earnings & Field Work' : 'أرباحي والمسح الميداني'}</span>
+          </DropdownMenuItem>
 
           <DropdownMenuItem onSelect={() => router.push(`${base}/account`)}>
             <ShieldCheck className="size-4" aria-hidden />
