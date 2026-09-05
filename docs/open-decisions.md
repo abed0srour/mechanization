@@ -55,8 +55,13 @@ code has no other way in. The v1 spec had no answer here at all.
   than retrying the one that just failed.
 - A visible resend path with a 30s cooldown, showing the citizen that waiting is
   expected.
-- Production boot **fails** without both keys set (`env.schema.ts`). Setting
-  them equal is an explicit way to accept the single-provider risk.
+- ~~Production boot **fails** without both keys set (`env.schema.ts`).~~
+  **Removed 2026-09-05.** The check demanded credentials for a route that
+  cannot carry a message — `deliver()` throws with both keys set exactly as it
+  does with neither — so all it enforced was a boot failure. Production now
+  starts without them and `SmsProviderService` logs an error at boot instead.
+  Restore the check in the same change that implements `deliver()`; at that
+  point the keys mean something again.
 - The login page tells a citizen who cannot receive a code to visit the
   municipality with their رقم مرجعي.
 

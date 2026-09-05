@@ -39,8 +39,8 @@ Set all of these for **Production** and **Preview**.
 | `JWT_STAFF_REMEMBER_TTL` | `30d` |
 | `JWT_CITIZEN_TTL` | `7d` |
 | `OTP_ENABLED` | `true` — production refuses to boot without it |
-| `SMS_PROVIDER_API_KEY` | Required in production |
-| `SMS_PROVIDER_FALLBACK_API_KEY` | Required in production (see `open-decisions.md` #2) |
+| `SMS_PROVIDER_API_KEY` | Optional and currently inert — no provider is implemented |
+| `SMS_PROVIDER_FALLBACK_API_KEY` | Same (see `open-decisions.md` #2) |
 | `CORS_ORIGINS` | The web project's origin, e.g. `https://mechanization-web.vercel.app` |
 | `PUBLIC_API_URL` | This project's origin + `/api/v1` |
 | `PUBLIC_PORTAL_URL` | The web project's origin |
