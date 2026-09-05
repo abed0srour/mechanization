@@ -202,10 +202,23 @@ repository**. It was installed on the personal account; the new organization has
 no installation, so no webhook fires and Vercel is never told a push happened.
 `repoOwnerId` on the link still pointing at the old owner is the tell.
 
-The fix is on the GitHub side, not in Vercel: install the Vercel app on the new
-organization and grant it access to the repository
-(`github.com/organizations/<org>/settings/installations`), then reconnect the
-project in Vercel so `repoOwnerId` is refreshed.
+The fix has two halves, and **the first one alone does nothing** — this was
+measured, not assumed:
+
+1. Install the Vercel app on the new organization and grant it the repository
+   (`github.com/organizations/<org>/settings/installations`).
+2. In Vercel, **Settings → Git → Disconnect, then Connect** to the new path.
+
+With (1) done and (2) skipped, a push to a fresh branch produced two GitHub
+check-runs and zero Vercel deployments — no failed build, no GitHub deployment
+record, nothing. Vercel matches an incoming event against the owner recorded on
+the project, and until step (2) rewrites `repoOwnerId` the event belongs to an
+owner it does not recognise.
+
+Step (2) is easy to believe you have done, because Vercel's UI shows the project
+as connected throughout. The only reliable confirmation is `link.updatedAt`
+moving and `link.repoOwnerId` changing to the organisation's id — re-run the
+`curl` above and compare.
 
 Two things worth knowing while it is broken: `git push` keeps working through
 GitHub's redirect, so nothing warns you, and `git remote set-url origin` to the
