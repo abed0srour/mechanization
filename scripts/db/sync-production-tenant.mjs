@@ -179,6 +179,14 @@ async function main() {
       await prodClient.query(`TRUNCATE TABLE "${SCHEMA_NAME}"."${table}" CASCADE;`);
 
       if (count > 0) {
+        // Query target columns so we only insert valid schema columns
+        const targetColsRes = await prodClient.query(
+          `SELECT column_name FROM information_schema.columns 
+           WHERE table_schema = $1 AND table_name = $2`,
+          [SCHEMA_NAME, table],
+        );
+        const validCols = new Set(targetColsRes.rows.map((r) => r.column_name));
+
         const sourceData = await stagingClient.query(`SELECT * FROM "${SCHEMA_NAME}"."${table}"`);
         const rows = sourceData.rows;
 
@@ -186,7 +194,7 @@ async function main() {
         const batchSize = 200;
         for (let i = 0; i < rows.length; i += batchSize) {
           const batch = rows.slice(i, i + batchSize);
-          const cols = Object.keys(batch[0]);
+          const cols = Object.keys(batch[0]).filter((c) => validCols.has(c));
           const colList = cols.map((c) => `"${c}"`).join(', ');
 
           const valueStrings = [];
@@ -229,13 +237,19 @@ async function main() {
 
     // 5. Migrate auth.users and auth.identities
     console.log(`\n4. Copying auth.users and auth.identities to production...`);
+    const targetUserColsRes = await prodClient.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema = 'auth' AND table_name = 'users'`,
+    );
+    const validUserCols = new Set(targetUserColsRes.rows.map((r) => r.column_name));
+    validUserCols.delete('confirmed_at'); // generated column
+
     const usersRes = await stagingClient.query('SELECT * FROM auth.users');
     console.log(`  Found ${usersRes.rows.length} users in staging auth.users`);
 
     for (const row of usersRes.rows) {
-      delete row.confirmed_at; // generated column
-      const cols = Object.keys(row);
-      const vals = Object.values(row);
+      const cols = Object.keys(row).filter((c) => validUserCols.has(c));
+      const vals = cols.map((c) => row[c]);
       const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
       const colList = cols.map((c) => `"${c}"`).join(', ');
       const updateSet = cols
@@ -252,13 +266,19 @@ async function main() {
     }
     console.log(`  ✓ ${usersRes.rows.length} users synced to production auth.users`);
 
+    const targetIdentColsRes = await prodClient.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema = 'auth' AND table_name = 'identities'`,
+    );
+    const validIdentCols = new Set(targetIdentColsRes.rows.map((r) => r.column_name));
+    validIdentCols.delete('email'); // generated column
+
     const identitiesRes = await stagingClient.query('SELECT * FROM auth.identities');
     console.log(`  Found ${identitiesRes.rows.length} identities in staging auth.identities`);
 
     for (const row of identitiesRes.rows) {
-      delete row.email; // generated column
-      const cols = Object.keys(row);
-      const vals = Object.values(row);
+      const cols = Object.keys(row).filter((c) => validIdentCols.has(c));
+      const vals = cols.map((c) => row[c]);
       const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
       const colList = cols.map((c) => `"${c}"`).join(', ');
       const updateSet = cols
