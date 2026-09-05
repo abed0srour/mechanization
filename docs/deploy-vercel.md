@@ -175,6 +175,44 @@ These are real behaviour changes, not warnings to skim.
 
 ---
 
+## 5a. If Vercel stops deploying entirely
+
+Symptom: pushes land on GitHub, CI runs, and Vercel produces **no deployment at
+all** — not a failed one, not a queued one. Nothing. The dashboard looks healthy
+because the last successful deploy is still serving.
+
+This happened on 2026-09-05, after the repository was transferred from
+`abed0srour/mechanization` to the `mechnanization` organization. Three pushes
+and a merge to `main` produced zero deployments over four hours.
+
+What it is **not**: a broken project link. Check it before assuming —
+
+```bash
+curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
+  https://api.vercel.com/v9/projects/mechanization-api | jq .link
+```
+
+The `org` and `repo` strings there go stale after a transfer and are cosmetic.
+The field that matters is `repoId`, and GitHub keeps the numeric id across a
+transfer or rename — so `repoId` still matching `gh api repos/:owner/:repo --jq .id`
+means Vercel is watching the right repository and the link is fine.
+
+What it actually is: the **Vercel GitHub App installation does not follow the
+repository**. It was installed on the personal account; the new organization has
+no installation, so no webhook fires and Vercel is never told a push happened.
+`repoOwnerId` on the link still pointing at the old owner is the tell.
+
+The fix is on the GitHub side, not in Vercel: install the Vercel app on the new
+organization and grant it access to the repository
+(`github.com/organizations/<org>/settings/installations`), then reconnect the
+project in Vercel so `repoOwnerId` is refreshed.
+
+Two things worth knowing while it is broken: `git push` keeps working through
+GitHub's redirect, so nothing warns you, and `git remote set-url origin` to the
+new path is worth doing regardless to stop the redirect notice on every push.
+
+---
+
 ## 6. After the first deploy
 
 ```bash
