@@ -158,13 +158,20 @@ These are real behaviour changes, not warnings to skim.
 4. **Cold starts are slow.** A cold instance boots the whole Nest graph and
    connects the registry Prisma client before it answers anything — expect a
    couple of seconds on the first request after idle.
-5. **Migrations are not run by the deploy.** `prisma migrate deploy` and
-   `tenant:migrate-all` are still manual, from a machine with `DIRECT_URL`:
+5. **Migrations are not run by the Vercel deploy.** They are a separate,
+   deliberate step — but no longer a manual pair of commands against whatever
+   `.env` happens to say. Staging migrates itself on every push to `develop`;
+   production is a manual GitHub Actions run behind a reviewer's approval:
 
    ```bash
-   pnpm --filter @mechanization/backend prisma:deploy:registry
-   pnpm --filter @mechanization/backend tenant:migrate-all
+   pnpm db:status:staging        # what is pending, applies nothing
+   pnpm db:deploy:staging        # or let the develop push do it
+   pnpm db:status:production     # dry run against production
    ```
+
+   The full workflow, the checks that stop a deploy reaching the wrong project,
+   and the expand/contract rules for schema changes that cannot lose data are in
+   [database-environments.md](database-environments.md).
 
 ---
 

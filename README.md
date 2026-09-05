@@ -8,8 +8,14 @@ pnpm db:generate
 cp apps/backend/.env.example apps/backend/.env          
 cp apps/frontend/.env.example apps/frontend/.env.local
 
+pnpm db:check    # confirms .env addresses the staging project and nothing else
 pnpm db:seed
 ```
+
+`apps/backend/.env` points at the **staging** Supabase project — there is no
+local Postgres, so `pnpm dev` reads and writes staging. It cannot be pointed at
+production: `pnpm dev` refuses to start if it is. See
+[docs/database-environments.md](docs/database-environments.md).
 
 ## Run everything at once
 
@@ -83,10 +89,23 @@ gets its enrolment secret in the same response.
 ```bash
 pnpm --filter @mechanization/backend test              
 pnpm --filter @mechanization/backend cadastre:import --slug <slug> --file <path.kmz>
-pnpm --filter @mechanization/backend tenant:migrate-all
 pnpm --filter @mechanization/backend staff:create --slug <slug> --email <email> --reset-totp
 pnpm lint
 ```
+
+Migrations go through the target-aware scripts rather than
+`tenant:migrate-all` directly — the wrapper is what checks which database it is
+about to rewrite:
+
+```bash
+pnpm db:status:staging     # list pending migrations, apply nothing
+pnpm db:deploy:staging     # apply to staging
+pnpm db:status:production  # dry run against production
+```
+
+Production is deployed from GitHub Actions behind an approval, not from a
+laptop. [docs/database-environments.md](docs/database-environments.md) has the
+full picture.
 
 `reissue-references` replaces every citizen رقم مرجعي in a municipality. Those
 minted before the CSPRNG fix came from `Math.random()`, and the reference alone
