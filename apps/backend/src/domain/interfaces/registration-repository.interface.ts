@@ -15,6 +15,8 @@ export interface SubmitRegistrationInput {
   status: 'PENDING' | 'REQUIRES_REVIEW';
   /** The «غير مؤكَّد» fields and their stated reasons, stored verbatim. */
   flaggedFields: ReadonlyArray<{ path: string; reason: string }>;
+  /** The staff user / field inspector who registered this record. */
+  createdById?: string;
   /** The browser's own id for this submission, when it was filed offline. */
   clientSubmissionId?: string;
 }

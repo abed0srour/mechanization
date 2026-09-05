@@ -27,6 +27,25 @@ export async function migrateAllTenants(): Promise<void> {
   try {
     await ddl.connect();
 
+    /**
+     * Bounded locks, because this loop runs against a live database.
+     *
+     * Without `lock_timeout`, an `ALTER TABLE` that cannot get its lock does
+     * not fail — it waits, and every read of that table queues behind it. One
+     * migration blocked on one open transaction is enough to stall a
+     * municipality's portal for as long as the deploy is left running. Five
+     * seconds turns that into a failed migration you retry, which is a far
+     * better outcome than an outage nobody can attribute.
+     *
+     * `statement_timeout` is the outer bound on the DDL itself. Raise it via
+     * the environment for a migration known to rewrite a large table, rather
+     * than removing it.
+     */
+    await ddl.query(`SET lock_timeout = '${process.env.MIGRATION_LOCK_TIMEOUT ?? '5s'}'`);
+    await ddl.query(
+      `SET statement_timeout = '${process.env.MIGRATION_STATEMENT_TIMEOUT ?? '300s'}'`,
+    );
+
     const tenants = await registry.tenant.findMany({
       where: { provisionedAt: { not: null } },
       orderBy: { slug: 'asc' },

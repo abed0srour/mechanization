@@ -17,6 +17,13 @@ import {
 } from '../../../domain/interfaces/user-repository.interface';
 import { StaffRole } from '../../../domain/entities/user.entity';
 import { SessionRevocationService } from '../identity/session-revocation.service';
+import { TenantContextService } from '../../../infrastructure/context/tenant-context.service';
+import type {
+  InspectorPayoutItem,
+  InspectorProfileResponse,
+  InspectorPropertyBreakdown,
+  RecordInspectorPayoutInput,
+} from '@mechanization/shared-schemas';
 import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError } from '../../common/exceptions';
 
 /**
@@ -40,9 +47,14 @@ export class StaffService {
     @Inject(PASSWORD_HASHER) private readonly hasher: PasswordHasher,
     @Inject(SUPABASE_AUTH_SERVICE) private readonly supabaseAuth: SupabaseAuthService,
     @Inject(TOTP_SERVICE) private readonly totp: TotpService,
+    private readonly tenantContext: TenantContextService,
     private readonly revocation: SessionRevocationService,
     private readonly events: EventEmitter2,
   ) {}
+
+  private get db() {
+    return this.tenantContext.prisma;
+  }
 
   /**
    * Every staff account, each with the history count that decides whether a
@@ -400,5 +412,250 @@ export class StaffService {
     }
     await this.supabaseAuth.sendPasswordResetEmail(user.email, input.redirectTo);
     return { message: 'تم إرسال بريد إعادة تعيين كلمة المرور بنجاح' };
+  }
+
+  /**
+   * Field Inspector dashboard performance & commission earnings.
+   * Calculates total registered properties ($1/property), property type breakdown,
+   * paid balance from recorded payouts, and pending balance.
+   */
+  async getInspectorProfile(tenantSlug: string, inspectorId: string): Promise<InspectorProfileResponse> {
+    const inspector = await this.db.user.findFirst({
+      where: { id: inspectorId, kind: 'STAFF' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+
+    if (!inspector) {
+      throw new NotFoundError('Staff user', inspectorId);
+    }
+
+    const registrations = await this.db.registration.findMany({
+      where: { createdById: inspectorId },
+      orderBy: { submittedAt: 'desc' },
+      include: {
+        citizen: {
+          select: {
+            id: true,
+            firstName: true,
+            middleName: true,
+            lastName: true,
+          },
+        },
+        properties: {
+          include: {
+            units: true,
+          },
+        },
+      },
+    });
+
+    const payouts = await this.db.inspectorPayout.findMany({
+      where: { inspectorId },
+      orderBy: { paidAt: 'desc' },
+      include: {
+        recordedBy: {
+          select: {
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    const breakdown: InspectorPropertyBreakdown = {
+      houses: 0,
+      apartments: 0,
+      buildings: 0,
+      lands: 0,
+      tents: 0,
+      commercial: 0,
+      other: 0,
+      totalUnits: 0,
+    };
+
+    let totalProperties = 0;
+
+    const recentRegistrations = registrations.map((reg) => {
+      let regPropertyCount = 0;
+      const neighborhoods = new Set<string>();
+      const propNums = new Set<string>();
+      const propTypes = new Set<string>();
+
+      for (const p of reg.properties) {
+        if (p.neighborhood) neighborhoods.add(p.neighborhood);
+        if (p.propertyNumber) propNums.add(p.propertyNumber);
+        if (p.propertyType) propTypes.add(p.propertyType);
+
+        if (p.propertyType === 'BUILDING' && p.units && p.units.length > 0) {
+          regPropertyCount += p.units.length;
+          breakdown.buildings++;
+          for (const u of p.units) {
+            if (u.unitType) propTypes.add(u.unitType);
+            if (u.unitType === 'APARTMENT') {
+              breakdown.apartments++;
+            } else if (u.unitType === 'INDEPENDENT_HOUSE') {
+              breakdown.houses++;
+            } else if (['SHOP', 'OFFICE', 'CLINIC', 'WAREHOUSE'].includes(u.unitType)) {
+              breakdown.commercial++;
+            } else {
+              breakdown.other++;
+            }
+            breakdown.totalUnits++;
+          }
+        } else {
+          regPropertyCount += 1;
+          if (p.propertyType === 'HOUSE' || p.unitType === 'INDEPENDENT_HOUSE') {
+            breakdown.houses++;
+          } else if (p.unitType === 'APARTMENT') {
+            breakdown.apartments++;
+          } else if (p.propertyType === 'BUILDING') {
+            breakdown.buildings++;
+          } else if (p.propertyType === 'LAND') {
+            breakdown.lands++;
+          } else if (p.propertyType === 'TENT') {
+            breakdown.tents++;
+          } else if (['SHOP', 'OFFICE', 'CLINIC', 'WAREHOUSE'].includes(p.unitType ?? '')) {
+            breakdown.commercial++;
+          } else {
+            breakdown.other++;
+          }
+        }
+      }
+
+      totalProperties += regPropertyCount;
+
+      const citizenName = reg.citizen
+        ? [reg.citizen.firstName, reg.citizen.middleName, reg.citizen.lastName]
+            .filter(Boolean)
+            .join(' ')
+            .trim()
+        : 'مواطن';
+
+      return {
+        registrationId: reg.id,
+        citizenId: reg.citizenId,
+        citizenName: citizenName || 'مواطن',
+        referenceNumber: reg.referenceNumber,
+        submittedAt: reg.submittedAt.toISOString(),
+        status: reg.status,
+        propertyCount: regPropertyCount,
+        neighborhoods: Array.from(neighborhoods),
+        propertyNumbers: Array.from(propNums),
+        propertyTypes: Array.from(propTypes),
+        commissionEarned: regPropertyCount * 1.0,
+      };
+    });
+
+    const distinctCitizenIds = new Set(registrations.map((r) => r.citizenId));
+    const totalCitizens = distinctCitizenIds.size;
+
+    const commissionRate = 1.0;
+    const totalEarnings = totalProperties * commissionRate;
+    const paidBalance = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
+    const pendingBalance = Math.max(0, totalEarnings - paidBalance);
+
+    const formattedPayouts: InspectorPayoutItem[] = payouts.map((p) => ({
+      id: p.id,
+      amount: Number(p.amount),
+      currency: p.currency,
+      paidAt: p.paidAt.toISOString(),
+      note: p.note,
+      reference: p.reference,
+      recordedByName: p.recordedBy
+        ? `${p.recordedBy.firstName} ${p.recordedBy.lastName}`.trim()
+        : null,
+      createdAt: p.createdAt.toISOString(),
+    }));
+
+    return {
+      inspector: {
+        id: inspector.id,
+        name: `${inspector.firstName} ${inspector.lastName}`.trim(),
+        email: inspector.email,
+        role: inspector.role as any,
+        isActive: inspector.isActive,
+        createdAt: inspector.createdAt.toISOString(),
+        lastLoginAt: inspector.lastLoginAt ? inspector.lastLoginAt.toISOString() : null,
+      },
+      totalCitizens,
+      totalProperties,
+      commissionRate,
+      totalEarnings,
+      paidBalance,
+      pendingBalance,
+      breakdown,
+      recentRegistrations,
+      payouts: formattedPayouts,
+    };
+  }
+
+  /**
+   * Super Admin records a commission payment made to a Field Inspector.
+   */
+  async recordInspectorPayout(input: {
+    tenantSlug: string;
+    inspectorId: string;
+    payload: RecordInspectorPayoutInput;
+    actor: { id: string; role: string };
+  }): Promise<InspectorPayoutItem> {
+    const inspector = await this.db.user.findFirst({
+      where: { id: input.inspectorId, kind: 'STAFF' },
+      select: { id: true, firstName: true, lastName: true },
+    });
+
+    if (!inspector) {
+      throw new NotFoundError('Staff user', input.inspectorId);
+    }
+
+    const payout = await this.db.inspectorPayout.create({
+      data: {
+        inspectorId: input.inspectorId,
+        amount: input.payload.amount,
+        currency: input.payload.currency || 'USD',
+        paidAt: input.payload.paidAt ? new Date(input.payload.paidAt) : new Date(),
+        note: input.payload.note ?? null,
+        reference: input.payload.reference ?? null,
+        recordedById: input.actor.id,
+      },
+      include: {
+        recordedBy: {
+          select: {
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    this.events.emit('staff.changed', {
+      action: 'INSPECTOR_PAYOUT_RECORDED',
+      tenantSlug: input.tenantSlug,
+      staffId: input.inspectorId,
+      actorId: input.actor.id,
+      actorRole: input.actor.role,
+      amount: input.payload.amount,
+    });
+
+    return {
+      id: payout.id,
+      amount: Number(payout.amount),
+      currency: payout.currency,
+      paidAt: payout.paidAt.toISOString(),
+      note: payout.note,
+      reference: payout.reference,
+      recordedByName: payout.recordedBy
+        ? `${payout.recordedBy.firstName} ${payout.recordedBy.lastName}`.trim()
+        : null,
+      createdAt: payout.createdAt.toISOString(),
+    };
   }
 }

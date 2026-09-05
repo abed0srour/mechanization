@@ -459,8 +459,25 @@ export default function CitizenProfilePage({
                 },
                 {
                   icon: Users,
-                  label: locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة',
-                  value: citizen.familySize?.toString(),
+                  label:
+                    locale === 'en'
+                      ? 'Total Registered Members'
+                      : 'عدد أفراد الأسرة الإجمالي',
+                  value: citizen.totalRegisteredMembers?.toString(),
+                },
+                {
+                  icon: Users,
+                  label:
+                    locale === 'en'
+                      ? 'Actual Household Members'
+                      : 'عدد أفراد الأسرة الفعليين',
+                  value: citizen.actualHouseholdMembers?.toString(),
+                },
+                {
+                  icon: Users,
+                  label:
+                    locale === 'en' ? 'Married Children Count' : 'عدد الأبناء المتزوجين',
+                  value: citizen.marriedChildrenCount?.toString(),
                 },
               ]}
             />

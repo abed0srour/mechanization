@@ -16,6 +16,6 @@
         "outDir": "dist"
       }
     ],
-    "watchAssets": true
+    "watchAssets": false
   }
 }

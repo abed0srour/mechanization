@@ -74,6 +74,13 @@ jobs:
       - name: Generate Prisma clients
         run: pnpm --filter @mechanization/backend prisma:generate
 
+      - name: Database target guard
+        # `scripts/db/targets.mjs` is what decides which Supabase project a
+        # migration lands in. It has no runtime dependency to break, so the only
+        # way it regresses is an edit — which is exactly what CI is for. Runs
+        # before lint because a broken guard invalidates every deploy below it.
+        run: pnpm db:test
+
       - name: Lint
         run: pnpm lint
 

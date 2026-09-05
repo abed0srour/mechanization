@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  BadgeDollarSign,
   KeyRound,
   LayoutDashboard,
   Layers,
@@ -65,6 +66,13 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: LayoutDashboard,
         roles: ['SUPER_ADMIN', 'AUDITOR', 'FIELD_INSPECTOR'],
         keywords: ['مؤشرات', 'تحليلات', 'إحصاءات', 'dashboard', 'analytics'],
+      },
+      {
+        path: '/inspector/profile',
+        label: 'أرباحي والمسح الميداني',
+        labelEn: 'Inspector Earnings',
+        icon: BadgeDollarSign,
+        keywords: ['أرباح', 'عمولة', 'مفتش', 'مسح', 'عقارات', 'inspector', 'earnings'],
       },
       // Directly under the dashboard: the dashboard reports on the register,
       // and this is the register itself — one row per person.
@@ -187,6 +195,9 @@ export function visibleGroups(role: string | undefined): NavGroup[] {
  * landing nowhere.
  */
 export function defaultPathFor(role: string | undefined): string {
+  if (role === 'FIELD_INSPECTOR') {
+    return '/inspector/profile';
+  }
   const groups = visibleGroups(role);
   return groups[0]?.items[0]?.path ?? '/citizens';
 }

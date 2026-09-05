@@ -268,10 +268,11 @@ export function CitizenEditor({
           },
           contact: {
             ...form.contact,
-            // Every text input reads its value as a string; a numeric
-            // familySize would render as an empty box and then fail
-            // validation as "required" on a field that was never blank.
-            familySize: text(form.contact.familySize) ?? '',
+            // Every text input reads its value as a string; a numeric value
+            // would render as an empty box and then fail validation as
+            // "required" on a field that was never blank.
+            totalRegisteredMembers: text(form.contact.totalRegisteredMembers) ?? '',
+            actualHouseholdMembers: text(form.contact.actualHouseholdMembers) ?? '',
           },
           properties:
             form.properties.length > 0 ? form.properties.map(toDraft) : emptyCitizen().properties,

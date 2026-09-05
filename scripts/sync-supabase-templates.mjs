@@ -7,7 +7,15 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 const token = process.env.SUPABASE_ACCESS_TOKEN || process.argv[2];
-const projectRef = process.env.SUPABASE_PROJECT_REF || process.argv[3] || 'tiremwasgeyivbqqsnrk';
+const projectRef = process.env.SUPABASE_PROJECT_REF || process.argv[3];
+
+// No default ref. It used to fall back to tiremwasgeyivbqqsnrk — a project on
+// an account this repository no longer uses, so the fallback would have either
+// failed with a confusing 404 or, worse, written to a project nobody here owns.
+if (!projectRef) {
+  console.error('Error: SUPABASE_PROJECT_REF environment variable or CLI argument is required.');
+  process.exit(1);
+}
 
 if (!token) {
   console.error('Error: SUPABASE_ACCESS_TOKEN environment variable or CLI argument is required.');

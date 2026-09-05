@@ -36,7 +36,7 @@ function cleanupStaleProcesses() {
   try {
     const currentPid = process.pid;
     execSync(
-      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name = 'node.exe'\\" | Where-Object { $_.ProcessId -ne ${currentPid} -and ($_.CommandLine -like '*@mechanization*' -or $_.CommandLine -like '*presentation\\\\main*' -or $_.CommandLine -like '*nest.js*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
+      `powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 4000, 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Get-CimInstance Win32_Process -Filter \\"Name = 'node.exe'\\" | Where-Object { $_.ProcessId -ne ${currentPid} -and ($_.CommandLine -like '*@mechanization*' -or $_.CommandLine -like '*presentation*main*' -or $_.CommandLine -like '*nest*' -or $_.CommandLine -like '*apps*backend*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
       { stdio: 'ignore' },
     );
   } catch {

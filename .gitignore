@@ -7,11 +7,16 @@ build/
 apps/*/coverage/
 *.tsbuildinfo
 
-# env — never commit real credentials
+# env — never commit real credentials.
+#
+# The wildcard matters more than it looks: .env.staging and .env.production
+# hold live database passwords and service-role keys, and neither was covered
+# by the old three-line list. Anything .env.* is ignored; only the *.example
+# templates are re-admitted.
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+!.env.*.example
 
 # Generated Prisma clients — two of them, one per schema kind. Regenerate with
 # `pnpm db:generate`; they are build output, not source.

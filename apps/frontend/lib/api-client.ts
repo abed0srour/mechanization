@@ -11,7 +11,10 @@ import type {
   FeeFrequency,
   FieldFlag,
   ImportRow,
+  InspectorPayoutItem,
+  InspectorProfileResponse,
   NumberingSequence,
+  RecordInspectorPayoutInput,
   SequenceKey,
 } from '@mechanization/shared-schemas';
 
@@ -304,14 +307,19 @@ export interface DashboardAnalytics {
   /** Household records on file — one row per registered citizen. */
   citizenRecords: number;
   /**
-   * عدد السكان: the sum of every household's عدد أفراد الأسرة, i.e. the
-   * population as declared rather than a headcount of portal accounts.
+   * العدد الفعلي لسكان البلدة — sum of every household's actual household
+   * members, i.e. the real, deduplicated population as declared (excluding
+   * married children counted under their own branched-off household).
    */
   populationTotal: number;
+  /** إجمالي المسجلين في سجلات النفوس — sum of totalRegisteredMembers (gross). */
+  grossRegisteredTotal: number;
+  /** إجمالي الأبناء المتزوجين المؤسسين لأسر — sum(total - actual). */
+  marriedOffspringTotal: number;
   /**
-   * Households with no declared family size. They contribute nothing to
-   * `populationTotal`, so it is understated by at least this many people —
-   * surfaced in the UI rather than silently rounded to zero.
+   * Households with no declared actual household size. They contribute
+   * nothing to `populationTotal`, so it is understated by at least this many
+   * people — surfaced in the UI rather than silently rounded to zero.
    */
   householdsWithoutSize: number;
   familySizes: Array<{ size: number; households: number }>;
@@ -327,6 +335,16 @@ export interface DashboardAnalytics {
    */
   unitsByType: Record<string, number>;
   unitTotal: number;
+
+  /**
+   * How many property/unit rows were already excluded as duplicate filings —
+   * a TENANT/FREE_OCCUPANT registration of a unit an OWNER already registered
+   * under the same رقم العقار (the same apartment, filed twice).
+   */
+  duplicateFilingsExcluded: {
+    properties: number;
+    units: number;
+  };
 
   billedTotal: number;
   collectedTotal: number;
@@ -619,7 +637,9 @@ export interface CitizenProfile {
   identityDocType: string | null;
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
-  familySize: number | null;
+  totalRegisteredMembers: number | null;
+  actualHouseholdMembers: number | null;
+  marriedChildrenCount: number | null;
   maritalStatus: string | null;
   bloodType: string | null;
   referenceNumber: string | null;
@@ -661,7 +681,9 @@ export interface MyCitizenSummary {
   residentStatus: string | null;
   maritalStatus: string | null;
   bloodType: string | null;
-  familySize: number | null;
+  totalRegisteredMembers: number | null;
+  actualHouseholdMembers: number | null;
+  marriedChildrenCount: number | null;
   identityDocType: string | null;
   /**
    * Tail only — `•••567`. The full number is never sent to this route; see the
@@ -972,6 +994,12 @@ export interface StaffSummary {
   hasConfirmedTotp?: boolean;
   /** Audit entries + reviewed registrations. A permanent delete needs zero. */
   historyCount: number;
+  /** Performance & commission metrics for field inspectors */
+  registeredCitizensCount?: number;
+  registeredPropertiesCount?: number;
+  totalEarnings?: number;
+  paidBalance?: number;
+  pendingBalance?: number;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -1038,6 +1066,49 @@ export function deleteStaff(tenant: string, token: string, id: string) {
     token,
     method: 'DELETE',
   });
+}
+
+/** Field Inspector self-service dashboard & performance summary */
+export function getMyInspectorProfile(tenant: string, token: string, signal?: AbortSignal) {
+  return apiFetch<InspectorProfileResponse>(tenant, '/staff/inspector/me/profile', {
+    token,
+    signal,
+  });
+}
+
+/** Super Admin (or Inspector) viewing an inspector profile dashboard */
+export function getInspectorProfile(
+  tenant: string,
+  token: string,
+  id: string,
+  signal?: AbortSignal,
+) {
+  return apiFetch<InspectorProfileResponse>(
+    tenant,
+    `/staff/inspectors/${encodeURIComponent(id)}/profile`,
+    {
+      token,
+      signal,
+    },
+  );
+}
+
+/** Super Admin records a commission payment made to an inspector */
+export function recordInspectorPayout(
+  tenant: string,
+  token: string,
+  id: string,
+  input: RecordInspectorPayoutInput,
+) {
+  return apiFetch<InspectorPayoutItem>(
+    tenant,
+    `/staff/inspectors/${encodeURIComponent(id)}/payouts`,
+    {
+      token,
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export interface AuditEntry {

@@ -1,0 +1,78 @@
+import { z } from 'zod';
+import { staffRoleSchema } from './enums';
+
+export const inspectorPropertyBreakdownSchema = z.object({
+  houses: z.number().int().nonnegative(),
+  apartments: z.number().int().nonnegative(),
+  buildings: z.number().int().nonnegative(),
+  lands: z.number().int().nonnegative(),
+  tents: z.number().int().nonnegative(),
+  commercial: z.number().int().nonnegative(),
+  other: z.number().int().nonnegative(),
+  totalUnits: z.number().int().nonnegative(),
+});
+
+export type InspectorPropertyBreakdown = z.infer<typeof inspectorPropertyBreakdownSchema>;
+
+export const inspectorPayoutItemSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.number().nonnegative(),
+  currency: z.string().default('USD'),
+  paidAt: z.string(),
+  note: z.string().nullable().optional(),
+  reference: z.string().nullable().optional(),
+  recordedByName: z.string().nullable().optional(),
+  createdAt: z.string(),
+});
+
+export type InspectorPayoutItem = z.infer<typeof inspectorPayoutItemSchema>;
+
+export const inspectorRegistrationLogItemSchema = z.object({
+  registrationId: z.string().uuid(),
+  citizenId: z.string().uuid(),
+  citizenName: z.string(),
+  referenceNumber: z.string(),
+  submittedAt: z.string(),
+  status: z.string(),
+  propertyCount: z.number().int().nonnegative(),
+  neighborhoods: z.array(z.string()),
+  propertyNumbers: z.array(z.string()),
+  propertyTypes: z.array(z.string()),
+  commissionEarned: z.number().nonnegative(),
+});
+
+export type InspectorRegistrationLogItem = z.infer<typeof inspectorRegistrationLogItemSchema>;
+
+export const inspectorProfileResponseSchema = z.object({
+  inspector: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    email: z.string().nullable(),
+    role: staffRoleSchema,
+    isActive: z.boolean(),
+    createdAt: z.string(),
+    lastLoginAt: z.string().nullable(),
+  }),
+  totalCitizens: z.number().int().nonnegative().default(0),
+  totalProperties: z.number().int().nonnegative(),
+  commissionRate: z.number().default(1.0),
+  totalEarnings: z.number().nonnegative(),
+  paidBalance: z.number().nonnegative(),
+  pendingBalance: z.number().nonnegative(),
+  breakdown: inspectorPropertyBreakdownSchema,
+  recentRegistrations: z.array(inspectorRegistrationLogItemSchema),
+  payouts: z.array(inspectorPayoutItemSchema),
+});
+
+export type InspectorProfileResponse = z.infer<typeof inspectorProfileResponseSchema>;
+
+export const recordInspectorPayoutSchema = z.object({
+  amount: z.number().positive('Amount must be greater than 0'),
+  currency: z.string().default('USD'),
+  paidAt: z.string().optional(),
+  note: z.string().max(500).optional(),
+  reference: z.string().max(100).optional(),
+});
+
+export type RecordInspectorPayoutInput = z.infer<typeof recordInspectorPayoutSchema>;
+

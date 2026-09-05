@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import {
   ArrowDown,
   ArrowUp,
+  BadgeDollarSign,
   Banknote,
   BarChart3,
   Building,
@@ -33,10 +34,11 @@ import {
 import {
   ApiRequestError,
   getDashboardAnalytics,
+  getMyInspectorProfile,
   logApiError,
+  type DashboardAnalytics,
 } from '@/lib/api-client';
-import type { DashboardAnalytics } from '@/lib/api-client';
-import { ar } from '@mechanization/shared-schemas';
+import { ar, type InspectorProfileResponse } from '@mechanization/shared-schemas';
 import { clearSession, loadSession } from '@/lib/session';
 import { formatLbp } from '@/lib/currency';
 import { formatMonth } from '@/lib/dates';
@@ -193,6 +195,9 @@ export default function StaffDashboard({
   const [foldedSections, setFoldedSections] =
     useState<ReadonlySet<string>>(DEFAULT_FOLDED);
 
+  const [inspectorData, setInspectorData] = useState<InspectorProfileResponse | null>(null);
+  const [loadingInspector, setLoadingInspector] = useState(false);
+
   useEffect(() => {
     const session = loadSession(tenant);
     if (!session || session.user.kind !== 'STAFF') {
@@ -202,6 +207,16 @@ export default function StaffDashboard({
     setToken(session.accessToken);
     setRole(session.user.role);
   }, [tenant, base, router]);
+
+  useEffect(() => {
+    if (role === 'FIELD_INSPECTOR' && token) {
+      setLoadingInspector(true);
+      getMyInspectorProfile(tenant, token)
+        .then((res) => setInspectorData(res))
+        .catch((err) => logApiError(err))
+        .finally(() => setLoadingInspector(false));
+    }
+  }, [role, token, tenant]);
 
   // Read in an effect rather than in the `useState` initialiser: the initialiser
   // also runs on the server, where there is no localStorage.
@@ -418,6 +433,91 @@ export default function StaffDashboard({
         poll reads as broken, and the layout jump loses the reader's place.
       */}
       <div className={cn('space-y-10 transition-opacity', refreshing && 'opacity-60')}>
+        {/* Field Inspector Personal Activity & Commission Section */}
+        {role === 'FIELD_INSPECTOR' ? (
+          <section
+            aria-label={locale === 'en' ? 'My Field Performance & Earnings' : 'نشاطي الميداني وأرباحي'}
+            className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/5 via-card to-card p-5 shadow-sm sm:p-6"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3.5">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                  <BadgeDollarSign className="size-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">
+                    {locale === 'en' ? 'My Field Survey Activity & Earnings' : 'نشاطك الميداني وأرباح العمولات المستحقة'}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {locale === 'en'
+                      ? 'Personal count of citizens and properties registered by you, and your $1 commission'
+                      : 'إحصاءات خاصة بك فقط: عدد المواطنين والعقارات المسجلة بواسطتك وأرباح عمولاتك ($1/عقار)'}
+                  </p>
+                </div>
+              </div>
+              <Link
+                href={`${base}/inspector/profile`}
+                className={cn(buttonVariants({ variant: 'default' }), 'gap-2 shrink-0 font-medium')}
+              >
+                <BadgeDollarSign className="size-4" />
+                <span>{locale === 'en' ? 'View My Full Profile & Payouts' : 'عرض ملفي وأرباحي بالكامل'}</span>
+              </Link>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-lg border bg-card/80 p-3.5 sm:p-4 shadow-sm">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {locale === 'en' ? 'Citizens Registered by You' : 'المواطنون المسجلون بواسطتك'}
+                </p>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-foreground">
+                  {loadingInspector ? '...' : (inspectorData?.totalCitizens ?? 0)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {locale === 'en' ? 'Citizen profile' : 'مواطن مسجل بواسطتك'}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-card/80 p-3.5 sm:p-4 shadow-sm">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {locale === 'en' ? 'Properties Registered by You' : 'العقارات والوحدات المسجلة بواسطتك'}
+                </p>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-foreground">
+                  {loadingInspector ? '...' : (inspectorData?.totalProperties ?? 0)}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {locale === 'en' ? 'Property / unit' : 'عقار ووحدة مسجلة'}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-card/80 p-3.5 sm:p-4 shadow-sm">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {locale === 'en' ? 'Total Commission ($1/prop)' : 'إجمالي أرباحك ($1/عقار)'}
+                </p>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+                  ${(inspectorData?.totalEarnings ?? 0).toLocaleString()}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {locale === 'en' ? '$1 fixed rate per property' : 'عمولة 1$ عن كل عقار/وحدة'}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-card/80 p-3.5 sm:p-4 shadow-sm">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {locale === 'en' ? 'Pending Balance' : 'الرصيد المتبقي (المعلق)'}
+                </p>
+                <p className="mt-1.5 text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">
+                  ${(inspectorData?.pendingBalance ?? 0).toLocaleString()}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {locale === 'en'
+                    ? `Paid: $${(inspectorData?.paidBalance ?? 0).toLocaleString()}`
+                    : `المدفوع: $${(inspectorData?.paidBalance ?? 0).toLocaleString()}`}
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         {/* ── The four figures ──────────────────────────────────────── */}
         {/*
           Grid rows stretch by default, and each card is a flex column with a
@@ -451,6 +551,14 @@ export default function StaffDashboard({
               <DetailRow
                 label={tDashboard('kpiCommonFamily')}
                 value={household ? (locale === 'en' ? `${household.mode} members` : `${household.mode} أفراد`) : '—'}
+              />
+              <DetailRow
+                label={tDashboard('kpiGrossRegistered')}
+                value={count(data?.grossRegisteredTotal)}
+              />
+              <DetailRow
+                label={tDashboard('kpiMarriedOffspring')}
+                value={count(data?.marriedOffspringTotal)}
               />
             </dl>
             {data && data.householdsWithoutSize > 0 ? (
@@ -588,6 +696,15 @@ export default function StaffDashboard({
               ? 'Units inside registered buildings and standalone units are counted together. Registered buildings counts each property once regardless of unit count.'
               : 'تُحتسب الوحدات داخل المباني المسجّلة والوحدات المسجّلة بذاتها معاً. «مبانٍ مسجّلة» تعدّ العقار الواحد مرة واحدة مهما بلغ عدد وحداته.'}
           </p>
+          {data &&
+          (data.duplicateFilingsExcluded.properties > 0 ||
+            data.duplicateFilingsExcluded.units > 0) ? (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {locale === 'en'
+                ? `${count(data.duplicateFilingsExcluded.properties)} duplicate property filing(s) and ${count(data.duplicateFilingsExcluded.units)} duplicate unit filing(s) already excluded — a unit rented from its registered owner is counted once, not twice.`
+                : `تم استبعاد ${count(data.duplicateFilingsExcluded.properties)} عقار و${count(data.duplicateFilingsExcluded.units)} وحدة مسجّلة مرتين — الوحدة المؤجَّرة من مالكها المسجَّل تُحتسب مرة واحدة فقط.`}
+            </p>
+          ) : null}
         </FoldSection>
 
         {/* ── Charts ────────────────────────────────────────────────── */}

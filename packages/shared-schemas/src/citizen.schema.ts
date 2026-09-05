@@ -131,13 +131,21 @@ export const contactDetailsObject = z.object({
   phone: lebanesePhone,
   whatsappSameAsPhone: z.boolean().default(true),
   whatsapp: lebanesePhone.optional(),
-  familySize: z.coerce
+  totalRegisteredMembers: z.coerce
     .number({
-      required_error: 'عدد أفراد الأسرة مطلوب',
-      invalid_type_error: 'عدد أفراد الأسرة يجب أن يكون رقماً',
+      required_error: 'عدد أفراد الأسرة الإجمالي مطلوب',
+      invalid_type_error: 'عدد أفراد الأسرة الإجمالي يجب أن يكون رقماً',
     })
-    .int('عدد أفراد الأسرة يجب أن يكون رقماً صحيحاً')
-    .min(1, 'يجب أن يكون فرداً واحداً على الأقل')
+    .int('يجب أن يكون رقماً صحيحاً')
+    .min(1, 'يجب تسجيل فرد واحد على الأقل لكل قيد عائلي')
+    .max(50, 'العدد كبير جداً — يرجى مراجعة البلدية'),
+  actualHouseholdMembers: z.coerce
+    .number({
+      required_error: 'عدد أفراد الأسرة الفعليين مطلوب',
+      invalid_type_error: 'عدد أفراد الأسرة الفعليين يجب أن يكون رقماً',
+    })
+    .int('يجب أن يكون رقماً صحيحاً')
+    .min(1, 'يجب تسجيل فرد واحد على الأقل لكل قيد عائلي')
     .max(50, 'العدد كبير جداً — يرجى مراجعة البلدية'),
 });
 
@@ -152,6 +160,13 @@ export const contactDetailsSchema = contactDetailsObject
         code: z.ZodIssueCode.custom,
         path: ['whatsapp'],
         message: 'رقم الواتساب مطلوب',
+      });
+    }
+    if (data.actualHouseholdMembers > data.totalRegisteredMembers) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['actualHouseholdMembers'],
+        message: 'عدد الأفراد الفعليين لا يمكن أن يتجاوز إجمالي المسجلين في القيد',
       });
     }
   });

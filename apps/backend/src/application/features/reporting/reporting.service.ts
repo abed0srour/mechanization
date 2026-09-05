@@ -25,7 +25,9 @@ export interface DashboardAnalytics {
   /** Household records on file — one row per registered citizen. */
   citizenRecords: number;
   /**
-   * عدد السكان: the sum of every household's عدد أفراد الأسرة.
+   * العدد الفعلي لسكان البلدة — sum(actualHouseholdMembers): the real, deduplicated
+   * population, excluding married children who have branched into their own
+   * household (and so are counted once, under that household, not twice).
    *
    * This is the municipality's population as it has actually been declared,
    * not a headcount of portal accounts — one registration speaks for a whole
@@ -34,13 +36,25 @@ export interface DashboardAnalytics {
    */
   populationTotal: number;
   /**
-   * Households whose family size was never recorded. Reported rather than
-   * hidden: they contribute nothing to `populationTotal`, so the figure is
-   * understated by at least this many people, and a dashboard that quietly
-   * rounded them to zero would be lying by omission.
+   * إجمالي المسجلين في سجلات النفوس — sum(totalRegisteredMembers): the gross
+   * civil-registry headcount, including every married child still listed on
+   * their parents' إخراج قيد. Always >= `populationTotal`.
+   */
+  grossRegisteredTotal: number;
+  /**
+   * إجمالي الأبناء المتزوجين المؤسسين لأسر — sum(totalRegisteredMembers -
+   * actualHouseholdMembers): how much of the gross registry total is married
+   * children who no longer live in the household they're still filed under.
+   */
+  marriedOffspringTotal: number;
+  /**
+   * Households whose actual household size was never recorded. Reported
+   * rather than hidden: they contribute nothing to `populationTotal`, so the
+   * figure is understated by at least this many people, and a dashboard that
+   * quietly rounded them to zero would be lying by omission.
    */
   householdsWithoutSize: number;
-  /** One entry per distinct declared household size. */
+  /** One entry per distinct actual household size. */
   familySizes: Array<{ size: number; households: number }>;
 
   /**
@@ -61,6 +75,19 @@ export interface DashboardAnalytics {
    */
   unitsByType: Record<string, number>;
   unitTotal: number;
+
+  /**
+   * How many property_entries / building_units rows this payload already
+   * excluded as duplicate filings: a TENANT or FREE_OCCUPANT registration of
+   * a unit an OWNER already registered under the same رقم العقار — the same
+   * apartment filed twice, once by whoever owns it and once by whoever rents
+   * it. Surfaced so staff can see the correction happened, not just a smaller
+   * number in `propertyTotal`/`unitTotal`.
+   */
+  duplicateFilingsExcluded: {
+    properties: number;
+    units: number;
+  };
 
   billedTotal: number;
   collectedTotal: number;
@@ -298,7 +325,9 @@ export interface CitizenProfile {
   identityDocType: string | null;
   identityDocNumber: string | null;
   civilRecordNumber: string | null;
-  familySize: number | null;
+  totalRegisteredMembers: number | null;
+  actualHouseholdMembers: number | null;
+  marriedChildrenCount: number | null;
   maritalStatus: string | null;
   bloodType: string | null;
   referenceNumber: string | null;
@@ -432,28 +461,59 @@ export class ReportingService {
    * rather than widening the pool to tolerate it.
    */
   private async computeAnalytics(): Promise<DashboardAnalytics> {
+    type AnalyticsRow = Omit<DashboardAnalytics, 'duplicateFilingsExcluded'> & {
+      duplicatePropertiesExcluded: number;
+      duplicateUnitsExcluded: number;
+    };
+
     const [row] = await withConnectionRetry(() =>
-      this.db.$queryRaw<DashboardAnalytics[]>`
+      this.db.$queryRaw<AnalyticsRow[]>`
+        WITH owned_parcels AS (
+          SELECT DISTINCT "propertyNumber" FROM property_entries
+           WHERE "occupancyType" = 'OWNER' AND "propertyNumber" IS NOT NULL
+        ),
+        -- A TENANT/FREE_OCCUPANT filing of a unit whose رقم العقار some OWNER
+        -- already registered under: the same apartment, filed twice — once by
+        -- whoever owns it, once by whoever rents it. Excluded from every
+        -- property/unit count below so it counts once, not twice.
+        excluded_entries AS (
+          SELECT pe.* FROM property_entries pe
+           WHERE pe."occupancyType" <> 'OWNER'
+             AND pe."propertyNumber" IS NOT NULL
+             AND EXISTS (SELECT 1 FROM owned_parcels op WHERE op."propertyNumber" = pe."propertyNumber")
+        ),
+        countable_entries AS (
+          SELECT pe.* FROM property_entries pe
+           WHERE pe.id NOT IN (SELECT id FROM excluded_entries)
+        )
         SELECT
           (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN')
             AS "citizenRecords",
-          (SELECT COALESCE(sum("familySize"), 0)::int FROM users WHERE kind = 'CITIZEN')
+          (SELECT COALESCE(sum("actualHouseholdMembers"), 0)::int FROM users WHERE kind = 'CITIZEN')
             AS "populationTotal",
-          (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN' AND "familySize" IS NULL)
+          (SELECT COALESCE(sum("totalRegisteredMembers"), 0)::int FROM users WHERE kind = 'CITIZEN')
+            AS "grossRegisteredTotal",
+          (SELECT COALESCE(sum("totalRegisteredMembers" - "actualHouseholdMembers"), 0)::int
+             FROM users
+            WHERE kind = 'CITIZEN'
+              AND "totalRegisteredMembers" IS NOT NULL
+              AND "actualHouseholdMembers" IS NOT NULL)
+            AS "marriedOffspringTotal",
+          (SELECT count(*)::int FROM users WHERE kind = 'CITIZEN' AND "actualHouseholdMembers" IS NULL)
             AS "householdsWithoutSize",
           (SELECT COALESCE(
                     json_agg(json_build_object('size', size, 'households', c) ORDER BY size),
                     '[]'::json)
-             FROM (SELECT "familySize" AS size, count(*)::int AS c
+             FROM (SELECT "actualHouseholdMembers" AS size, count(*)::int AS c
                      FROM users
-                    WHERE kind = 'CITIZEN' AND "familySize" IS NOT NULL
+                    WHERE kind = 'CITIZEN' AND "actualHouseholdMembers" IS NOT NULL
                     GROUP BY 1) f)
             AS "familySizes",
           (SELECT COALESCE(json_object_agg("propertyType", cnt), '{}'::json)
              FROM (SELECT "propertyType", count(*)::int AS cnt
-                     FROM property_entries GROUP BY 1) p)
+                     FROM countable_entries GROUP BY 1) p)
             AS "propertiesByType",
-          (SELECT count(*)::int FROM property_entries)
+          (SELECT count(*)::int FROM countable_entries)
             AS "propertyTotal",
           -- Unit types live in two tables: a unit inside a registered building
           -- is a building_units row, while a property registered as a single
@@ -463,16 +523,25 @@ export class ReportingService {
           --  would close the string and take the rest of the query with it.)
           (SELECT COALESCE(json_object_agg(t, n), '{}'::json)
              FROM (SELECT type AS t, sum(n)::int AS n
-                     FROM (SELECT "unitType"::text AS type, count(*)::int AS n
-                             FROM building_units GROUP BY 1
+                     FROM (SELECT bu."unitType"::text AS type, count(*)::int AS n
+                             FROM building_units bu
+                             JOIN countable_entries ce ON ce.id = bu."propertyEntryId"
+                            GROUP BY 1
                            UNION ALL
                            SELECT "unitType"::text, count(*)::int
-                             FROM property_entries WHERE "unitType" IS NOT NULL GROUP BY 1) u
+                             FROM countable_entries WHERE "unitType" IS NOT NULL GROUP BY 1) u
                     GROUP BY 1) x)
             AS "unitsByType",
-          (SELECT ((SELECT count(*) FROM building_units)
-                 + (SELECT count(*) FROM property_entries WHERE "unitType" IS NOT NULL))::int)
+          (SELECT ((SELECT count(*) FROM building_units bu
+                      JOIN countable_entries ce ON ce.id = bu."propertyEntryId")
+                 + (SELECT count(*) FROM countable_entries WHERE "unitType" IS NOT NULL))::int)
             AS "unitTotal",
+          (SELECT count(*)::int FROM excluded_entries)
+            AS "duplicatePropertiesExcluded",
+          (SELECT (SELECT count(*)::int FROM excluded_entries WHERE "unitType" IS NOT NULL)
+                + (SELECT count(*)::int FROM building_units bu
+                     JOIN excluded_entries ee ON ee.id = bu."propertyEntryId"))
+            AS "duplicateUnitsExcluded",
           COALESCE((SELECT sum(amount) FROM citizen_payments), 0)::float8
             AS "billedTotal",
           COALESCE((SELECT sum("paidAmount") FROM citizen_payments), 0)::float8
@@ -514,7 +583,14 @@ export class ReportingService {
       `,
     );
 
-    return row;
+    const { duplicatePropertiesExcluded, duplicateUnitsExcluded, ...rest } = row;
+    return {
+      ...rest,
+      duplicateFilingsExcluded: {
+        properties: duplicatePropertiesExcluded,
+        units: duplicateUnitsExcluded,
+      },
+    };
   }
 
   /**
@@ -612,7 +688,8 @@ export class ReportingService {
         identityDocType: true,
         identityDocNumber: true,
         civilRecordNumber: true,
-        familySize: true,
+        totalRegisteredMembers: true,
+        actualHouseholdMembers: true,
         maritalStatus: true,
         bloodType: true,
         referenceNumber: true,
@@ -757,7 +834,12 @@ export class ReportingService {
       identityDocType: citizen.identityDocType,
       identityDocNumber: citizen.identityDocNumber,
       civilRecordNumber: citizen.civilRecordNumber,
-      familySize: citizen.familySize,
+      totalRegisteredMembers: citizen.totalRegisteredMembers,
+      actualHouseholdMembers: citizen.actualHouseholdMembers,
+      marriedChildrenCount:
+        citizen.totalRegisteredMembers != null && citizen.actualHouseholdMembers != null
+          ? citizen.totalRegisteredMembers - citizen.actualHouseholdMembers
+          : null,
       maritalStatus: citizen.maritalStatus,
       bloodType: citizen.bloodType,
       referenceNumber: citizen.referenceNumber,
@@ -1100,7 +1182,8 @@ export class ReportingService {
       'citizen_name',
       'phone',
       'resident_status',
-      'family_size',
+      'total_registered_members',
+      'actual_household_members',
       'property_number',
       'property_type',
       'occupancy_type',
@@ -1132,7 +1215,8 @@ export class ReportingService {
               lastName: true,
               phone: true,
               residentStatus: true,
-              familySize: true,
+              totalRegisteredMembers: true,
+              actualHouseholdMembers: true,
             },
           },
           properties: {
@@ -1181,7 +1265,8 @@ export class ReportingService {
                 name,
                 row.citizen.phone ?? '',
                 row.citizen.residentStatus ?? '',
-                row.citizen.familySize ?? '',
+                row.citizen.totalRegisteredMembers ?? '',
+                row.citizen.actualHouseholdMembers ?? '',
                 property?.propertyNumber ?? '',
                 property?.propertyType ?? '',
                 property?.occupancyType ?? '',

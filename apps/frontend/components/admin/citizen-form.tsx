@@ -166,7 +166,8 @@ export function askableFields(values: CitizenFormValues): AskableField[] {
   fields.push(
     { path: 'contact.phone', field: 'phone', section: 'contact' },
     { path: 'contact.maritalStatus', field: 'maritalStatus', section: 'contact' },
-    { path: 'contact.familySize', field: 'familySize', section: 'contact' },
+    { path: 'contact.totalRegisteredMembers', field: 'totalRegisteredMembers', section: 'contact' },
+    { path: 'contact.actualHouseholdMembers', field: 'actualHouseholdMembers', section: 'contact' },
   );
 
   if (values.contact.whatsappSameAsPhone === false) {
@@ -530,6 +531,117 @@ export function CitizenForm({
       return { ...current, properties };
     });
   }, []);
+
+  /**
+   * Property cards grouped by shared رقم العقار.
+   *
+   * A parcel with a building, the house behind it and a shop on the street is
+   * one عقار holding three cards — array position doesn't say that, matching
+   * رقم العقار values do. Grouping here is what lets the form show them as one
+   * parcel with several ملكيات instead of three unrelated-looking top-level
+   * cards that merely happen to repeat the same number in their subtitle.
+   *
+   * A group of one (the ordinary case: no other card shares its number) still
+   * renders as a single plain card — the grouping header only earns its place
+   * once there is something to group.
+   */
+  const propertyGroups = useMemo(() => {
+    const groups: { propertyNumber: string | null; indices: number[] }[] = [];
+    const groupByNumber = new Map<string, number>();
+    values.properties.forEach((property, index) => {
+      const propertyNumber = property.propertyNumber?.trim() || null;
+      const groupIndex = propertyNumber ? groupByNumber.get(propertyNumber) : undefined;
+      if (groupIndex !== undefined) {
+        groups[groupIndex].indices.push(index);
+        return;
+      }
+      if (propertyNumber) groupByNumber.set(propertyNumber, groups.length);
+      groups.push({ propertyNumber, indices: [index] });
+    });
+    return groups;
+  }, [values.properties]);
+
+  /**
+   * Renders `propertyGroups` as cards — a lone card per single-property parcel,
+   * or a headed cluster of «الملكية N» cards plus one shared add-button for a
+   * parcel carrying several. Called once per layout (mobile stepper, desktop
+   * sequential view) rather than duplicated, so the grouping logic is stated
+   * once.
+   */
+  const renderPropertyGroups = () =>
+    propertyGroups.map((group) => {
+      if (group.indices.length === 1) {
+        const index = group.indices[0];
+        const property = values.properties[index];
+        return (
+          <PropertyCard
+            key={property.id ?? index}
+            tenant={tenant}
+            index={index}
+            draft={property}
+            allowedTypes={allowedTypes}
+            collapsed={collapsed.has(index)}
+            onToggleCollapse={() => toggleCollapsed(index)}
+            onChange={(next) => setProperty(index, next)}
+            onAddOnSameParcel={() => addProperty(index)}
+            onViewParcel={token ? setRosterParcel : undefined}
+            onRemove={() => removeProperty(index)}
+            canRemove={values.properties.length > 1}
+            errors={scopeErrors(shown, `properties.${index}`)}
+            locale={locale}
+          />
+        );
+      }
+
+      return (
+        <div
+          key={group.propertyNumber}
+          className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3"
+        >
+          <div className="flex items-center gap-2 px-1 text-primary">
+            <Building2 className="size-4 shrink-0" aria-hidden />
+            <span className="text-sm font-semibold">
+              {locale === 'en'
+                ? `Parcel ${group.propertyNumber} — ${group.indices.length} properties`
+                : `العقار رقم ${group.propertyNumber} — ${group.indices.length} ملكيات`}
+            </span>
+          </div>
+
+          {group.indices.map((index, unitPosition) => {
+            const property = values.properties[index];
+            return (
+              <PropertyCard
+                key={property.id ?? index}
+                tenant={tenant}
+                index={index}
+                draft={property}
+                allowedTypes={allowedTypes}
+                collapsed={collapsed.has(index)}
+                onToggleCollapse={() => toggleCollapsed(index)}
+                onChange={(next) => setProperty(index, next)}
+                onViewParcel={token ? setRosterParcel : undefined}
+                onRemove={() => removeProperty(index)}
+                canRemove={values.properties.length > 1}
+                errors={scopeErrors(shown, `properties.${index}`)}
+                locale={locale}
+                title={locale === 'en' ? `Unit ${unitPosition + 1}` : `الملكية ${unitPosition + 1}`}
+              />
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => addProperty(group.indices[0])}
+            className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-primary/50 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+          >
+            <Plus className="size-3.5 shrink-0" aria-hidden />
+            {locale === 'en'
+              ? 'Add another property on this parcel'
+              : 'إضافة ملكية أخرى على هذا العقار'}
+          </button>
+        </div>
+      );
+    });
 
   const removeProperty = useCallback((index: number) => {
     setValues((current) => ({
@@ -929,24 +1041,7 @@ export function CitizenForm({
             invalid={sectionInvalid('properties')}
           >
             <div className="space-y-4">
-              {values.properties.map((property, index) => (
-                <PropertyCard
-                  key={property.id ?? index}
-                  tenant={tenant}
-                  index={index}
-                  draft={property}
-                  allowedTypes={allowedTypes}
-                  collapsed={collapsed.has(index)}
-                  onToggleCollapse={() => toggleCollapsed(index)}
-                  onChange={(next) => setProperty(index, next)}
-                  onAddOnSameParcel={() => addProperty(index)}
-                  onViewParcel={token ? setRosterParcel : undefined}
-                  onRemove={() => removeProperty(index)}
-                  canRemove={values.properties.length > 1}
-                  errors={scopeErrors(shown, `properties.${index}`)}
-                  locale={locale}
-                />
-              ))}
+              {renderPropertyGroups()}
 
               {mode === 'edit' && values.properties.some((property) => property.id) ? (
                 <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
@@ -1029,24 +1124,7 @@ export function CitizenForm({
           invalid={sectionInvalid('properties')}
         >
           <div className="space-y-4">
-            {values.properties.map((property, index) => (
-              <PropertyCard
-                key={property.id ?? index}
-                tenant={tenant}
-                index={index}
-                draft={property}
-                allowedTypes={allowedTypes}
-                collapsed={collapsed.has(index)}
-                onToggleCollapse={() => toggleCollapsed(index)}
-                onChange={(next) => setProperty(index, next)}
-                onAddOnSameParcel={() => addProperty(index)}
-                onViewParcel={token ? setRosterParcel : undefined}
-                onRemove={() => removeProperty(index)}
-                canRemove={values.properties.length > 1}
-                errors={scopeErrors(shown, `properties.${index}`)}
-                locale={locale}
-              />
-            ))}
+            {renderPropertyGroups()}
 
             {mode === 'edit' && values.properties.some((property) => property.id) ? (
               <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">

@@ -107,6 +107,7 @@ export class RegistrationService {
   async submit(input: {
     tenantSlug: string;
     payload: AdminCitizenSubmission;
+    createdById?: string;
   }): Promise<SubmitResult> {
     const tenant = await this.tenants.resolve(input.tenantSlug);
 
@@ -211,7 +212,8 @@ export class RegistrationService {
           input.payload.personal.residencyNumber ||
           undefined,
         civilRecordNumber: input.payload.personal.civilRecordNumber || undefined,
-        familySize: input.payload.contact.familySize,
+        totalRegisteredMembers: input.payload.contact.totalRegisteredMembers,
+        actualHouseholdMembers: input.payload.contact.actualHouseholdMembers,
         maritalStatus: input.payload.contact.maritalStatus,
         bloodType: input.payload.personal.bloodType,
       },
@@ -220,6 +222,7 @@ export class RegistrationService {
       properties,
       status: statusForFlags(flags),
       flaggedFields: flags,
+      createdById: input.createdById,
       clientSubmissionId: input.payload.clientSubmissionId,
     });
 

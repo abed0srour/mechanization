@@ -121,6 +121,7 @@ export function PropertyCard({
   canRemove,
   errors = {},
   locale = 'ar',
+  title,
 }: {
   tenant: string;
   index: number;
@@ -132,8 +133,9 @@ export function PropertyCard({
   /**
    * Start another structure on this same رقم العقار.
    *
-   * Absent in the citizen-facing wizard, where someone is registering their own
-   * home rather than inventorying a plot.
+   * Offered only while this card is the sole one on its parcel — once a second
+   * one exists, `citizen-form.tsx` groups them under one shared header and the
+   * "add" action moves there, so it is not repeated once per card.
    */
   onAddOnSameParcel?: () => void;
   /** Show who else is registered on this parcel. Admin form only. */
@@ -142,6 +144,8 @@ export function PropertyCard({
   canRemove: boolean;
   errors?: Record<string, string>;
   locale?: string;
+  /** Overrides the default "العقار {index+1}" heading — used when grouped under a shared parcel. */
+  title?: string;
 }) {
   const labels = getLabels(locale);
   const visible: readonly string[] = draft.propertyType
@@ -186,7 +190,7 @@ export function PropertyCard({
           />
           <span className="min-w-0">
             <CardTitle className="text-xl">
-              {locale === 'en' ? `Property ${index + 1}` : `العقار ${index + 1}`}
+              {title ?? (locale === 'en' ? `Property ${index + 1}` : `العقار ${index + 1}`)}
             </CardTitle>
             {collapsed ? (
               <span className="mt-1 block truncate text-sm font-normal text-muted-foreground">
@@ -236,17 +240,6 @@ export function PropertyCard({
             />
           </div>
 
-          {/*
-            One deed, several structures.
-
-            Offered right under رقم العقار because that is where the clerk is
-            looking when they realise the plot holds more than one thing — and
-            because the number is what the new card inherits. A parcel with a
-            building, the house behind it and a shop on the street is three
-            cards: they are typed, inspected and taxed as different things, but
-            they are not three different pieces of land, and nobody should be
-            retyping the number that says so.
-          */}
           {onAddOnSameParcel && draft.propertyNumber ? (
             <button
               type="button"
@@ -255,8 +248,8 @@ export function PropertyCard({
             >
               <Plus className="size-3.5 shrink-0" aria-hidden />
               {locale === 'en'
-                ? `Add another building or shop on parcel ${draft.propertyNumber}`
-                : `إضافة مبنى أو محل آخر على العقار ${draft.propertyNumber}`}
+                ? `Add another property on parcel ${draft.propertyNumber}`
+                : `إضافة ملكية أخرى على العقار ${draft.propertyNumber}`}
             </button>
           ) : null}
 

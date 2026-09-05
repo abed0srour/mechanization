@@ -31,7 +31,7 @@
 */
 
 /** Bump to retire every cache this worker wrote. */
-const VERSION = 'v3';
+const VERSION = 'v4';
 
 const SHELL_CACHE = `mechanization-shell-${VERSION}`;
 const ASSET_CACHE = `mechanization-assets-${VERSION}`;
@@ -263,6 +263,9 @@ async function networkFirst(request, { fallback, store = true } = {}) {
 }
 
 self.addEventListener('fetch', (event) => {
+  // Never intercept or cache requests in local development
+  if (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1') return;
+
   const { request } = event;
 
   // A POST is the queue's business, never this worker's. See the header note.

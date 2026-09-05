@@ -352,8 +352,24 @@ export default function MyFilePage({
             />
             <Detail
               icon={Users}
-              label={locale === 'en' ? 'Family Members' : 'عدد أفراد الأسرة'}
-              value={summary?.familySize ? String(summary.familySize) : null}
+              label={locale === 'en' ? 'Total Registered Members' : 'عدد أفراد الأسرة الإجمالي'}
+              value={
+                summary?.totalRegisteredMembers ? String(summary.totalRegisteredMembers) : null
+              }
+            />
+            <Detail
+              icon={Users}
+              label={locale === 'en' ? 'Actual Household Members' : 'عدد أفراد الأسرة الفعليين'}
+              value={
+                summary?.actualHouseholdMembers ? String(summary.actualHouseholdMembers) : null
+              }
+            />
+            <Detail
+              icon={Users}
+              label={locale === 'en' ? 'Married Children Count' : 'عدد الأبناء المتزوجين'}
+              value={
+                summary?.marriedChildrenCount != null ? String(summary.marriedChildrenCount) : null
+              }
             />
             <Detail
               icon={FileDigit}

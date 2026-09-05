@@ -441,23 +441,65 @@ export function ContactStep({
       </Field>
 
       <Field
-        label={locale === 'en' ? 'Household Size' : 'عدد أفراد الأسرة (المقيمين في المنزل)'}
-        htmlFor="familySize"
-        path="contact.familySize"
+        label={
+          locale === 'en'
+            ? 'Total Registered Members (incl. married children)'
+            : 'عدد أفراد الأسرة الإجمالي (شاملاً الأبناء المتزوجين)'
+        }
+        htmlFor="totalRegisteredMembers"
+        path="contact.totalRegisteredMembers"
         required
-        error={errors['contact.familySize']}
+        error={errors['contact.totalRegisteredMembers']}
       >
         <Input
-          id="familySize"
+          id="totalRegisteredMembers"
+          inputMode="numeric"
+          dir="ltr"
+          placeholder={locale === 'en' ? 'e.g. 5' : 'مثال: ٥'}
+          className="text-start max-w-xs"
+          invalid={Boolean(errors['contact.totalRegisteredMembers'])}
+          value={str(value.totalRegisteredMembers)}
+          onChange={(e) => set({ totalRegisteredMembers: e.target.value })}
+        />
+      </Field>
+
+      <Field
+        label={
+          locale === 'en'
+            ? 'Actual Household Members (excl. married children)'
+            : 'عدد أفراد الأسرة الفعليين (باستثناء الأبناء المتزوجين المستقلين)'
+        }
+        htmlFor="actualHouseholdMembers"
+        path="contact.actualHouseholdMembers"
+        required
+        error={errors['contact.actualHouseholdMembers']}
+      >
+        <Input
+          id="actualHouseholdMembers"
           inputMode="numeric"
           dir="ltr"
           placeholder={locale === 'en' ? 'e.g. 4' : 'مثال: ٤'}
           className="text-start max-w-xs"
-          invalid={Boolean(errors['contact.familySize'])}
-          value={str(value.familySize)}
-          onChange={(e) => set({ familySize: e.target.value })}
+          invalid={Boolean(errors['contact.actualHouseholdMembers'])}
+          value={str(value.actualHouseholdMembers)}
+          onChange={(e) => set({ actualHouseholdMembers: e.target.value })}
         />
       </Field>
+
+      {(() => {
+        const total = Number(value.totalRegisteredMembers);
+        const actual = Number(value.actualHouseholdMembers);
+        if (!Number.isFinite(total) || !Number.isFinite(actual)) return null;
+        const married = total - actual;
+        if (married < 0) return null;
+        return (
+          <div className="flex h-10 items-center rounded-md border border-dashed border-border/80 bg-muted/20 px-3 text-xs text-muted-foreground">
+            {locale === 'en'
+              ? `Married children count (auto): ${married}`
+              : `عدد الأبناء المتزوجين المستقلين (تلقائي): ${married}`}
+          </div>
+        );
+      })()}
     </div>
   );
 }

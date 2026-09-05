@@ -480,7 +480,8 @@ export class CitizensService {
           phone: true,
           whatsapp: true,
           maritalStatus: true,
-          familySize: true,
+          totalRegisteredMembers: true,
+          actualHouseholdMembers: true,
           bloodType: true,
           registrations: {
             orderBy: { submittedAt: 'desc' },
@@ -536,7 +537,8 @@ export class CitizensService {
         // from whether the two numbers currently match.
         whatsappSameAsPhone: citizen.whatsapp === citizen.phone,
         maritalStatus: citizen.maritalStatus,
-        familySize: citizen.familySize,
+        totalRegisteredMembers: citizen.totalRegisteredMembers,
+        actualHouseholdMembers: citizen.actualHouseholdMembers,
       },
       properties: (registration?.properties ?? []).map((property) => ({
         id: property.id,
@@ -585,6 +587,7 @@ export class CitizensService {
     const result = await this.registrations.submit({
       tenantSlug: input.tenantSlug,
       payload: input.payload,
+      createdById: input.actor.id,
     });
 
     // A re-delivered offline submission created nothing, so it is not a change
@@ -864,7 +867,8 @@ export class CitizensService {
           phone: input.payload.contact.phone ?? null,
           whatsapp: input.payload.contact.whatsapp ?? input.payload.contact.phone ?? null,
           maritalStatus: (input.payload.contact.maritalStatus ?? null) as never,
-          familySize: input.payload.contact.familySize ?? null,
+          totalRegisteredMembers: input.payload.contact.totalRegisteredMembers ?? null,
+          actualHouseholdMembers: input.payload.contact.actualHouseholdMembers ?? null,
           bloodType: (input.payload.personal.bloodType ?? null) as never,
         },
       });
